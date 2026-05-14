@@ -13,7 +13,7 @@ public class SmartTrafficLight extends TrafficLight {
     private static final int SHOW_THRESHOLD = 10;
 
     public SmartTrafficLight(int greenTime, int redTime, double x, double y) {
-        super(greenTime, redTime, x, y); // ✅ dùng đúng constructor hiện tại
+        super(greenTime, redTime, x, y); 
     }
 
     @Override
