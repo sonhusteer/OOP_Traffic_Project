@@ -3,45 +3,93 @@ package com.traffic.core;
 import com.traffic.map.TrafficLight;
 import java.util.ArrayList;
 import java.util.List;
-// Lop chinh dieu khien toan bo he thong giao thong
+
+/**
+ * Bộ máy điều phối trung tâm.
+ *
+ * Nguyên tắc thiết kế:
+ *  - KHÔNG biết cách vẽ (ủy quyền cho IRenderer)
+ *  - KHÔNG biết loại xe cụ thể (chỉ biết Vehicle)
+ *  - KHÔNG biết loại driver (chỉ gọi vehicle.makeDecision)
+ *  → Thêm xe mới / đèn mới / renderer mới: KHÔNG cần sửa class này
+ */
 public class TrafficEngine {
-    private List<Vehicle> vehicles; // Danh sach xe do tminh quan ly
-    private List<TrafficLight> lights; // Danh sach den do bson quan ly
 
-    public TrafficEngine() {
-        this.vehicles = new ArrayList<>();
-        this.lights = new ArrayList<>();
+    private final List<Vehicle>      vehicles = new ArrayList<>();
+    private final List<TrafficLight> lights   = new ArrayList<>();
+    private IRenderer renderer; // có thể đổi lúc runtime
+
+    public TrafficEngine(IRenderer renderer) {
+        this.renderer = renderer;
     }
 
-    public void addVehicle(Vehicle v) {
-        vehicles.add(v);
-    }
+    // ── Quản lý đối tượng ─────────────────────────────────────────────────
 
-    public void addTrafficLight(TrafficLight light) {
-        lights.add(light);
-    }
+    public void addVehicle(Vehicle v)        { vehicles.add(v); }
+    public void addTrafficLight(TrafficLight l) { lights.add(l); }
+    public void removeVehicle(Vehicle v)     { vehicles.remove(v); }
 
-    // Vong lap xu ly logic thoi gian thuc
+    /** Đổi renderer lúc runtime: Basic ↔ Graphic không cần restart */
+    public void setRenderer(IRenderer renderer) { this.renderer = renderer; }
+
+    // ── Vòng lặp chính ────────────────────────────────────────────────────
+
+    /** Cập nhật toàn bộ logic — gọi mỗi frame */
     public void tick(double deltaTime) {
-        // Cap nhat trang thai den cua bson
+        updateLights();
+        updateVehicles(deltaTime);
+    }
+
+    /** Vẽ toàn bộ lên màn hình — gọi sau tick() */
+    public void render() {
+        if (renderer == null) return; 
+        renderer.clear();
+        renderer.renderLights(lights);
+        renderer.renderVehicles(vehicles);
+    }
+
+    // ── Logic nội bộ ──────────────────────────────────────────────────────
+
+    private void updateLights() {
         for (TrafficLight light : lights) {
             light.tick();
         }
+    }
 
-        // Cap nhat vi tri va logic xe cua tminh
+    private void updateVehicles(double deltaTime) {
         for (Vehicle vehicle : vehicles) {
-            TrafficLight nearestLight = lights.isEmpty() ? null : lights.get(0);
-            
-            if (vehicle.driver != null) {
-                vehicle.driver.makeDecision(vehicle, nearestLight);
-            }
-            
-            vehicle.update(deltaTime);
+            // Tìm đèn gần nhất với xe — ĐÚNG hơn luôn lấy lights.get(0)
+            TrafficLight nearest = findNearestLight(vehicle);
+
+            // Gọi qua method — KHÔNG truy cập field driver trực tiếp
+            vehicle.makeDecision(nearest);
+
+            vehicle.update(deltaTime); // Cập nhật tg thực tế
         }
     }
 
-    // Tra ve danh sach xe de tminh dung ve len giao dien
-    public List<Vehicle> getVehicles() {
-        return vehicles;
+    /**
+     * Tìm đèn gần xe nhất trong danh sách.
+     * Dùng MathUtils.distance() để tính khoảng cách.
+     */
+    private TrafficLight findNearestLight(Vehicle vehicle) {
+        if (lights.isEmpty()) return null;
+
+        TrafficLight nearest = null;
+        double minDist = Double.MAX_VALUE;
+
+        for (TrafficLight light : lights) {
+            double dist = MathUtils.distance(vehicle.getPosition(), light.getPosition());
+            if (dist < minDist) {
+                minDist = dist;
+                nearest = light;
+            }
+        }
+        return nearest;
     }
+
+    // ── Getters ───────────────────────────────────────────────────────────
+
+    public List<Vehicle>      getVehicles() { return vehicles; }
+    public List<TrafficLight> getLights()   { return lights; }
 }

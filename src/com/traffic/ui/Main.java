@@ -13,7 +13,7 @@ public class Main {
     public static void main(String[] args) {
         
         // 1. Tạo dữ liệu cho con đường (Lane)
-        Lane road1 = new Lane();
+        Lane road1 = new Lane(0, 0, 0, 0, null);
         road1.addwaypoint(50, 250);   // Điểm bắt đầu
         road1.addwaypoint(300, 250);  // Điểm giữa
         road1.addwaypoint(500, 100);  // Đường chéo lên
@@ -23,7 +23,7 @@ public class Main {
 
         // 2. Thiết lập cửa sổ hiển thị
         JFrame frame = new JFrame("Traffic Simulation - Sơn Project");
-        TrafficLight smartLight = new SmartTrafficLight(10);// Ví dụ tạo đèn giao thông thông minh
+        TrafficLight smartLight = new SmartTrafficLight(allLanes); // Ví dụ tạo đèn giao thông thông minh
         MapRenderer renderer = new MapRenderer(allLanes, smartLight);
 
         frame.add(renderer);

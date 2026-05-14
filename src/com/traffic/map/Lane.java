@@ -1,15 +1,27 @@
 package com.traffic.map;
 
 import com.traffic.core.Vector2D; // Import class của Huy
+import com.traffic.core.Vehicle;
+
 import java.util.ArrayList;
 import java.util.List;
 
+/** Một làn đường: có điểm bắt đầu, kết thúc và đèn kiểm soát */
 public class Lane {
     // Danh sách các điểm tạo nên làn đường sử dụng Vector2D
     private List<Vector2D> waypoints;
 
-    public Lane() {
-        this.waypoints = new ArrayList<>();
+    private final Vector2D     start;
+    private final Vector2D     end;
+    private final TrafficLight light;
+    private final List<Vehicle> vehicles = new ArrayList<>();
+
+    public Lane(double startX, double startY,
+                double endX,   double endY,
+                TrafficLight light) {
+        this.start = new Vector2D(startX, startY);
+        this.end   = new Vector2D(endX,   endY);
+        this.light = light;
     }
 
     // Hàm để Sơn thêm điểm khi thiết kế bản đồ
@@ -44,5 +56,10 @@ public class Lane {
         
         // Vận dụng Trigonometry (Lượng giác) từ đặc tả[cite: 1]
         return Math.atan2(p2.getY() - p1.getY(), p2.getX() - p1.getX());
+    }
+
+    public Object getLight() {
+        // TODO Auto-generated method stub
+        throw new UnsupportedOperationException("Unimplemented method 'getLight'");
     }
 }
