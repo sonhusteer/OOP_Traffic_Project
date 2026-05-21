@@ -1,0 +1,1 @@
+  TrafficLight smartLight = new SmartTrafficLight(allLanes); // Ví dụ tạo đèn giao thông thông minh
