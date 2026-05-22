@@ -23,28 +23,32 @@ public class NormalDriver implements IDriver {
     @Override
     public void makeDecision(Vehicle vehicle, TrafficLight nextLight) {
         if (nextLight == null) {
-            // Khong co den -> chay binh thuong
+            // Không có đèn → chạy bình thường
             vehicle.setSpeed(MAX_SPEED);
             return;
         }
 
-        double dist = MathUtils.distance(vehicle.getPosition(), nextLight.getPosition());
+        // Nếu xe đã vượt qua vạch dừng (đang đi tới waypoint cuối) → tiếp tục chạy
+        if (vehicle.getCurrentWaypointIndex() >= 2) {
+            vehicle.setSpeed(MAX_SPEED);
+            return;
+        }
+
+        double dist = com.traffic.core.MathUtils.distance(vehicle.getPosition(), nextLight.getPosition());
 
         if (nextLight.isRed()) {
             if (dist <= STOP_DISTANCE) {
-                // Dung han truoc den
-                vehicle.setSpeed(MIN_SPEED);
+                vehicle.setSpeed(MIN_SPEED);                        // Dừng hẳn trước vạch
             } else if (dist <= BRAKE_DISTANCE) {
-                // Giam toc dan khi gan den do
+                // Giảm tốc dần khi gần đèn đỏ
                 double ratio = (dist - STOP_DISTANCE) / (BRAKE_DISTANCE - STOP_DISTANCE);
-                vehicle.setSpeed(MathUtils.clamp(MAX_SPEED * ratio, MIN_SPEED, MAX_SPEED));
+                vehicle.setSpeed(com.traffic.core.MathUtils.clamp(MAX_SPEED * ratio, MIN_SPEED, MAX_SPEED));
             } else {
-                // Con xa -> chay binh thuong
-                vehicle.setSpeed(MAX_SPEED);
+                vehicle.setSpeed(MAX_SPEED);                        // Còn xa → chạy bình thường
             }
         } else {
-            // Den xanh hoac vang -> chay binh thuong
+            // Đèn xanh hoặc vàng → chạy bình thường
             vehicle.setSpeed(MAX_SPEED);
         }
     }
-}
+}

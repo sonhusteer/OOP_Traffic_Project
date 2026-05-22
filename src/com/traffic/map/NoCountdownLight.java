@@ -12,15 +12,4 @@ public class NoCountdownLight extends TrafficLight {
         return ""; // không hiện số nào cả
     }
 
-    @Override
-    public boolean isRed() {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'isRed'");
-    }
-
-    @Override
-    public boolean isYellow() {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'isYellow'");
-    }
 }

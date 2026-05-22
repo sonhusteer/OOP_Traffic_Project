@@ -22,6 +22,7 @@ public class Lane {
         this.start = new Vector2D(startX, startY);
         this.end   = new Vector2D(endX,   endY);
         this.light = light;
+        this.waypoints = new ArrayList<>();
     }
 
     // Hàm để Sơn thêm điểm khi thiết kế bản đồ
@@ -29,37 +30,36 @@ public class Lane {
         waypoints.add(new Vector2D(x, y));
     }
 
-    // Minh (xe) sẽ gọi hàm này để biết đường mà đi[cite: 1]
+    // Minh (xe) sẽ gọi hàm này để biết đường mà đi
     // Lưu ý: Viết thường chữ 'w' để khớp với MapRenderer bạn đã viết
     public List<Vector2D> getwaypoints() {
         return waypoints;
     }
 
-    // Lấy điểm bắt đầu của con đường[cite: 1]
+    // Lấy điểm bắt đầu của con đường
     public Vector2D getStartPoint() {
         return waypoints.isEmpty() ? null : waypoints.get(0);
     }
 
-    // Lấy điểm kết thúc của con đường[cite: 1]
+    // Lấy điểm kết thúc của con đường
     public Vector2D getEndPoint() {
         return waypoints.isEmpty() ? null : waypoints.get(waypoints.size() - 1);
     }
 
     /**
      * Tính toán góc hướng (Heading) giữa hai điểm waypoint
-     * Giúp Minh (xe) xoay hình ảnh xe theo đúng chiều đường[cite: 1]
+     * Giúp Minh (xe) xoay hình ảnh xe theo đúng chiều đường
      */
     public double getAngleAt(int index) {
         if (index >= waypoints.size() - 1) return 0;
         Vector2D p1 = waypoints.get(index);
         Vector2D p2 = waypoints.get(index + 1);
         
-        // Vận dụng Trigonometry (Lượng giác) từ đặc tả[cite: 1]
+        // Vận dụng Trigonometry (Lượng giác) từ đặc tả
         return Math.atan2(p2.getY() - p1.getY(), p2.getX() - p1.getX());
     }
 
-    public Object getLight() {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'getLight'");
+    public TrafficLight getLight() {
+        return this.light;
     }
 }

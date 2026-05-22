@@ -15,15 +15,4 @@ public class Last10SecondsLight extends TrafficLight {
         return (timeLeft <= SHOW_THRESHOLD) ? String.valueOf(timeLeft) : "";
     }
 
-    @Override
-    public boolean isRed() {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'isRed'");
-    }
-
-    @Override
-    public boolean isYellow() {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'isYellow'");
-    }
 }

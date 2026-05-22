@@ -12,25 +12,30 @@ import com.traffic.drivers.*;
 public class VehicleFactory {
 
     /**
-     * Tạo xe theo loại.
-     * @param type  "car" | "motorcycle" | "bicycle" | "ambulance" | "firetruck"
-     * @param x     tọa độ x ban đầu
-     * @param y     tọa độ y ban đầu
-     * @param angle hướng ban đầu (độ, 0 = sang phải)
+     * Tạo xe theo loại với driver cụ thể.
      */
-    public static Vehicle create(String type, double x, double y, double angle) {
+    public static Vehicle create(String type, double x, double y, double angle, IDriver driver) {
         Vehicle v = switch (type.toLowerCase()) {
-            case "car"       -> (Vehicle) new Car();
-            case "motorcycle"-> (Vehicle) new Motorcycle();
-            case "bicycle"   -> (Vehicle) new Bicycle();
-            case "ambulance" -> (Vehicle) new Ambulance();
-            case "firetruck" -> (Vehicle) new FireTruck();
+            case "car"       -> new Car(x, y, driver);
+            case "motorcycle"-> new Motorcycle(x, y, driver);
+            case "bicycle"   -> new Bicycle(x, y, driver);
+            case "ambulance" -> new Ambulance(x, y, driver);
+            case "firetruck" -> new FireTruck(x, y, driver);
             default -> throw new IllegalArgumentException("Loại xe không hợp lệ: " + type);
         };
-        v.setX(x);
-        v.setY(y);
         v.setAngle(angle);
         return v;
+    }
+
+    /**
+     * Tạo xe theo loại với driver mặc định.
+     */
+    public static Vehicle create(String type, double x, double y, double angle) {
+        IDriver defaultDriver = switch (type.toLowerCase()) {
+            case "ambulance", "firetruck" -> new EmergencyDriver();
+            default -> new NormalDriver();
+        };
+        return create(type, x, y, angle, defaultDriver);
     }
 
     /** Tạo xe với góc mặc định 0 */

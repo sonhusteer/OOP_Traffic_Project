@@ -12,15 +12,4 @@ public class CountdownLight extends TrafficLight {
         return String.valueOf(timeLeft); // luôn hiện: "30", "15", "3"...
     }
 
-    @Override
-    public boolean isRed() {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'isRed'");
-    }
-
-    @Override
-    public boolean isYellow() {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'isYellow'");
-    }
 }

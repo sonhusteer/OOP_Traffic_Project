@@ -9,13 +9,13 @@ import com.traffic.map.TrafficLight;
 // dung gon vao den do, co the "luot" qua den vang
 public class AggressiveDriver implements IDriver {
 
-    // Giam toc muon hon NormalDriver
-    private static final double BRAKE_DISTANCE = 40.0;
+    // Giam toc muon hon NormalDriver — nhưng đủ xa để phanh kịp ở tốc độ cao
+    private static final double BRAKE_DISTANCE = 120.0;
 
-    private static final double STOP_DISTANCE = 5.0;
+    private static final double STOP_DISTANCE = 10.0;
 
-    // Toc do cao hon NormalDriver
-    private static final double MAX_SPEED = 130.0;
+    // Toc do vừa phải để dễ quan sát và kiểm tra
+    private static final double MAX_SPEED = 80.0;
 
     private static final double MIN_SPEED = 0.0;
 
@@ -26,12 +26,11 @@ public class AggressiveDriver implements IDriver {
             return;
         }
 
-        // === LUU Y CHO SON ===
-        // Can TrafficLight co:
-        //   boolean isRed()
-        //   boolean isYellow()
-        //   Vector2D getPosition()
-        // =====================
+        // Nếu xe đã vượt qua ngã tư có đèn -> tiếp tục chạy
+        if (vehicle.getCurrentWaypointIndex() >= 2) {
+            vehicle.setSpeed(MAX_SPEED);
+            return;
+        }
 
         double dist = MathUtils.distance(vehicle.getPosition(), nextLight.getPosition());
 

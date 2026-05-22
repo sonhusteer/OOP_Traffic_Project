@@ -9,6 +9,8 @@ package com.traffic.core;
  *  - Hành vi lái xe được ủy quyền cho IDriver (Strategy Pattern)
  */
 import com.traffic.map.TrafficLight;
+import com.traffic.map.Lane;
+
 public abstract class Vehicle {
 
     protected Vector2D position;
@@ -61,10 +63,39 @@ public abstract class Vehicle {
     public double   getHeight()           { return height; }
     public boolean  isPriority()          { return isPriority; }
 
+    protected Lane   currentLane;
+    protected int    currentWaypointIndex = 0;
+    protected double laneStartOffsetX = 0;
+    protected double laneStartOffsetY = 0;
+
+    /**
+     * Đặt khoảng lùi khởi đầu so với điểm đầu tiên của làn.
+     * Mỗi khi xe reset (đi hết đường), nó sẽ xuất phát lại từ offset này
+     * → đảm bảo xe luôn có khoảng cách đúng với xe phía trước, không đè nhau.
+     */
+    public void setLaneStartOffset(double dx, double dy) {
+        this.laneStartOffsetX = dx;
+        this.laneStartOffsetY = dy;
+    }
+
+    public void setLane(Lane lane) {
+        this.currentLane = lane;
+        this.currentWaypointIndex = 0;
+        if (lane != null && lane.getwaypoints() != null && !lane.getwaypoints().isEmpty()) {
+            Vector2D start = lane.getStartPoint();
+            this.position.setX(start.getX() + laneStartOffsetX);
+            this.position.setY(start.getY() + laneStartOffsetY);
+        }
+    }
+
+    public Lane getCurrentLane() { return currentLane; }
+    public int getCurrentWaypointIndex() { return currentWaypointIndex; }
+    public void setCurrentWaypointIndex(int idx) { this.currentWaypointIndex = idx; }
+
     /** Mỗi loại xe trả về tên kiểu để Renderer chọn ảnh đúng */
     public abstract String getTypeName();
 
-    protected abstract void setX(double x);
+    public abstract void setX(double x);
 
-    protected abstract void setY(double y);
+    public abstract void setY(double y);
 }

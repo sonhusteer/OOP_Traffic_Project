@@ -27,6 +27,16 @@ public abstract class TrafficLight {
 
     public TrafficLight(int greenTime, int redTime, double x, double y) {
         this.greenTime = greenTime;
+        this.yellowTime = 3;
+        this.redTime   = redTime;
+        this.state     = State.RED;
+        this.timeLeft  = redTime;
+        this.position  = new Vector2D(x, y);
+    }
+
+    public TrafficLight(int greenTime, int yellowTime, int redTime, double x, double y) {
+        this.greenTime = greenTime;
+        this.yellowTime = yellowTime;
         this.redTime   = redTime;
         this.state     = State.RED;
         this.timeLeft  = redTime;
@@ -36,9 +46,17 @@ public abstract class TrafficLight {
     // ── Logic chung — KHÔNG override ──────────────────────────────────────
 
     public TrafficLight(List<Lane> allLanes) {
-        this.greenTime = 0;
-        //TODO Auto-generated constructor stub
-        this.redTime = 0;
+        this.greenTime = 15;
+        this.yellowTime = 3;
+        this.redTime = 15;
+        this.state = State.RED;
+        this.timeLeft = 15;
+        this.position = new Vector2D(300, 250);
+    }
+
+    public void setInitialState(State state, int timeLeft) {
+        this.state = state;
+        this.timeLeft = timeLeft;
     }
 
     /** Đếm ngược 1 giây, tự chuyển pha khi hết giờ */
@@ -61,9 +79,13 @@ public abstract class TrafficLight {
     public abstract String getDisplay(); // Mỗi loại đèn sẽ có cách hiển thị riêng 
     public int getTimeLeft() { return timeLeft; }
     public String getColor() { return state.name(); }
-        public Vector2D getPosition() { return position; }
+    public Vector2D getPosition() { return position; }
 
-        public abstract boolean isRed();
+    public boolean isRed() {
+        return state == State.RED;
+    }
 
-        public abstract boolean isYellow();
+    public boolean isYellow() {
+        return state == State.YELLOW;
+    }
 }

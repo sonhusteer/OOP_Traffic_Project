@@ -15,7 +15,7 @@ public class SmartTrafficLight extends TrafficLight {
     private static final int SHOW_THRESHOLD = 10;
 
     public SmartTrafficLight(int greenTime, int yellowTime, int redTime, double x, double y) {
-        super(greenTime, yellowTime, redTime, x);
+        super(greenTime, yellowTime, redTime, x, y);
     }
 
     public SmartTrafficLight(List<Lane> allLanes) {
@@ -30,37 +30,5 @@ public class SmartTrafficLight extends TrafficLight {
             return stateName + " - " + timeLeft; // vd: "GREEN - 8"
         }
         return stateName; // vd: "GREEN"
-    }
-
-    @Override
-    public void tick() {
-        if (timeLeft > 0) {
-            timeLeft--;
-        } else {
-            String currentColor = state.name();
-            // Logic đổi màu theo vòng lặp: Đỏ -> Xanh -> Vàng -> Đỏ
-            if (currentColor.equalsIgnoreCase("RED")) {
-                state = Enum.valueOf(state.getDeclaringClass(), "GREEN");
-                timeLeft = 15; // Thời gian đèn xanh
-            } else if (currentColor.equalsIgnoreCase("GREEN")) {
-                state = Enum.valueOf(state.getDeclaringClass(), "YELLOW");
-                timeLeft = 3;  // Thời gian đèn vàng
-            } else {
-                state = Enum.valueOf(state.getDeclaringClass(), "RED");
-                timeLeft = 15; // Quay lại đèn đỏ
-            }
-        }
-    }
-
-    @Override
-    public boolean isRed() {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'isRed'");
-    }
-
-    @Override
-    public boolean isYellow() {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'isYellow'");
     }
 }
