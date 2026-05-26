@@ -4,26 +4,24 @@ import com.traffic.core.Vector2D;
 
 /**
  * Lớp trừu tượng cho đèn giao thông.
- *
- * Tính ĐA HÌNH: 3 lớp con override getDisplay() theo cách khác nhau:
- *   CountdownLight     → luôn hiện số giây
- *   NoCountdownLight   → không hiện số giây
- *   Last10SecondsLight → chỉ hiện khi ≤ 10 giây
- *
- * Logic chuyển trạng thái là CHUNG → đặt ở đây (không lặp lại ở 3 lớp con).
+ * tick() dùng time accumulator: tích lũy deltaTime thực tế,
+ * chỉ đếm ngược khi đủ 1 giây → đảm bảo đúng thời gian thực.
  */
 public abstract class TrafficLight {
 
     public enum State { RED, YELLOW, GREEN }
 
     protected State      state;
-    protected int        timeLeft;   // giây còn lại của pha hiện tại
-    protected final int  greenTime;
-    protected final int  yellowTime  = 3;
-    protected final int  redTime;
+    protected double        timeLeft;
+    protected final double  greenTime;
+    protected final double  yellowTime = 3.0;
+    protected final double  redTime;
     protected Vector2D   position;
 
-    public TrafficLight(int greenTime, int redTime, double x, double y) {
+    // Tích lũy thời gian thực — chỉ đếm ngược khi đủ 1 giây
+    private double timeAccumulator = 0.0;
+
+    public TrafficLight(double greenTime, double redTime, double x, double y) {
         this.greenTime = greenTime;
         this.redTime   = redTime;
         this.state     = State.RED;
@@ -31,14 +29,30 @@ public abstract class TrafficLight {
         this.position  = new Vector2D(x, y);
     }
 
-    // ── Logic chung — KHÔNG override ──────────────────────────────────────
+    // ── Khởi tạo trạng thái ban đầu ──────────────────────────────────────
 
-    /** Đếm ngược 1 giây, tự chuyển pha khi hết giờ */
-    public final void tick() {
-        if (timeLeft > 0) {
-            timeLeft--;
-        } else {
-            switchState();
+    public void setInitialState(State initialState, int initialTimeLeft) {
+        this.state    = initialState;
+        this.timeLeft = initialTimeLeft;
+    }
+
+    // ── Logic chung ───────────────────────────────────────────────────────
+
+    /**
+     * Tích lũy deltaTime, chỉ đếm ngược khi đủ 1 giây thực tế.
+     * Tránh đèn chạy quá nhanh khi tick() được gọi 33 lần/giây.
+     */
+    public final void tick(double deltaTime) {
+        timeAccumulator += deltaTime;
+
+        // Mỗi khi tích lũy đủ 1 giây → đếm ngược 1 đơn vị
+        while (timeAccumulator >= 1.0) {
+            timeAccumulator -= 1.0;
+            if (timeLeft > 0) {
+                timeLeft--;
+            } else {
+                switchState();
+            }
         }
     }
 
@@ -58,14 +72,10 @@ public abstract class TrafficLight {
 
     // ── Getters ───────────────────────────────────────────────────────────
 
-    public State     getState()    { return state;    }
-    public int       getTimeLeft() { return timeLeft; }
-    public Vector2D  getPosition() { return position; }
+    public State    getState()    { return state;        }
+    public double       getTimeLeft() { return timeLeft;     }
+    public Vector2D getPosition() { return position;     }
+    public String   getColor()    { return state.name(); }
 
-    /**
-     * Mỗi loại đèn hiển thị thông tin khác nhau.
-     * Đây là nơi thể hiện tính ĐA HÌNH của TrafficLight.
-     * @return chuỗi hiển thị (vd: "30", "", "8")
-     */
     public abstract String getDisplay();
 }

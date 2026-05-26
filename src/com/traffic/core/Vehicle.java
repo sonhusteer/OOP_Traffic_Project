@@ -1,5 +1,8 @@
 package com.traffic.core;
 
+import com.traffic.map.Lane;
+import com.traffic.map.TrafficLight;
+
 /**
  * Lớp trừu tượng cho mọi phương tiện.
  *
@@ -8,59 +11,87 @@ package com.traffic.core;
  *  - KHÔNG chứa bất kỳ logic vẽ nào (tách biệt hoàn toàn)
  *  - Hành vi lái xe được ủy quyền cho IDriver (Strategy Pattern)
  */
-import com.traffic.map.TrafficLight;
 public abstract class Vehicle {
 
     protected Vector2D position;
-    protected double speed;
-    protected double angle;
-    protected IDriver driver;
+    protected double   speed;
+    protected double   angle;
+    protected IDriver  driver;
 
-    // Thông tin nhận dạng — mỗi loại xe tự định nghĩa
-    protected String name;
-    protected double width;
-    protected double height;
+    protected String  name;
+    protected double  width;
+    protected double  height;
     protected boolean isPriority;
 
+    // Làn đường hiện tại — dùng để xác định vị trí ban đầu và waypoints
+    protected Lane    lane;
+
     public Vehicle(double x, double y, double speed, IDriver driver) {
-        this.position  = new Vector2D(x, y);
-        this.speed     = speed;
-        this.angle     = 0;
-        this.driver    = driver;
+        this.position   = new Vector2D(x, y);
+        this.speed      = speed;
+        this.angle      = 0;
+        this.driver     = driver;
         this.isPriority = false;
     }
 
-    // ── Logic cập nhật vật lý ──────────────────────────────────────────────
+    // ── Gắn xe vào làn đường ─────────────────────────────────────────────
 
-    /** Cập nhật tọa độ theo deltaTime — không ai được override */
+    /**
+     * Gắn xe vào làn — tự đặt vị trí ban đầu tại điểm đầu của làn.
+     */
+    public void setLane(Lane lane) {
+        this.lane = lane;
+        lane.addVehicle(this);
+
+        // Đặt vị trí tại điểm đầu của làn
+        Vector2D start = lane.getStart();
+        this.position.setX(start.getX());
+        this.position.setY(start.getY());
+
+        // Tự tính góc di chuyển theo hướng làn
+        Vector2D end = lane.getEnd();
+        this.angle = MathUtils.angleTo(start, end);
+    }
+
+    /**
+     * Lùi vị trí ban đầu so với điểm đầu làn (tạo khoảng cách giữa xe).
+     * Gọi SAU setLane().
+     *
+     * Ví dụ: offsetX = -80 → xe xuất phát cách xe trước 80px về phía sau
+     */
+    public void setLaneStartOffset(double offsetX, double offsetY) {
+        position.setX(position.getX() + offsetX);
+        position.setY(position.getY() + offsetY);
+    }
+
+    // ── Logic cập nhật vật lý ─────────────────────────────────────────────
+
+    /** final: không ai được override — đảm bảo vật lý nhất quán */
     public final void update(double deltaTime) {
         double radians = Math.toRadians(this.angle);
         position.setX(position.getX() + Math.cos(radians) * speed * deltaTime);
         position.setY(position.getY() + Math.sin(radians) * speed * deltaTime);
     }
 
-    /**
-     * Gọi driver ra quyết định. TrafficEngine gọi method này —
-     * không truy cập field driver trực tiếp (bảo vệ encapsulation).
-     */
+    /** Ủy quyền quyết định lái cho driver */
     public void makeDecision(TrafficLight nearestLight) {
         if (driver != null) {
             driver.makeDecision(this, nearestLight);
         }
     }
 
-    // ── Getters / Setters ──────────────────────────────────────────────────
+    // ── Getters / Setters ─────────────────────────────────────────────────
 
-    public Vector2D getPosition()         { return position; }
-    public double   getSpeed()            { return speed; }
-    public void     setSpeed(double s)    { this.speed = s; }
-    public double   getAngle()            { return angle; }
-    public void     setAngle(double a)    { this.angle = a; }
-    public String   getName()             { return name; }
-    public double   getWidth()            { return width; }
-    public double   getHeight()           { return height; }
-    public boolean  isPriority()          { return isPriority; }
+    public Vector2D getPosition()        { return position;    }
+    public double   getSpeed()           { return speed;       }
+    public void     setSpeed(double s)   { this.speed = s;     }
+    public double   getAngle()           { return angle;       }
+    public void     setAngle(double a)   { this.angle = a;     }
+    public String   getName()            { return name;        }
+    public double   getWidth()           { return width;       }
+    public double   getHeight()          { return height;      }
+    public boolean  isPriority()         { return isPriority;  }
+    public Lane     getLane()            { return lane;        }
 
-    /** Mỗi loại xe trả về tên kiểu để Renderer chọn ảnh đúng */
     public abstract String getTypeName();
 }
