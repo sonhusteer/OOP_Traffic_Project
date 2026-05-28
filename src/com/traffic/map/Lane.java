@@ -1,65 +1,100 @@
 package com.traffic.map;
 
-import com.traffic.core.Vector2D; // Import class của Huy
+import com.traffic.core.MathUtils;
+import com.traffic.core.Vector2D;
 import com.traffic.core.Vehicle;
-
 import java.util.ArrayList;
 import java.util.List;
 
-/** Một làn đường: có điểm bắt đầu, kết thúc và đèn kiểm soát */
+/**
+ * Một làn đường: danh sách waypoints và đèn kiểm soát.
+ * Waypoints: index 0 = điểm đầu, index 1 = vạch dừng, index cuối = điểm cuối.
+ */
 public class Lane {
-    // Danh sách các điểm tạo nên làn đường sử dụng Vector2D
-    private List<Vector2D> waypoints;
 
-    private final Vector2D     start;
-    private final Vector2D     end;
-    private final TrafficLight light;
-    private final List<Vehicle> vehicles = new ArrayList<>();
+    private final List<Vector2D>  waypoints = new ArrayList<>();
+    private final TrafficLight    light;
+    private final List<Vehicle>   vehicles  = new ArrayList<>();
 
     public Lane(double startX, double startY,
                 double endX,   double endY,
                 TrafficLight light) {
-        this.start = new Vector2D(startX, startY);
-        this.end   = new Vector2D(endX,   endY);
         this.light = light;
-        this.waypoints = new ArrayList<>();
+        waypoints.add(new Vector2D(startX, startY)); // index 0: điểm đầu
+        waypoints.add(new Vector2D(endX, endY));     // index cuối: điểm cuối
     }
 
-    // Hàm để Sơn thêm điểm khi thiết kế bản đồ
+    // ── Waypoints ────────────────────────────────────────────────────────
+
+    /**
+     * Chèn waypoint vào trước điểm cuối — gọi theo thứ tự từ đầu đến cuối.
+     * (Hàm để Sơn thêm điểm khi thiết kế bản đồ)
+     */
     public void addwaypoint(double x, double y) {
-        waypoints.add(new Vector2D(x, y));
+        waypoints.add(waypoints.size() - 1, new Vector2D(x, y));
     }
 
-    // Minh (xe) sẽ gọi hàm này để biết đường mà đi
-    // Lưu ý: Viết thường chữ 'w' để khớp với MapRenderer bạn đã viết
-    public List<Vector2D> getwaypoints() {
-        return waypoints;
-    }
+    public List<Vector2D> getwaypoints() { return waypoints; }
+    public Vector2D       getStart()     { return waypoints.get(0); }
+    public Vector2D       getEnd()       { return waypoints.get(waypoints.size() - 1); }
 
-    // Lấy điểm bắt đầu của con đường
-    public Vector2D getStartPoint() {
-        return waypoints.isEmpty() ? null : waypoints.get(0);
-    }
+    /** Alias để tương thích với code cũ */
+    public Vector2D getStartPoint() { return getStart(); }
+    public Vector2D getEndPoint()   { return getEnd();   }
 
-    // Lấy điểm kết thúc của con đường
-    public Vector2D getEndPoint() {
-        return waypoints.isEmpty() ? null : waypoints.get(waypoints.size() - 1);
+    /**
+     * Vạch dừng = waypoint thứ 2 (index 1), được thêm qua addwaypoint().
+     * NormalDriver và AggressiveDriver dùng method này để tính điểm dừng
+     * chính xác — thay vì dùng vị trí cột đèn.
+     *
+     * Nếu chưa có waypoint trung gian → fallback về vị trí đèn.
+     */
+    public Vector2D getStopLine() {
+        if (waypoints.size() >= 3) {
+            return waypoints.get(1); // index 1 = vạch dừng
+        }
+        // fallback: chưa addwaypoint → dùng vị trí đèn
+        return light != null ? light.getPosition() : getEnd();
     }
 
     /**
-     * Tính toán góc hướng (Heading) giữa hai điểm waypoint
-     * Giúp Minh (xe) xoay hình ảnh xe theo đúng chiều đường
+     * Tính toán góc hướng (Heading) giữa hai điểm waypoint.
+     * Giúp xe xoay hình ảnh theo đúng chiều đường.
      */
     public double getAngleAt(int index) {
         if (index >= waypoints.size() - 1) return 0;
         Vector2D p1 = waypoints.get(index);
         Vector2D p2 = waypoints.get(index + 1);
-        
-        // Vận dụng Trigonometry (Lượng giác) từ đặc tả
         return Math.atan2(p2.getY() - p1.getY(), p2.getX() - p1.getX());
     }
 
-    public TrafficLight getLight() {
-        return this.light;
+    // ── Xe phía trước ────────────────────────────────────────────────────
+
+    /** Tìm xe gần nhất đang ở PHÍA TRƯỚC xe hiện tại trong cùng làn */
+    public Vehicle getVehicleAhead(Vehicle me) {
+        if (!vehicles.contains(me)) return null;
+
+        Vehicle inFront  = null;
+        double  myDist   = MathUtils.distance(getStart(), me.getPosition());
+        double  minDiff  = Double.MAX_VALUE;
+
+        for (Vehicle other : vehicles) {
+            if (other == me) continue;
+            double otherDist = MathUtils.distance(getStart(), other.getPosition());
+            double diff      = otherDist - myDist;
+
+            if (diff > 0 && diff < minDiff) {
+                minDiff = diff;
+                inFront = other;
+            }
+        }
+        return inFront;
     }
+
+    // ── Getters ──────────────────────────────────────────────────────────
+
+    public TrafficLight  getLight()              { return light;       }
+    public List<Vehicle> getVehicles()           { return vehicles;    }
+    public void          addVehicle(Vehicle v)   { vehicles.add(v);    }
+    public void          removeVehicle(Vehicle v){ vehicles.remove(v); }
 }

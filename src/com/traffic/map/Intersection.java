@@ -33,7 +33,12 @@ public class Intersection {
     public List<TrafficLight> getAllLights() {
         List<TrafficLight> result = new ArrayList<>();
         for (Lane lane : lanes) {
-            if (lane.getLight() != null) result.add((TrafficLight) lane.getLight());
+            if (lane.getLight() != null) {
+                TrafficLight light = (TrafficLight) lane.getLight();
+                if (!result.contains(light)) {
+                    result.add(light);
+                }
+            }
         }
         return result;
     }
