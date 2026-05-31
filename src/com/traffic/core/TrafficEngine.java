@@ -17,7 +17,9 @@ public class TrafficEngine {
     public void addVehicle(Vehicle v)        { vehicles.add(v); }
     public void addTrafficLight(TrafficLight l) { lights.add(l); }
     public void removeVehicle(Vehicle v)     { vehicles.remove(v); }
-
+    public void clearVehicles() {
+    vehicles.clear();
+}
     public void setRenderer(IRenderer renderer) { this.renderer = renderer; }
 
     public void tick(double deltaTime) {

@@ -1,13 +1,10 @@
 package com.traffic.ui;
 
 import com.traffic.core.IRenderer;
-import com.traffic.core.Vehicle;
 import com.traffic.core.Vector2D;
+import com.traffic.core.Vehicle;
 import com.traffic.map.Lane;
 import com.traffic.map.TrafficLight;
-
-import javax.imageio.ImageIO;
-import javax.swing.*;
 import java.awt.*;
 import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
@@ -16,6 +13,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import javax.imageio.ImageIO;
+import javax.swing.*;
 
 /**
  * Chế độ Graphic: vẽ xe bằng ảnh thật, xoay theo hướng,

@@ -1,18 +1,16 @@
 package com.traffic.ui;
 
 import com.traffic.core.IRenderer;
-import com.traffic.core.MathUtils;
-import com.traffic.core.Vehicle;
 import com.traffic.core.Vector2D;
+import com.traffic.core.Vehicle;
 import com.traffic.map.Lane;
 import com.traffic.map.TrafficLight;
-
-import javax.swing.*;
 import java.awt.*;
 import java.awt.geom.AffineTransform;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import javax.swing.*;
 
 /**
  * Chế độ Basic: vẽ xe = hình chữ nhật màu + tên.
