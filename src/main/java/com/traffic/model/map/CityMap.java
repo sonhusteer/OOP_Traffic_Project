@@ -7,34 +7,90 @@ public class CityMap {
     private List<IntersectionNode> nodes = new ArrayList<>();
     private List<RoadEdge> roads = new ArrayList<>();
 
-    public CityMap() { loadMap("Mạng lưới"); }
+    public CityMap() { loadMap("Ô Cờ (Grid)"); }
 
     public void loadMap(String mapType) {
         nodes.clear();
         roads.clear();
 
-        if (mapType.equals("Ngã Ba")   || mapType.equals("Ngã 3"))         { buildThreeWay();    }
-        else if (mapType.equals("Ngã Tư")   || mapType.equals("Ngã 4"))  { buildFourWay();     }
-        else if (mapType.equals("Ngã Năm")  || mapType.equals("Bùng binh")) { buildRoundabout(); }
-        else { buildDefaultCity(); }
-        finalizeConnections(); // Scan roads → set connected directions for each node
+        if      (mapType.equals("Ô Cờ (Grid)"))   { buildGridNetwork();  }
+        else if (mapType.equals("Ngã Tư")  || mapType.equals("Ngã 4")) { buildFourWay(); }
+        else if (mapType.equals("Cloverleaf"))     { buildCloverleaf();  }
+        else if (mapType.equals("Bách Khoa"))       { buildBachKhoa();    }
+        else if (mapType.equals("Ngã Ba")  || mapType.equals("Ngã 3")) { buildThreeWay(); }
+        else { buildGridNetwork(); }
+        finalizeConnections();
     }
 
     // ============================================================
-    // NGÃ 3 - T-Intersection: Đông-Tây + một cánh phía Nam
-    // Xe vào từ 3 hướng (W, E, S), trung tâm ở giữa canvas
+    // LƯỚI Ô Cờ (Grid Network) - 3×3 ngã tư đường lưới
+    // ============================================================
+    private void buildGridNetwork() {
+        double cx = 640, cy = 400;
+        double sp = 280; // khoảng cách giữa các nút
+
+        // 9 nút giao chính (3×3)
+        IntersectionNode[][] grid = new IntersectionNode[3][3];
+        IntersectionNode.NodeType[][] types = {
+            { IntersectionNode.NodeType.THREE_WAY, IntersectionNode.NodeType.FOUR_WAY, IntersectionNode.NodeType.THREE_WAY },
+            { IntersectionNode.NodeType.FOUR_WAY,  IntersectionNode.NodeType.FOUR_WAY, IntersectionNode.NodeType.FOUR_WAY  },
+            { IntersectionNode.NodeType.THREE_WAY, IntersectionNode.NodeType.FOUR_WAY, IntersectionNode.NodeType.THREE_WAY }
+        };
+        for (int r = 0; r < 3; r++) {
+            for (int c = 0; c < 3; c++) {
+                double x = cx + (c - 1) * sp;
+                double y = cy + (r - 1) * sp;
+                grid[r][c] = new IntersectionNode("G" + r + c, x, y, types[r][c]);
+                nodes.add(grid[r][c]);
+            }
+        }
+
+        // Nối ngang
+        for (int r = 0; r < 3; r++) {
+            for (int c = 0; c < 2; c++) {
+                addBidirectional(grid[r][c], grid[r][c + 1]);
+            }
+        }
+        // Nối dọc
+        for (int r = 0; r < 2; r++) {
+            for (int c = 0; c < 3; c++) {
+                addBidirectional(grid[r][c], grid[r + 1][c]);
+            }
+        }
+
+        // Spawn nodes 4 cạnh
+        // Cạnh Bắc
+        for (int c = 0; c < 3; c++) addSpawnRoad(cx + (c-1)*sp, cy - sp - 380, grid[0][c]);
+        // Cạnh Nam
+        for (int c = 0; c < 3; c++) addSpawnRoad(cx + (c-1)*sp, cy + sp + 380, grid[2][c]);
+        // Cạnh Tây
+        for (int r = 0; r < 3; r++) addSpawnRoad(cx - sp - 380, cy + (r-1)*sp, grid[r][0]);
+        // Cạnh Đông
+        for (int r = 0; r < 3; r++) addSpawnRoad(cx + sp + 380, cy + (r-1)*sp, grid[r][2]);
+    }
+
+    // ---- Helpers ----
+    private void addBidirectional(IntersectionNode a, IntersectionNode b) {
+        roads.add(new RoadEdge(a, b, RoadEdge.RoadType.AVENUE));
+        roads.add(new RoadEdge(b, a, RoadEdge.RoadType.AVENUE));
+    }
+
+    private void addSpawnRoad(double spawnX, double spawnY, IntersectionNode to) {
+        IntersectionNode spawn = new IntersectionNode("SPAWN", spawnX, spawnY,
+                IntersectionNode.NodeType.THREE_WAY, true);
+        roads.add(new RoadEdge(spawn, to, RoadEdge.RoadType.AVENUE));
+    }
+
+    // ============================================================
+    // NGÃ 3 - T-Intersection
     // ============================================================
     private void buildThreeWay() {
         double cx = 640, cy = 450;
         IntersectionNode center = new IntersectionNode("Ngã 3", cx, cy, IntersectionNode.NodeType.THREE_WAY);
         nodes.add(center);
-
-        // Spawn nodes ngoài rìa màn hình (~800px từ center)
         IntersectionNode wSpawn = new IntersectionNode("W", cx - 900, cy, IntersectionNode.NodeType.THREE_WAY, true);
         IntersectionNode eSpawn = new IntersectionNode("E", cx + 900, cy, IntersectionNode.NodeType.THREE_WAY, true);
         IntersectionNode sSpawn = new IntersectionNode("S", cx, cy + 900, IntersectionNode.NodeType.THREE_WAY, true);
-
-        // Tất cả đường đều đi VÀO center (spawn tại startNode)
         roads.add(new RoadEdge(wSpawn, center, RoadEdge.RoadType.AVENUE));
         roads.add(new RoadEdge(eSpawn, center, RoadEdge.RoadType.AVENUE));
         roads.add(new RoadEdge(sSpawn, center, RoadEdge.RoadType.AVENUE));
@@ -61,103 +117,91 @@ public class CityMap {
     }
 
     // ============================================================
-    // NGÃ 5 - Bùng binh 5 cánh (4 cánh cardinal + 1 cánh Tây-Bắc)
-    // Node FIVE_WAY → hiển thị đảo tròn + không có đèn tín hiệu
+    // CLOVERLEAF - Nút giao cánh bướm (2 cao tốc + 4 vòng lăn)
     // ============================================================
-    private void buildRoundabout() {
-        double cx = 640, cy = 450;
-        IntersectionNode center = new IntersectionNode("Ngã 5", cx, cy, IntersectionNode.NodeType.FIVE_WAY);
-        nodes.add(center);
+    private void buildCloverleaf() {
+        double cx = 640, cy = 400, sp = 230;
 
-        // 4 cánh cardinal + 1 cánh Tây-Bắc (góc ~45°)
-        IntersectionNode wSpawn  = new IntersectionNode("W",  cx - 900, cy,       IntersectionNode.NodeType.THREE_WAY, true);
-        IntersectionNode eSpawn  = new IntersectionNode("E",  cx + 900, cy,       IntersectionNode.NodeType.THREE_WAY, true);
-        IntersectionNode nSpawn  = new IntersectionNode("N",  cx,       cy - 900, IntersectionNode.NodeType.THREE_WAY, true);
-        IntersectionNode sSpawn  = new IntersectionNode("S",  cx,       cy + 900, IntersectionNode.NodeType.THREE_WAY, true);
-        IntersectionNode nwSpawn = new IntersectionNode("NW", cx - 650, cy - 650, IntersectionNode.NodeType.THREE_WAY, true);
+        // 4 nút chính nơi raímp rẽ vào/ra
+        IntersectionNode wRoad = new IntersectionNode("W-Rd", cx - sp, cy,      IntersectionNode.NodeType.FOUR_WAY);
+        IntersectionNode eRoad = new IntersectionNode("E-Rd", cx + sp, cy,      IntersectionNode.NodeType.FOUR_WAY);
+        IntersectionNode nRoad = new IntersectionNode("N-Rd", cx,      cy - sp, IntersectionNode.NodeType.FOUR_WAY);
+        IntersectionNode sRoad = new IntersectionNode("S-Rd", cx,      cy + sp, IntersectionNode.NodeType.FOUR_WAY);
+        nodes.add(wRoad); nodes.add(eRoad); nodes.add(nRoad); nodes.add(sRoad);
 
-        roads.add(new RoadEdge(wSpawn,  center, RoadEdge.RoadType.AVENUE));
-        roads.add(new RoadEdge(eSpawn,  center, RoadEdge.RoadType.AVENUE));
-        roads.add(new RoadEdge(nSpawn,  center, RoadEdge.RoadType.AVENUE));
-        roads.add(new RoadEdge(sSpawn,  center, RoadEdge.RoadType.AVENUE));
-        roads.add(new RoadEdge(nwSpawn, center, RoadEdge.RoadType.AVENUE));
+        // 4 vòng lăn (cánh bướm - mỗi góc 1 vòng)
+        IntersectionNode loopNW = new IntersectionNode("Loop-NW", cx - sp, cy - sp, IntersectionNode.NodeType.THREE_WAY);
+        IntersectionNode loopNE = new IntersectionNode("Loop-NE", cx + sp, cy - sp, IntersectionNode.NodeType.THREE_WAY);
+        IntersectionNode loopSW = new IntersectionNode("Loop-SW", cx - sp, cy + sp, IntersectionNode.NodeType.THREE_WAY);
+        IntersectionNode loopSE = new IntersectionNode("Loop-SE", cx + sp, cy + sp, IntersectionNode.NodeType.THREE_WAY);
+        nodes.add(loopNW); nodes.add(loopNE); nodes.add(loopSW); nodes.add(loopSE);
+
+        // Đường cao tốc chính (ngang + dọc)
+        addBidirectional(wRoad, eRoad);
+        addBidirectional(nRoad, sRoad);
+
+        // Vòng lăn kết nối 2 cao tốc
+        addBidirectional(wRoad, loopNW); addBidirectional(loopNW, nRoad);
+        addBidirectional(eRoad, loopNE); addBidirectional(loopNE, nRoad);
+        addBidirectional(wRoad, loopSW); addBidirectional(loopSW, sRoad);
+        addBidirectional(eRoad, loopSE); addBidirectional(loopSE, sRoad);
+
+        // Spawn 4 hướng
+        addSpawnRoad(cx - 620, cy,      wRoad);
+        addSpawnRoad(cx + 620, cy,      eRoad);
+        addSpawnRoad(cx,       cy-620,  nRoad);
+        addSpawnRoad(cx,       cy+620,  sRoad);
     }
 
     // ============================================================
-    // MẠNG LƯỚI RỘNG - Lưới 3×3 với bùng binh ở trung tâm
-    // 9 ngã tư + 12 spawn node ngoài rìa
-    // Khoảng cách giữa ngã tư: 300px
+    // BÁCH KHOA - Đường Giải Phóng + Campus ĐHBK Hà Nội
     // ============================================================
-    private void buildDefaultCity() {
-        double cx = 640, cy = 400;
-        double sp = 300; // spacing giữa các ngã tư
+    public static final double BK_RAIL_X    = 180; // toạ độ X đường sắt
+    public static final double BK_GIAIPHONG_X = 370; // toạ độ X Giải Phóng
+    public static final double BK_GATE_X    = 370;  // cổng chính
+    public static final double BK_GATE_Y    = 400;  // cổng chính
 
-        // --- 9 NÚT GIAO CHÍNH (đa dạng loại ngã) ---
-        // Góc: Ngã 3 (chỉ có 3 hướng vì là góc lưới)
-        IntersectionNode nw = new IntersectionNode("NW", cx-sp, cy-sp, IntersectionNode.NodeType.THREE_WAY);
-        IntersectionNode ne = new IntersectionNode("NE", cx+sp, cy-sp, IntersectionNode.NodeType.THREE_WAY);
-        IntersectionNode sw = new IntersectionNode("SW", cx-sp, cy+sp, IntersectionNode.NodeType.THREE_WAY);
-        IntersectionNode se = new IntersectionNode("SE", cx+sp, cy+sp, IntersectionNode.NodeType.THREE_WAY);
-        // Cạnh giữa: Ngã 4 (4 hướng)
-        IntersectionNode nc = new IntersectionNode("N",  cx,    cy-sp, IntersectionNode.NodeType.FOUR_WAY);
-        IntersectionNode wc = new IntersectionNode("W",  cx-sp, cy,    IntersectionNode.NodeType.FOUR_WAY);
-        IntersectionNode ec = new IntersectionNode("E",  cx+sp, cy,    IntersectionNode.NodeType.FOUR_WAY);
-        IntersectionNode sc = new IntersectionNode("S",  cx,    cy+sp, IntersectionNode.NodeType.FOUR_WAY);
-        // Trung tâm: Ngã 5 – Bùng binh
-        IntersectionNode center = new IntersectionNode("C", cx, cy,    IntersectionNode.NodeType.FIVE_WAY);
+    private void buildBachKhoa() {
+        // --- Đường Giải Phóng (truc Bắc - Nam) ---
+        IntersectionNode gpN  = new IntersectionNode("GP-N",  370, 160, IntersectionNode.NodeType.FOUR_WAY);  // ngã 4 phía Bắc
+        IntersectionNode gpM  = new IntersectionNode("GP-M",  370, 400, IntersectionNode.NodeType.FOUR_WAY);  // ngã 4 cổng chính BK
+        IntersectionNode gpS  = new IntersectionNode("GP-S",  370, 630, IntersectionNode.NodeType.FOUR_WAY);  // ngã 4 phía Nam
+        nodes.add(gpN); nodes.add(gpM); nodes.add(gpS);
 
-        // Center node đầu tiên để camera focus vào giữa
-        nodes.add(center);
-        nodes.add(nw); nodes.add(nc); nodes.add(ne);
-        nodes.add(wc); nodes.add(ec);
-        nodes.add(sw); nodes.add(sc); nodes.add(se);
+        // --- Đường nội bộ campus ---
+        IntersectionNode bkGate  = new IntersectionNode("BK-Gate",  580, 400, IntersectionNode.NodeType.FOUR_WAY); // sau cổng parabol
+        IntersectionNode bkC1    = new IntersectionNode("BK-C1",    700, 310, IntersectionNode.NodeType.THREE_WAY); // khu nhà C1
+        IntersectionNode bkB1    = new IntersectionNode("BK-B1",    700, 490, IntersectionNode.NodeType.THREE_WAY); // khu nhà B1
+        IntersectionNode bkHo    = new IntersectionNode("BK-Ho",    850, 400, IntersectionNode.NodeType.THREE_WAY); // hồ trung tâm
+        IntersectionNode gpNI    = new IntersectionNode("GP-NI",    370, 280, IntersectionNode.NodeType.THREE_WAY); // ngã 3 phía bắc trong
+        nodes.add(bkGate); nodes.add(bkC1); nodes.add(bkB1); nodes.add(bkHo); nodes.add(gpNI);
 
-        // --- 12 ĐƯỜNG NỘI BỘ (BI-DIRECTIONAL) ---
-        // Hàng ngang
-        addBidirectional(nw, nc); addBidirectional(nc, ne);
-        addBidirectional(wc, center); addBidirectional(center, ec);
-        addBidirectional(sw, sc); addBidirectional(sc, se);
-        // Hàng dọc
-        addBidirectional(nw, wc); addBidirectional(wc, sw);
-        addBidirectional(nc, center); addBidirectional(center, sc);
-        addBidirectional(ne, ec); addBidirectional(ec, se);
+        // Giải Phóng truc chính
+        addBidirectional(gpN,  gpNI);
+        addBidirectional(gpNI, gpM);
+        addBidirectional(gpM,  gpS);
 
-        // --- CÁNH TÂY BẮC CỦA NGÃ 5 TRUNG TÂM ---
-        addSpawnRoad(cx - 750, cy - 750, center); // Spawn chéo TâyBắc → ngã 5
+        // Từ Giải Phóng vào campus
+        addBidirectional(gpM,  bkGate);
+        addBidirectional(gpNI, bkC1);
 
-        // --- 12 SPAWN NODE NGOÀI RÌA ---
-        // Cạnh Bắc (3 spawn)
-        addSpawnRoad(cx-sp, cy-sp-400, nw);
-        addSpawnRoad(cx,    cy-sp-400, nc);
-        addSpawnRoad(cx+sp, cy-sp-400, ne);
-        // Cạnh Nam (3 spawn)
-        addSpawnRoad(cx-sp, cy+sp+400, sw);
-        addSpawnRoad(cx,    cy+sp+400, sc);
-        addSpawnRoad(cx+sp, cy+sp+400, se);
-        // Cạnh Tây (3 spawn)
-        addSpawnRoad(cx-sp-400, cy-sp, nw);
-        addSpawnRoad(cx-sp-400, cy,    wc);
-        addSpawnRoad(cx-sp-400, cy+sp, sw);
-        // Cạnh Đông (3 spawn)
-        addSpawnRoad(cx+sp+400, cy-sp, ne);
-        addSpawnRoad(cx+sp+400, cy,    ec);
-        addSpawnRoad(cx+sp+400, cy+sp, se);
+        // Đường nội bộ campus
+        addBidirectional(bkGate, bkC1);
+        addBidirectional(bkGate, bkB1);
+        addBidirectional(bkC1,   bkHo);
+        addBidirectional(bkB1,   bkHo);
+
+        // Spawn nodes
+        addSpawnRoad(370,  -80, gpN);   // Bắc Giải Phóng
+        addSpawnRoad(370,  900, gpS);   // Nam Giải Phóng
+        addSpawnRoad(-80,  160, gpN);   // Tây Bắc (từ đường ray sang)
+        addSpawnRoad(-80,  400, gpM);   // Tây giữa
+        addSpawnRoad(-80,  630, gpS);   // Tây Nam
+        addSpawnRoad(1050, 400, bkHo);  // Đông campus
+        addSpawnRoad(1050, 310, bkC1);  // Đông Bắc campus
     }
 
-    // ---- Helpers ----
 
-    /** Tạo 2 đường ngược chiều giữa 2 nút */
-    private void addBidirectional(IntersectionNode a, IntersectionNode b) {
-        roads.add(new RoadEdge(a, b, RoadEdge.RoadType.AVENUE));
-        roads.add(new RoadEdge(b, a, RoadEdge.RoadType.AVENUE));
-    }
-
-    /** Tạo spawn node off-screen và đường 1 chiều vào grid node */
-    private void addSpawnRoad(double spawnX, double spawnY, IntersectionNode to) {
-        IntersectionNode spawn = new IntersectionNode("SPAWN", spawnX, spawnY,
-                IntersectionNode.NodeType.THREE_WAY, true);
-        roads.add(new RoadEdge(spawn, to, RoadEdge.RoadType.AVENUE));
-    }
 
     /**
      * Scan toàn bộ đường để xác định hướng kết nối thực sự của từng node.

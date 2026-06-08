@@ -41,35 +41,35 @@ public class MapRenderer {
     }
 
     // =========================================================
-    // COLOUR PALETTES (static finals — no alloc per frame)
+    // COLOUR PALETTES (Cyberpunk / Neon Theme)
     // =========================================================
 
     private static final Color[] BLDG = {
-        Color.web("#c0a882"), Color.web("#8fa3c0"), Color.web("#b5c4a0"),
-        Color.web("#c4a0a0"), Color.web("#a0b5c4"), Color.web("#c4baa0")
+        Color.web("#1a0b2e"), Color.web("#0f1c2b"), Color.web("#140d1f"),
+        Color.web("#1c0a18"), Color.web("#0c1f1a"), Color.web("#151520")
     };
     private static final Color[] ROOF = {
-        Color.web("#7a6e5e"), Color.web("#5e6e7a"), Color.web("#6e7a5e"),
-        Color.web("#7a5e5e"), Color.web("#5e5e7a"), Color.web("#635d4e")
+        Color.web("#00f0ff"), Color.web("#ff003c"), Color.web("#bc13fe"),
+        Color.web("#00ff66"), Color.web("#ffe600"), Color.web("#ff00a0")
     };
     private static final Color[] SHOP_WALL = {
-        Color.web("#f5e6cc"), Color.web("#cce6f5"), Color.web("#e6ccf5"),
-        Color.web("#ccf5e6"), Color.web("#f5cccc"), Color.web("#fff0d4")
+        Color.web("#200b2e"), Color.web("#0b2e2d"), Color.web("#2e0b1c"),
+        Color.web("#130b2e"), Color.web("#2b2e0b"), Color.web("#1b1b1b")
     };
     private static final Color[] AWNING = {
-        Color.web("#e74c3c"), Color.web("#3498db"), Color.web("#e67e22"),
-        Color.web("#2ecc71"), Color.web("#9b59b6"), Color.web("#e91e63")
+        Color.web("#ff00e4"), Color.web("#00e4ff"), Color.web("#e4ff00"),
+        Color.web("#ff3b00"), Color.web("#00ff3b"), Color.web("#8000ff")
     };
     private static final String[] LABELS = {
-        "Coffee", "Bakery", "Market", "Pho", "BBQ", "Bun bo", "Cafe", "Shop"
+        "CYBER", "NEON", "HACK", "SYNTH", "TECH", "DATA", "NET", "CODE"
     };
     private static final Color[] WALL = {
-        Color.web("#f0e6d3"), Color.web("#d3e6f0"), Color.web("#e6d3f0"),
-        Color.web("#d3f0e6"), Color.web("#f0d3d3"), Color.web("#f5f0e6")
+        Color.web("#181822"), Color.web("#22181d"), Color.web("#182022"),
+        Color.web("#1c1822"), Color.web("#221c18"), Color.web("#1f2218")
     };
     private static final Color[] HROOF = {
-        Color.web("#c0392b"), Color.web("#e74c3c"), Color.web("#8e44ad"),
-        Color.web("#d35400"), Color.web("#7f8c8d"), Color.web("#2c3e50")
+        Color.web("#ff007f"), Color.web("#00ffcc"), Color.web("#cc00ff"),
+        Color.web("#ffff00"), Color.web("#ff5500"), Color.web("#0055ff")
     };
 
     // =========================================================
@@ -215,8 +215,16 @@ public class MapRenderer {
     // =========================================================
 
     public static void drawBackground(GraphicsContext gc, double camX, double camY) {
-        gc.setFill(Color.web("#E8E6E0"));
+        gc.setFill(Color.web("#f0f0f5")); // Clean white/light background
         gc.fillRect(camX - 5000, camY - 5000, 15000, 15000);
+        
+        // Light grid lines
+        gc.setStroke(Color.web("#d0d0e0", 0.5));
+        gc.setLineWidth(1);
+        for(int i = -5000; i < 5000; i += 100) {
+            gc.strokeLine(camX - 5000, i, camX + 10000, i);
+            gc.strokeLine(i, camY - 5000, i, camY + 10000);
+        }
     }
 
     // =========================================================
@@ -225,18 +233,29 @@ public class MapRenderer {
 
     public static void drawSidewalks(GraphicsContext gc, CityMap map) {
         gc.setLineCap(StrokeLineCap.BUTT);
-        gc.setStroke(Color.web("#C8C4B8"));
-        gc.setLineWidth(Constants.ROAD_WIDTH + 24);
+        gc.setStroke(Color.web("#e8e8f0")); // Light gray sidewalk
+        gc.setLineWidth(Constants.ROAD_WIDTH + 28);
         for (RoadEdge r : map.getRoads()) {
             if (r.getType() == RoadEdge.RoadType.ALLEY) continue;
             gc.strokeLine(r.getStartNode().getX(), r.getStartNode().getY(),
                           r.getEndNode().getX(),   r.getEndNode().getY());
         }
+        // Sidewalk border
+        gc.setStroke(Color.web("#c0c0d0", 0.8));
+        gc.setLineWidth(Constants.ROAD_WIDTH + 26);
+        for (RoadEdge r : map.getRoads()) {
+            if (r.getType() == RoadEdge.RoadType.ALLEY) continue;
+            gc.strokeLine(r.getStartNode().getX(), r.getStartNode().getY(),
+                          r.getEndNode().getX(),   r.getEndNode().getY());
+        }
+        
         // Intersection fill
-        double hw = Constants.ROAD_WIDTH / 2 + 12;
+        double hw = Constants.ROAD_WIDTH / 2 + 14;
         for (IntersectionNode n : map.getNodes()) {
             if (n.isSpawnNode() || n.getType() == IntersectionNode.NodeType.FIVE_WAY) continue;
-            gc.setFill(Color.web("#C8C4B8"));
+            gc.setFill(Color.web("#c0c0d0", 0.8));
+            gc.fillRect(n.getX() - hw + 1, n.getY() - hw + 1, (hw-1)*2, (hw-1)*2);
+            gc.setFill(Color.web("#e8e8f0"));
             gc.fillRect(n.getX() - hw, n.getY() - hw, hw*2, hw*2);
         }
     }
@@ -250,13 +269,13 @@ public class MapRenderer {
             double sx = road.getStartNode().getX(), sy = road.getStartNode().getY();
             double ex = road.getEndNode().getX(),   ey = road.getEndNode().getY();
             double rw = road.getWidth();
-            gc.setStroke(Color.web("#34495e"));
+            gc.setStroke(Color.web("#555566")); // Medium gray asphalt
             gc.setLineWidth(rw);
             gc.setLineCap(StrokeLineCap.BUTT);
             gc.strokeLine(sx, sy, ex, ey);
 
             if (road.getType() != RoadEdge.RoadType.ALLEY) {
-                gc.setStroke(Color.web("#f1c40f")); gc.setLineWidth(2);
+                gc.setStroke(Color.web("#ff2255")); gc.setLineWidth(2.5); // Bright neon red divider
                 if (road.getType() == RoadEdge.RoadType.AVENUE) {
                     gc.setLineDashes(null);
                     gc.strokeLine(sx+2, sy+2, ex+2, ey+2);
@@ -273,7 +292,7 @@ public class MapRenderer {
     private static void drawDashedOffset(GraphicsContext gc, double sx, double sy, double ex, double ey, double off) {
         double a = Math.atan2(ey-sy, ex-sx), p = Math.PI/2;
         double ox = Math.cos(a+p)*off, oy = Math.sin(a+p)*off;
-        gc.setStroke(Color.WHITE); gc.setLineWidth(2); gc.setLineDashes(15, 15);
+        gc.setStroke(Color.web("#00ffff")); gc.setLineWidth(2.5); gc.setLineDashes(15, 15); // Bright cyan dashes
         gc.strokeLine(sx+ox, sy+oy, ex+ox, ey+oy);
         gc.setLineDashes(null);
     }
@@ -292,16 +311,16 @@ public class MapRenderer {
                 double junctionR = Constants.ROUNDABOUT_RADIUS;
                 double ringR     = (islandR + junctionR) / 2.0;
 
-                gc.setFill(Color.web("#34495e"));
+                gc.setFill(Color.web("#555566"));
                 gc.fillOval(nX-junctionR, nY-junctionR, junctionR*2, junctionR*2);
 
-                gc.setStroke(Color.WHITE); gc.setLineWidth(2); gc.setLineDashes(12, 10);
+                gc.setStroke(Color.WHITE); gc.setLineWidth(2.5); gc.setLineDashes(12, 10);
                 gc.strokeOval(nX-ringR, nY-ringR, ringR*2, ringR*2);
                 gc.setLineDashes(null);
 
-                gc.setFill(Color.web("#2ecc71"));
+                gc.setFill(Color.web("#77cc44")); // Green island
                 gc.fillOval(nX-islandR, nY-islandR, islandR*2, islandR*2);
-                gc.setStroke(Color.WHITE); gc.setLineWidth(2);
+                gc.setStroke(Color.web("#44aa22")); gc.setLineWidth(2);
                 gc.strokeOval(nX-islandR, nY-islandR, islandR*2, islandR*2);
 
                 drawArmMarkings(gc, nX, nY,   0, junctionR, halfW);
@@ -312,14 +331,14 @@ public class MapRenderer {
 
             } else {
                 // Clear stray road lines
-                gc.setFill(Color.web("#34495e"));
+                gc.setFill(Color.web("#555566"));
                 gc.fillRect(nX-halfW, nY-halfW, Constants.ROAD_WIDTH, Constants.ROAD_WIDTH);
 
                 boolean hasN = node.isHasNorth(), hasS = node.isHasSouth(),
                         hasE = node.isHasEast(),  hasW = node.isHasWest();
 
-                // Zebra crossings (dashed, offset +5 — closer to intersection)
-                gc.setStroke(Color.WHITE); gc.setLineWidth(6); gc.setLineDashes(4, 6);
+                // Zebra crossings (bright cyan)
+                gc.setStroke(Color.web("#00ffff")); gc.setLineWidth(6); gc.setLineDashes(4, 6);
                 if (hasN) gc.strokeLine(nX-halfW+5, nY-halfW-5, nX+halfW-5, nY-halfW-5);
                 if (hasS) gc.strokeLine(nX-halfW+5, nY+halfW+5, nX+halfW-5, nY+halfW+5);
                 if (hasW) gc.strokeLine(nX-halfW-5, nY-halfW+5, nX-halfW-5, nY+halfW-5);
@@ -327,19 +346,21 @@ public class MapRenderer {
                 gc.setLineDashes(null);
 
                 // Stop lines (solid, offset +15 — farther from intersection)
-                gc.setStroke(Color.WHITE); gc.setLineWidth(3);
+                gc.setStroke(Color.web("#ff2255")); gc.setLineWidth(4);
                 if (hasN) gc.strokeLine(nX-halfW, nY-halfW-15, nX,       nY-halfW-15);
                 if (hasS) gc.strokeLine(nX,       nY+halfW+15, nX+halfW, nY+halfW+15);
                 if (hasW) gc.strokeLine(nX-halfW-15, nY,       nX-halfW-15, nY+halfW);
                 if (hasE) gc.strokeLine(nX+halfW+15, nY-halfW, nX+halfW+15, nY);
 
                 // Guide arcs 
-                gc.setStroke(Color.rgb(241, 196, 15, 0.4)); gc.setLineWidth(1.5); gc.setLineDashes(5, 10);
-                gc.strokeArc(nX-halfW, nY-halfW, halfW, halfW, 270, 90, javafx.scene.shape.ArcType.OPEN);
-                gc.strokeArc(nX,       nY-halfW, halfW, halfW, 180, 90, javafx.scene.shape.ArcType.OPEN);
-                gc.strokeArc(nX-halfW, nY,       halfW, halfW,   0, 90, javafx.scene.shape.ArcType.OPEN);
-                gc.strokeArc(nX,       nY,       halfW, halfW,  90, 90, javafx.scene.shape.ArcType.OPEN);
-                gc.setLineDashes(null);
+                if (!Constants.BASIC_MODE) {
+                    gc.setStroke(Color.rgb(241, 196, 15, 0.4)); gc.setLineWidth(1.5); gc.setLineDashes(5, 10);
+                    gc.strokeArc(nX-halfW, nY-halfW, halfW, halfW, 270, 90, javafx.scene.shape.ArcType.OPEN);
+                    gc.strokeArc(nX,       nY-halfW, halfW, halfW, 180, 90, javafx.scene.shape.ArcType.OPEN);
+                    gc.strokeArc(nX-halfW, nY,       halfW, halfW,   0, 90, javafx.scene.shape.ArcType.OPEN);
+                    gc.strokeArc(nX,       nY,       halfW, halfW,  90, 90, javafx.scene.shape.ArcType.OPEN);
+                    gc.setLineDashes(null);
+                }
             }
         }
     }
@@ -351,7 +372,7 @@ public class MapRenderer {
         double px = uy, py = -ux; // perpendicular
 
         double zd = junctionR + 55, zx = cx+ux*zd, zy = cy+uy*zd;
-        gc.setStroke(Color.WHITE); gc.setLineWidth(6); gc.setLineDashes(4, 6);
+        gc.setStroke(Color.web("#00f0ff")); gc.setLineWidth(6); gc.setLineDashes(4, 6);
         gc.strokeLine(zx-px*halfW, zy-py*halfW, zx+px*halfW, zy+py*halfW);
         gc.setLineDashes(null);
 
@@ -365,6 +386,7 @@ public class MapRenderer {
     // =========================================================
 
     public static void drawDecorationsGround(GraphicsContext gc, List<Decoration> decs) {
+        if (Constants.BASIC_MODE) return;
         for (Decoration d : decs) {
             if (d.type == Decoration.Type.PARK)    drawPark   (gc, d);
             if (d.type == Decoration.Type.PARKING) drawParking(gc, d);
@@ -376,6 +398,7 @@ public class MapRenderer {
     // =========================================================
 
     public static void drawDecorationsAbove(GraphicsContext gc, List<Decoration> decs, double darkness) {
+        if (Constants.BASIC_MODE) return;
         for (Decoration d : decs) {
             switch (d.type) {
                 case BUILDING    -> drawBuilding  (gc, d, darkness);
@@ -404,9 +427,10 @@ public class MapRenderer {
                     double ws = Math.min(ww-2, wh-2);
                     if (ws < 2) continue;
                     boolean lit = d.windows[r][c];
-                    if (darkness > 0.4 && lit)  gc.setFill(Color.rgb(255,230,150, 0.85+0.15*darkness));
-                    else if (darkness > 0.4)    gc.setFill(Color.rgb(20, 30, 50, 0.75));
-                    else                         gc.setFill(Color.rgb(180,210,230, 0.7));
+                    if (darkness > 0.4 && lit)  gc.setFill(Color.rgb(0, 240, 255, 0.85+0.15*darkness)); // Cyan light
+                    else if (darkness > 0.4)    gc.setFill(Color.rgb(20, 10, 40, 0.75));
+                    else if (lit)                gc.setFill(Color.rgb(255, 0, 228, 0.7)); // Pink light day
+                    else                         gc.setFill(Color.rgb(30, 20, 50, 0.5));
                     gc.fillRect(wx, wy, ws, ws);
                 }
             }
@@ -424,11 +448,11 @@ public class MapRenderer {
             gc.fillRect(d.x+i*d.w/strips, d.y+d.h-6, d.w/strips+1, 6);
         }
         if (d.label != null) {
-            gc.setFill(Color.web("#2c3e50"));
+            gc.setFill(Color.WHITE);
             gc.setFont(Font.font("Arial", FontWeight.BOLD, 7));
             gc.fillText(d.label, d.x+3, d.y+d.h/2+3);
         }
-        gc.setStroke(Color.web("#bdc3c7")); gc.setLineWidth(0.5); gc.strokeRect(d.x, d.y, d.w, d.h);
+        gc.setStroke(d.c2); gc.setLineWidth(1.5); gc.strokeRect(d.x, d.y, d.w, d.h); // glowing edge
     }
 
     private static void drawHouse(GraphicsContext gc, Decoration d) {
@@ -438,49 +462,49 @@ public class MapRenderer {
         double[] rx = {d.x-3, d.x+d.w+3, d.x+d.w/2};
         double[] ry = {d.y,   d.y,        d.y-d.h*0.38};
         gc.setFill(d.c2); gc.fillPolygon(rx, ry, 3);
-        gc.setFill(Color.web("#8B6914")); gc.fillRect(d.x+d.w/2-3, d.y+d.h-8, 6, 8);
-        gc.setStroke(d.c1.darker()); gc.setLineWidth(0.5); gc.strokeRect(d.x, d.y, d.w, d.h);
+        gc.setFill(Color.web("#00f0ff")); gc.fillRect(d.x+d.w/2-3, d.y+d.h-8, 6, 8); // neon door
+        gc.setStroke(d.c2); gc.setLineWidth(1.0); gc.strokePolygon(rx, ry, 3); // neon roof border
     }
 
     private static void drawTree(GraphicsContext gc, Decoration d) {
         double tx = d.x, ty = d.y, r = d.w;
-        gc.setFill(Color.rgb(0,0,0,0.15)); gc.fillOval(tx-r+4, ty+r*0.2, r*2-4, r*0.8);
-        gc.setStroke(Color.web("#7d5a3c")); gc.setLineWidth(3);
+        gc.setFill(Color.rgb(0,0,0,0.3)); gc.fillOval(tx-r+4, ty+r*0.2, r*2-4, r*0.8);
+        gc.setStroke(Color.web("#dd44ff")); gc.setLineWidth(3); // Bright purple trunk
         gc.strokeLine(tx, ty+r*0.3, tx, ty+r*1.05);
-        gc.setFill(Color.web("#1e8449")); gc.fillOval(tx-r*0.85, ty-r*0.85, r*1.7, r*1.7);
-        gc.setFill(Color.web("#27ae60")); gc.fillOval(tx-r*0.70, ty-r*0.95, r*1.45, r*1.45);
-        gc.setFill(Color.web("#58d68d")); gc.fillOval(tx-r*0.42, ty-r*0.88, r*0.85, r*0.85);
+        gc.setFill(Color.web("#ff44cc", 0.9)); gc.fillOval(tx-r*0.85, ty-r*0.85, r*1.7, r*1.7); // Bright pink
+        gc.setFill(Color.web("#44ffff", 0.85)); gc.fillOval(tx-r*0.70, ty-r*0.95, r*1.45, r*1.45); // Bright cyan
+        gc.setFill(Color.web("#ff4466", 1.0)); gc.fillOval(tx-r*0.42, ty-r*0.88, r*0.85, r*0.85); // Bright red
     }
 
     private static void drawPark(GraphicsContext gc, Decoration d) {
-        gc.setFill(Color.web("#58d68d", 0.65)); gc.fillRoundRect(d.x, d.y, d.w, d.h, 8, 8);
-        gc.setStroke(Color.web("#27ae60")); gc.setLineWidth(1); gc.strokeRoundRect(d.x, d.y, d.w, d.h, 8, 8);
-        gc.setFill(Color.web("#d5b880", 0.5));
-        gc.fillRect(d.x+d.w/2-5, d.y, 10, d.h); // path
+        gc.setFill(Color.web("#2d1560", 0.9)); gc.fillRoundRect(d.x, d.y, d.w, d.h, 8, 8); // Lighter cyber park
+        gc.setStroke(Color.web("#dd44ff")); gc.setLineWidth(2.5); gc.strokeRoundRect(d.x, d.y, d.w, d.h, 8, 8);
+        gc.setFill(Color.web("#44ffff", 0.4));
+        gc.fillRect(d.x+d.w/2-5, d.y, 10, d.h); // holographic path
         if (d.w > 80) {
-            gc.setFill(Color.web("#3498db", 0.45));
+            gc.setFill(Color.web("#ff44ff", 0.55));
             gc.fillOval(d.x+d.w*0.6, d.y+d.h*0.3, d.w*0.25, d.h*0.3);
         }
         for (double[] s : d.subs) {
             if (s[2] < 0) {
-                gc.setFill(Color.web("#8B6914")); gc.fillRect(s[0]-8, s[1]-3, 16, 4);
+                gc.setFill(Color.web("#44ffff")); gc.fillRect(s[0]-8, s[1]-3, 16, 4);
             } else {
                 double tr = s[2];
-                gc.setFill(Color.web("#27ae60")); gc.fillOval(s[0]-tr, s[1]-tr, tr*2, tr*2);
-                gc.setFill(Color.web("#2ecc71")); gc.fillOval(s[0]-tr*.7, s[1]-tr*.9, tr*1.4, tr*1.4);
+                gc.setFill(Color.web("#dd44ff")); gc.fillOval(s[0]-tr, s[1]-tr, tr*2, tr*2);
+                gc.setFill(Color.web("#ff44cc")); gc.fillOval(s[0]-tr*.7, s[1]-tr*.9, tr*1.4, tr*1.4);
             }
         }
     }
 
     private static void drawParking(GraphicsContext gc, Decoration d) {
-        gc.setFill(Color.web("#bdc3c7")); gc.fillRect(d.x, d.y, d.w, d.h);
-        gc.setStroke(Color.WHITE); gc.setLineWidth(1);
+        gc.setFill(Color.web("#1e1045")); gc.fillRect(d.x, d.y, d.w, d.h);
+        gc.setStroke(Color.web("#44ffff")); gc.setLineWidth(1.5);
         int slots = 4;
         for (int i=0; i<=slots; i++) gc.strokeLine(d.x+i*d.w/slots, d.y, d.x+i*d.w/slots, d.y+d.h);
         gc.strokeLine(d.x, d.y, d.x+d.w, d.y);
         gc.strokeLine(d.x, d.y+d.h, d.x+d.w, d.y+d.h);
-        Color[] cc = {Color.web("#e74c3c"),Color.web("#3498db"),Color.web("#2ecc71"),
-                      Color.web("#e67e22"),Color.web("#9b59b6"),Color.web("#95a5a6")};
+        Color[] cc = {Color.web("#ff003c"),Color.web("#00f0ff"),Color.web("#00ff66"),
+                      Color.web("#ffe600"),Color.web("#bc13fe"),Color.web("#ff00a0")};
         for (double[] s : d.subs) {
             gc.setFill(cc[(int)s[2] % cc.length]);
             gc.fillRoundRect(s[0]-9, s[1]-5, 18, 10, 3, 3);
@@ -516,23 +540,179 @@ public class MapRenderer {
     // =========================================================
 
     public static void drawStreetLightPoles(GraphicsContext gc, List<StreetLight> lights) {
+        if (Constants.BASIC_MODE) return;
         for (StreetLight sl : lights) {
-            gc.setStroke(Color.web("#606060")); gc.setLineWidth(1.8);
+            gc.setStroke(Color.web("#bc13fe")); gc.setLineWidth(2);
             gc.strokeLine(sl.x, sl.y+12, sl.x, sl.y);
-            gc.setFill(Color.web("#808080")); gc.fillOval(sl.x-3, sl.y-3, 6, 6);
+            gc.setFill(Color.web("#00f0ff")); gc.fillOval(sl.x-3, sl.y-3, 6, 6);
         }
     }
 
     public static void drawStreetLightGlow(GraphicsContext gc, List<StreetLight> lights, double darkness) {
-        if (darkness < 0.3) return;
-        double alpha = (darkness - 0.3) / 0.7 * 0.13;
+        if (Constants.BASIC_MODE || darkness < 0.3) return;
+        double alpha = (darkness - 0.3) / 0.7 * 0.15;
         for (StreetLight sl : lights) {
             gc.setGlobalBlendMode(BlendMode.ADD);
-            gc.setFill(Color.rgb(255, 215, 80, alpha));
-            gc.fillOval(sl.x-44, sl.y-8, 88, 50);
+            gc.setFill(Color.rgb(0, 240, 255, alpha)); // Cyan glow
+            gc.fillOval(sl.x-50, sl.y-10, 100, 60);
             gc.setGlobalBlendMode(BlendMode.SRC_OVER);
-            gc.setFill(Color.rgb(255, 235, 100, Math.min(1.0, (darkness-0.3)*2)));
+            gc.setFill(Color.rgb(188, 19, 254, Math.min(1.0, (darkness-0.3)*2))); // Purple core
             gc.fillOval(sl.x-3, sl.y-3, 6, 6);
+        }
+    }
+
+    // =========================================================
+    // ĐỒ HỌA ĐẶC TRƯNG BÁCH KHOA HÀ NỘI
+    // =========================================================
+
+    /** Vẽ đường sắt Hà Nội - Sài Gòn chạy dọc bên trái Giải Phóng */
+    public static void drawRailway(GraphicsContext gc, double railX, double fromY, double toY) {
+        if (Constants.BASIC_MODE) return;
+        // Ballast (đá ba lát)
+        gc.setFill(Color.web("#b0a898")); gc.fillRect(railX - 18, fromY, 36, toY - fromY);
+        // 2 ray thép
+        gc.setStroke(Color.web("#8a8a8a")); gc.setLineWidth(4);
+        gc.strokeLine(railX - 10, fromY, railX - 10, toY);
+        gc.strokeLine(railX + 10, fromY, railX + 10, toY);
+        // Tà vẹt (sleepers) mỗi 22px
+        gc.setStroke(Color.web("#5c3d1e")); gc.setLineWidth(6);
+        for (double y = fromY; y < toY; y += 22) gc.strokeLine(railX - 16, y, railX + 16, y);
+        // Viền ray bóng
+        gc.setStroke(Color.web("#c0c0c0")); gc.setLineWidth(2);
+        gc.strokeLine(railX - 10, fromY, railX - 10, toY);
+        gc.strokeLine(railX + 10, fromY, railX + 10, toY);
+    }
+
+    /** Vẽ cổng parabol đặc trưng ĐHBK Hà Nội */
+    public static void drawHUSTGate(GraphicsContext gc, double gateX, double gateY) {
+        if (Constants.BASIC_MODE) return;
+        double gateW = 130, gateH = 90;
+        double lx = gateX - gateW / 2, rx = gateX + gateW / 2, baseY = gateY + 5;
+        // 2 trụ cổng (đỏ gạch BK)
+        gc.setFill(Color.web("#8B1A1A")); gc.fillRect(lx - 8, baseY - gateH, 16, gateH); gc.fillRect(rx - 8, baseY - gateH, 16, gateH);
+        gc.setStroke(Color.web("#C8960C")); gc.setLineWidth(2); gc.strokeRect(lx - 8, baseY - gateH, 16, gateH); gc.strokeRect(rx - 8, baseY - gateH, 16, gateH);
+        // Vòm parabol (3 đường cung lồng nhau)
+        double arcW = gateW + 16, arcH = gateH * 0.9;
+        gc.setFill(Color.web("#f5f0e8")); gc.fillArc(gateX - arcW/2, baseY - arcH*2 + arcH*0.1, arcW, arcH*2, 0, 180, javafx.scene.shape.ArcType.CHORD);
+        gc.setStroke(Color.web("#8B1A1A")); gc.setLineWidth(5); gc.strokeArc(gateX - arcW/2, baseY - arcH*2 + arcH*0.1, arcW, arcH*2, 0, 180, javafx.scene.shape.ArcType.OPEN);
+        double arcW2 = arcW - 14, arcH2 = arcH * 0.82;
+        gc.setStroke(Color.web("#C8960C")); gc.setLineWidth(3); gc.strokeArc(gateX - arcW2/2, baseY - arcH2*2 + arcH2*0.12 + 6, arcW2, arcH2*2, 0, 180, javafx.scene.shape.ArcType.OPEN);
+        // Chữ tên trường trên cổng
+        gc.setFill(Color.web("#8B1A1A")); gc.setFont(Font.font("Arial", FontWeight.BOLD, 8));
+        gc.fillText("ĐẠI HỌC BÁCH KHOA", gateX - 45, baseY - arcH + 24);
+        gc.setFill(Color.web("#C8960C")); gc.setFont(Font.font("Arial", FontWeight.BOLD, 7));
+        gc.fillText("1956", gateX - 10, baseY - 5);
+        // Đèn trang trí đỉnh trụ
+        gc.setFill(Color.web("#FFD700")); gc.fillOval(lx - 5, baseY - gateH - 5, 10, 10); gc.fillOval(rx - 5, baseY - gateH - 5, 10, 10);
+    }
+
+    /** Vẽ hồ nước trong campus */
+    public static void drawCampusLake(GraphicsContext gc, double cx, double cy, double rx, double ry) {
+        if (Constants.BASIC_MODE) return;
+        gc.setFill(Color.web("#2980b9", 0.25)); gc.fillOval(cx-rx+4, cy-ry+4, rx*2, ry*2);
+        gc.setFill(Color.web("#3498db", 0.75)); gc.fillOval(cx-rx, cy-ry, rx*2, ry*2);
+        gc.setFill(Color.web("#74b9ff", 0.5)); gc.fillOval(cx-rx*0.5, cy-ry*0.55, rx*0.6, ry*0.4);
+        gc.setStroke(Color.web("#2471a3")); gc.setLineWidth(2); gc.strokeOval(cx-rx, cy-ry, rx*2, ry*2);
+        gc.setFill(Color.web("#1a5276")); gc.setFont(Font.font("Arial", FontWeight.BOLD, 9)); gc.fillText("Hồ BK", cx - 16, cy + 5);
+    }
+
+    /** Vẽ tòa nhà ĐHBK đặc trưng (màu đỏ gạch) */
+    public static void drawHUSTBuilding(GraphicsContext gc, double x, double y, double w, double h, String label) {
+        if (Constants.BASIC_MODE) return;
+        gc.setFill(Color.web("#C0392B")); gc.fillRect(x, y, w, h);
+        gc.setFill(Color.web("#ABEBC6", 0.7));
+        int cols = Math.max(2, (int)(w/18)), rows = Math.max(2, (int)(h/18));
+        for (int r = 0; r < rows; r++) for (int c = 0; c < cols; c++) gc.fillRect(x + c*(w/cols)+3, y + r*(h/rows)+3, w/(cols*2.0), h/(rows*2.0));
+        gc.setFill(Color.web("#BDC3C7")); gc.fillRect(x-3, y-6, w+6, 8);
+        gc.setStroke(Color.web("#922B21")); gc.setLineWidth(1.5); gc.strokeRect(x, y, w, h);
+        gc.setFill(Color.WHITE); gc.setFont(Font.font("Arial", FontWeight.BOLD, 9)); gc.fillText(label, x+3, y+h/2+4);
+    }
+
+    /** Vẽ toàn bộ cảnh đặc trưng ĐHBK Hà Nội */
+    public static void drawBachKhoaLandmarks(GraphicsContext gc) {
+        if (Constants.BASIC_MODE) return;
+        // Đường sắt
+        drawRailway(gc, com.traffic.model.map.CityMap.BK_RAIL_X, -100, 900);
+        // Nhãn đường Giải Phóng
+        gc.setFill(Color.web("#2c3e50")); gc.setFont(Font.font("Arial", FontWeight.BOLD, 11));
+        gc.fillText("Đ. Giải Phóng", 225, 400);
+        // Nhãn đường sắt (xoay dọc)
+        gc.save(); gc.translate(130, 400); gc.rotate(-90);
+        gc.setFill(Color.web("#555")); gc.setFont(Font.font("Arial", FontWeight.BOLD, 9));
+        gc.fillText("Đường sắt HN-SG", -55, 0); gc.restore();
+        // Cổng parabol ĐHBK
+        drawHUSTGate(gc, 475, 403);
+        // Hồ campus
+        drawCampusLake(gc, 850, 400, 55, 38);
+        // Các tòa nhà
+        drawHUSTBuilding(gc, 635, 255, 72, 58, "C1");
+        drawHUSTBuilding(gc, 635, 455, 72, 58, "B1");
+        drawHUSTBuilding(gc, 755, 335, 56, 46, "TQB");
+        // Cây xanh campus
+        double[] tx = {482, 512, 542, 622, 652, 682, 732};
+        double[] ty = {358, 325, 358, 278, 293, 278, 358};
+        for (int i = 0; i < tx.length; i++) {
+            gc.setFill(Color.web("#5d4037", 0.8)); gc.fillRect(tx[i]-2, ty[i]+8, 4, 12);
+            gc.setFill(Color.web("#27ae60")); gc.fillOval(tx[i]-9, ty[i]-9, 18, 18);
+            gc.setFill(Color.web("#58d68d")); gc.fillOval(tx[i]-6, ty[i]-12, 13, 13);
+        }
+        // Logo HUST
+        gc.setFill(Color.web("#8B1A1A", 0.12)); gc.fillOval(678, 378, 124, 84);
+        gc.setStroke(Color.web("#8B1A1A", 0.35)); gc.setLineWidth(2); gc.strokeOval(678, 378, 124, 84);
+        gc.setFill(Color.web("#8B1A1A")); gc.setFont(Font.font("Arial", FontWeight.BOLD, 15)); gc.fillText("HUST", 716, 426);
+        // Biển tên trường
+        gc.setFill(Color.web("#8B1A1A")); gc.fillRoundRect(453, 318, 178, 32, 6, 6);
+        gc.setFill(Color.WHITE); gc.setFont(Font.font("Arial", FontWeight.BOLD, 10)); gc.fillText("ĐH Bách Khoa Hà Nội", 460, 339);
+    }
+
+    /**
+     * Vẽ rào chắn đường sắt (tự động hạ/nâng theo timer).
+     * @param barrierDown  true = rào đang hạ (tàu đang qua)
+     * @param timer        thời gian còn lại ở trạng thái hiện tại (giây)
+     * @param totalTime    tổng thời gian của trạng thái hiện tại
+     */
+    public static void drawRailBarrier(GraphicsContext gc, double cx, double cy,
+                                       boolean barrierDown, double timer, double totalTime) {
+        // Góc tay rào: 0° = nằm ngang (đóng), -80° = dựng đứng (mở)
+        double progress = Math.min(1.0, (totalTime - timer) / 0.8); // 0.8s animation
+        double targetAngle = barrierDown ? 0.0 : -80.0;
+        double prevAngle   = barrierDown ? -80.0 : 0.0;
+        double armAngle = prevAngle + (targetAngle - prevAngle) * progress;
+
+        // === TRỤ CHẮN (cột đứng) ===
+        gc.setFill(Color.web("#e74c3c")); gc.fillRect(cx - 5, cy - 28, 10, 28); // thân trụ
+        gc.setFill(Color.web("#c0392b")); gc.fillRect(cx - 7, cy - 30, 14, 6);  // đỉnh trụ
+        gc.setFill(Color.BLACK); gc.fillOval(cx - 4, cy - 24, 8, 8);            // khớp xoay
+
+        // === ĐÈN CẢNH BÁO trên trụ ===
+        boolean blinkOn = (timer % 0.5) < 0.25; // chớp 2Hz
+        gc.setFill(barrierDown && blinkOn ? Color.web("#ff0000") : Color.web("#880000"));
+        gc.fillOval(cx - 5, cy - 42, 10, 10);
+
+        // === TAY RÀO (xoay quanh khớp) ===
+        gc.save();
+        gc.translate(cx, cy - 20); // điểm xoay = khớp
+        gc.rotate(armAngle);
+        // Vẽ tay rào dài 70px với sọc đỏ-trắng
+        double armLen = 70;
+        int stripes = 5;
+        for (int i = 0; i < stripes; i++) {
+            double sx = i * armLen / stripes;
+            gc.setFill(i % 2 == 0 ? Color.web("#e74c3c") : Color.WHITE);
+            gc.fillRect(sx, -4, armLen / stripes, 8);
+        }
+        // Viền tay rào
+        gc.setStroke(Color.web("#c0392b")); gc.setLineWidth(1);
+        gc.strokeRect(0, -4, armLen, 8);
+        // Đầu tay rào (hình tròn nhỏ)
+        gc.setFill(Color.web("#e74c3c")); gc.fillOval(armLen - 5, -5, 10, 10);
+        gc.restore();
+
+        // === BIỂN CẢNH BÁO bên đường ===
+        if (barrierDown) {
+            gc.setFill(Color.web("#e74c3c", 0.85)); gc.fillRoundRect(cx + 5, cy - 45, 52, 14, 3, 3);
+            gc.setFill(Color.WHITE); gc.setFont(Font.font("Arial", FontWeight.BOLD, 8));
+            gc.fillText("🚂 TÀU QUA!", cx + 7, cy - 34);
         }
     }
 }
