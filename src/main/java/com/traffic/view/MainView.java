@@ -39,17 +39,19 @@ public class MainView {
         // Khối 1: CẢNH MÔ PHỎNG
         VBox secMap = createSection("🗺 CẢNH MÔ PHỎNG");
         ToggleGroup mapGroup = new ToggleGroup();
-        RadioButton rbNga3 = createRadio("Ngã Ba", mapGroup);
+        RadioButton rbGrid  = createRadio("Ô Cờ (Grid)", mapGroup);
         RadioButton rbNga4 = createRadio("Ngã Tư", mapGroup);
-        RadioButton rbNga5 = createRadio("Ngã Năm", mapGroup);
-        RadioButton rbGrid = createRadio("Mạng lưới", mapGroup);
+        RadioButton rbCloverleaf = createRadio("Cloverleaf", mapGroup);
+        RadioButton rbBachKhoa   = createRadio("Bách Khoa", mapGroup);
+        RadioButton rbNga3       = createRadio("Ngã Ba", mapGroup);
         rbGrid.setSelected(true);
         mapGroup.selectedToggleProperty().addListener((obs, oldV, newV) -> {
             if (newV != null) engine.changeMap(((RadioButton)newV).getText());
         });
-        HBox mapRow1 = new HBox(20, rbNga3, rbNga4);
-        HBox mapRow2 = new HBox(20, rbNga5, rbGrid);
-        secMap.getChildren().addAll(mapRow1, mapRow2);
+        HBox mapRow1 = new HBox(20, rbGrid, rbNga4);
+        HBox mapRow2 = new HBox(20, rbCloverleaf, rbBachKhoa);
+        HBox mapRow3 = new HBox(20, rbNga3);
+        secMap.getChildren().addAll(mapRow1, mapRow2, mapRow3);
 
         // Khối ĐIỀU KHIỂN
         VBox secCtrl = createSection("🎛 ĐIỀU KHIỂN");
@@ -80,24 +82,6 @@ public class MainView {
         zoomControls.getChildren().addAll(btnZoomOut, btnZoomIn, btnResetZoom);
         secZoom.getChildren().add(zoomControls);
 
-        // Khối 5: CÀI ĐẶT HỆ THỐNG
-        VBox secSettings = createSection("⚙ CÀI ĐẶT HỆ THỐNG");
-        CheckBox chkRain = createCheck("Trời mưa (Đường trơn)", false);
-        chkRain.setOnAction(e -> com.traffic.config.Constants.IS_RAINING = chkRain.isSelected());
-        CheckBox chkDebug = createCheck("Bật tia Laser (Debug)", false);
-        chkDebug.setOnAction(e -> engine.setDebugMode(chkDebug.isSelected()));
-        secSettings.getChildren().addAll(chkRain, chkDebug);
-
-        // Khối 7: THỜI GIAN
-        VBox secTime = createSection("🌗 THỜI GIAN");
-        ComboBox<String> cbTime = new ComboBox<>(javafx.collections.FXCollections.observableArrayList(
-            "Chu kỳ Tự động", "Luôn Ban Ngày", "Luôn Ban Đêm"
-        ));
-        cbTime.setValue("Chu kỳ Tự động");
-        cbTime.setMaxWidth(Double.MAX_VALUE);
-        cbTime.setStyle("-fx-font-size: 13px; -fx-cursor: hand;");
-        cbTime.setOnAction(e -> com.traffic.config.Constants.TIME_MODE = cbTime.getSelectionModel().getSelectedIndex());
-        secTime.getChildren().add(cbTime);
 
         // Khối 8: LOẠI ĐÈN
         VBox secLightMode = createSection("🚥 LOẠI ĐÈN");
@@ -109,8 +93,20 @@ public class MainView {
         cbLight.setStyle("-fx-font-size: 13px; -fx-cursor: hand;");
         cbLight.setOnAction(e -> engine.setTrafficLightMode(cbLight.getSelectionModel().getSelectedIndex()));
         secLightMode.getChildren().add(cbLight);
+
+        // Khối 6: HIỂN THỊ
+        VBox secDisplay = createSection("📺 HIỂN THỊ");
+        ToggleGroup dispGroup = new ToggleGroup();
+        RadioButton rbBasic = createRadio("Basic", dispGroup);
+        RadioButton rbGraphic = createRadio("Đồ họa", dispGroup);
+        rbGraphic.setSelected(true);
+        dispGroup.selectedToggleProperty().addListener((obs, old, newVal) -> {
+            com.traffic.config.Constants.BASIC_MODE = ((RadioButton)newVal).getText().equals("Basic");
+        });
+        HBox dispRow = new HBox(20, rbBasic, rbGraphic);
+        secDisplay.getChildren().add(dispRow);
         
-        panel.getChildren().addAll(secMap, secCtrl, secZoom, secSettings, secTime, secLightMode);
+        panel.getChildren().addAll(secMap, secCtrl, secZoom, secLightMode, secDisplay);
         ScrollPane scroll = new ScrollPane(panel);
         scroll.setFitToWidth(true);
         scroll.setStyle("-fx-background: #1e272e; -fx-border-color: #1e272e;");

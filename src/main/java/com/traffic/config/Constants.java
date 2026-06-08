@@ -18,4 +18,7 @@ public class Constants {
     
     // CẤU HÌNH THỜI GIAN VÀ ĐÈN
     public static int TIME_MODE = 0; // 0: Chu kỳ tự động, 1: Luôn Ban Ngày, 2: Luôn Ban Đêm
+    
+    // Bật/tắt đồ họa (Nhà cửa, cây cối, đèn đường...)
+    public static boolean BASIC_MODE = false;
 }
