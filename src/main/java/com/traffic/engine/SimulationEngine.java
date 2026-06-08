@@ -268,10 +268,10 @@ public class SimulationEngine extends AnimationTimer {
                 drawTrafficLight(gc, node.getLightWest(),  nX - off5 - 16,  nY - 11);
                 if (node.isHasNW()) drawTrafficLight(gc, node.getLightNW(), nX-d45-16, nY-d45-22);
             } else {
-                if (node.isHasNorth()) drawTrafficLight(gc, node.getLightNorth(), nX - 12,     nY - off - 10);
-                if (node.isHasSouth()) drawTrafficLight(gc, node.getLightSouth(), nX + 12,     nY + off);
-                if (node.isHasEast())  drawTrafficLight(gc, node.getLightEast(),  nX + off,    nY - 12);
-                if (node.isHasWest())  drawTrafficLight(gc, node.getLightWest(),  nX - off-20, nY + 12);
+                if (node.isHasNorth()) drawTrafficLight(gc, node.getLightNorth(), nX - 78,     nY - 118);
+                if (node.isHasSouth()) drawTrafficLight(gc, node.getLightSouth(), nX + 62,     nY + 22);
+                if (node.isHasEast())  drawTrafficLight(gc, node.getLightEast(),  nX + 62,    nY - 118);
+                if (node.isHasWest())  drawTrafficLight(gc, node.getLightWest(),  nX - 78, nY + 22);
             }
 
             // Đồng hồ đếm ngược
