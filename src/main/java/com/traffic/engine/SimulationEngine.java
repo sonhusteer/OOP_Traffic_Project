@@ -30,17 +30,12 @@ public class SimulationEngine extends AnimationTimer {
     private String currentMapType = "Ô Cờ (Grid)";
     private double[] rainX = new double[300];
     private double[] rainY = new double[300];
+    private long tick = 0; // dùng để animate sóng nước
 
     // --- GRAPHIC ASSETS (generated once per map load) ---
     private List<MapRenderer.Decoration>  decorations  = new ArrayList<>();
     private List<MapRenderer.StreetLight> streetLights = new ArrayList<>();
 
-    // --- RÀO CHẮN TÀU HỎA (chỉ dùng cho map Bách Khoa) ---
-    private boolean railBarrierDown = false;  // rào đang hạ xuống?
-    private double  railBarrierTimer = 0;     // giây đếm ngược
-    private static final double BARRIER_OPEN_TIME   = 8.0;  // 8s rào mở
-    private static final double BARRIER_CLOSED_TIME = 4.0;  // 4s rào đóng (tàu qua)
-   
     public SimulationEngine(Canvas canvas) {
         this.canvas = canvas;
         this.gc = canvas.getGraphicsContext2D();
@@ -87,17 +82,8 @@ public class SimulationEngine extends AnimationTimer {
         this.currentMapType = mapType;
         cityMap.loadMap(mapType);
         zoomScale = 1.0;
-        railBarrierDown = false;
-        railBarrierTimer = BARRIER_OPEN_TIME;
-
-        if ("Bách Khoa".equals(mapType)) {
-            // Không dùng decoration ngẫu nhiên trong campus
-            decorations  = new ArrayList<>();
-            streetLights = MapRenderer.generateStreetLights(cityMap);
-        } else {
-            decorations  = MapRenderer.generateDecorations(cityMap);
-            streetLights = MapRenderer.generateStreetLights(cityMap);
-        }
+        decorations  = MapRenderer.generateDecorations(cityMap);
+        streetLights = MapRenderer.generateStreetLights(cityMap);
 
         if (!cityMap.getNodes().isEmpty()) {
             IntersectionNode centerNode = cityMap.getNodes().get(0);
@@ -143,16 +129,8 @@ public class SimulationEngine extends AnimationTimer {
             timeOfDay = 0.0;
         }
 
-        // 2. Cập nhật rào chắn tàu hỏa (chỉ khi ở map Bách Khoa)
-        if ("Bách Khoa".equals(currentMapType)) {
-            railBarrierTimer -= 1.0 / 60.0; // giảm theo 60fps
-            if (railBarrierTimer <= 0) {
-                railBarrierDown = !railBarrierDown;
-                railBarrierTimer = railBarrierDown ? BARRIER_CLOSED_TIME : BARRIER_OPEN_TIME;
-            }
-        }
 
-        // 3. Cập nhật đèn đỏ
+        if (!isPaused) tick++;
         for (IntersectionNode node : cityMap.getNodes()) {
             node.updateLights();
         }
@@ -222,25 +200,18 @@ public class SimulationEngine extends AnimationTimer {
         // === TẦNG 1c: Chi tiết ngã tư / bùng binh ===
         MapRenderer.drawIntersectionDetails(gc, cityMap);
 
+        // === TẦNG 1d-extra: Cảnh đặc biệt Hỗn Hợp (sông + cầu) ===
+        if ("Hỗn Hợp".equals(currentMapType)) {
+            MapRenderer.drawMixedMapLandmarks(gc, tick);
+        }
+
         // === TẦNG 1d: Trang trí mặt đất (công viên, bãi đỗ) ===
         MapRenderer.drawDecorationsGround(gc, decorations);
 
         // === TẦNG 1e: Trang trí cao (nhà, cây, cửa hàng) ===
         MapRenderer.drawDecorationsAbove(gc, decorations, darkness);
 
-        // === TẦNG 1f: Cảnh đặc biệt Bách Khoa ===
-        if ("Bách Khoa".equals(currentMapType)) {
-            MapRenderer.drawBachKhoaLandmarks(gc);
-            // Rào chắn tàu tại 3 vị trí giao cắt
-            MapRenderer.drawRailBarrier(gc, 275, 163, railBarrierDown, railBarrierTimer,
-                    railBarrierDown ? BARRIER_CLOSED_TIME : BARRIER_OPEN_TIME);
-            MapRenderer.drawRailBarrier(gc, 275, 403, railBarrierDown, railBarrierTimer,
-                    railBarrierDown ? BARRIER_CLOSED_TIME : BARRIER_OPEN_TIME);
-            MapRenderer.drawRailBarrier(gc, 275, 633, railBarrierDown, railBarrierTimer,
-                    railBarrierDown ? BARRIER_CLOSED_TIME : BARRIER_OPEN_TIME);
-        }
 
-        // === TẦNG 3: Phủ màn đêm ===
         if (darkness > 0) {
             gc.setFill(Color.rgb(10, 15, 30, darkness));
             gc.fillRect(cameraX - 5000, cameraY - 5000, 15000, 15000);
@@ -253,9 +224,8 @@ public class SimulationEngine extends AnimationTimer {
         MapRenderer.drawStreetLightPoles(gc, streetLights);
 
         for (IntersectionNode node : cityMap.getNodes()) {
+            // Bỏ qua spawn nodes
             if (node.isSpawnNode()) continue;
-            // Bách Khoa: chỉ vẽ đèn tại ngã tư Giải Phóng (x ≈ 370), bỏ đèn campus nội bộ
-            if ("Bách Khoa".equals(currentMapType) && node.getX() > 420) continue;
             double nX = node.getX(), nY = node.getY();
             double off = Constants.ROAD_WIDTH / 2 + 8;
 
