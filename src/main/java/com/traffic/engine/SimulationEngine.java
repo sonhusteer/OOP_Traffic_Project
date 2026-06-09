@@ -30,6 +30,7 @@ public class SimulationEngine extends AnimationTimer {
     private String currentMapType = "Ô Cờ (Grid)";
     private double[] rainX = new double[300];
     private double[] rainY = new double[300];
+    private long tick = 0; // dùng để animate sóng nước
 
     // --- GRAPHIC ASSETS (generated once per map load) ---
     private List<MapRenderer.Decoration>  decorations  = new ArrayList<>();
@@ -129,6 +130,7 @@ public class SimulationEngine extends AnimationTimer {
         }
 
 
+        if (!isPaused) tick++;
         for (IntersectionNode node : cityMap.getNodes()) {
             node.updateLights();
         }
@@ -197,6 +199,11 @@ public class SimulationEngine extends AnimationTimer {
 
         // === TẦNG 1c: Chi tiết ngã tư / bùng binh ===
         MapRenderer.drawIntersectionDetails(gc, cityMap);
+
+        // === TẦNG 1d-extra: Cảnh đặc biệt Hỗn Hợp (sông + cầu) ===
+        if ("Hỗn Hợp".equals(currentMapType)) {
+            MapRenderer.drawMixedMapLandmarks(gc, tick);
+        }
 
         // === TẦNG 1d: Trang trí mặt đất (công viên, bãi đỗ) ===
         MapRenderer.drawDecorationsGround(gc, decorations);
