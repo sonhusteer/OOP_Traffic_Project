@@ -41,17 +41,13 @@ public class MainView {
         ToggleGroup mapGroup = new ToggleGroup();
         RadioButton rbGrid  = createRadio("Ô Cờ (Grid)", mapGroup);
         RadioButton rbNga4 = createRadio("Ngã Tư", mapGroup);
-        RadioButton rbCloverleaf = createRadio("Cloverleaf", mapGroup);
-        RadioButton rbBachKhoa   = createRadio("Bách Khoa", mapGroup);
-        RadioButton rbNga3       = createRadio("Ngã Ba", mapGroup);
+        RadioButton rbNga3 = createRadio("Ngã Ba", mapGroup);
         rbGrid.setSelected(true);
         mapGroup.selectedToggleProperty().addListener((obs, oldV, newV) -> {
             if (newV != null) engine.changeMap(((RadioButton)newV).getText());
         });
-        HBox mapRow1 = new HBox(20, rbGrid, rbNga4);
-        HBox mapRow2 = new HBox(20, rbCloverleaf, rbBachKhoa);
-        HBox mapRow3 = new HBox(20, rbNga3);
-        secMap.getChildren().addAll(mapRow1, mapRow2, mapRow3);
+        HBox mapRow1 = new HBox(20, rbGrid, rbNga4, rbNga3);
+        secMap.getChildren().add(mapRow1);
 
         // Khối ĐIỀU KHIỂN
         VBox secCtrl = createSection("🎛 ĐIỀU KHIỂN");
