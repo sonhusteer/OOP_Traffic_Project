@@ -42,12 +42,15 @@ public class MainView {
         RadioButton rbGrid  = createRadio("Ô Cờ (Grid)", mapGroup);
         RadioButton rbNga4 = createRadio("Ngã Tư", mapGroup);
         RadioButton rbNga3 = createRadio("Ngã Ba", mapGroup);
+        RadioButton rbNga5    = createRadio("Ngã 5", mapGroup);
+        RadioButton rbMixed   = createRadio("Hỗn Hợp", mapGroup);
         rbGrid.setSelected(true);
         mapGroup.selectedToggleProperty().addListener((obs, oldV, newV) -> {
             if (newV != null) engine.changeMap(((RadioButton)newV).getText());
         });
         HBox mapRow1 = new HBox(20, rbGrid, rbNga4, rbNga3);
-        secMap.getChildren().add(mapRow1);
+        HBox mapRow2 = new HBox(20, rbNga5, rbMixed);
+        secMap.getChildren().addAll(mapRow1, mapRow2);
 
         // Khối ĐIỀU KHIỂN
         VBox secCtrl = createSection("🎛 ĐIỀU KHIỂN");

@@ -16,6 +16,8 @@ public class CityMap {
         if      (mapType.equals("Ô Cờ (Grid)"))   { buildGridNetwork();  }
         else if (mapType.equals("Ngã Tư")  || mapType.equals("Ngã 4")) { buildFourWay(); }
         else if (mapType.equals("Ngã Ba")  || mapType.equals("Ngã 3")) { buildThreeWay(); }
+        else if (mapType.equals("Ngã 5"))            { buildFiveWay(); }
+        else if (mapType.equals("Hỗn Hợp"))         { buildMixedNetwork(); }
         else { buildGridNetwork(); }
         finalizeConnections();
     }
@@ -114,6 +116,83 @@ public class CityMap {
         roads.add(new RoadEdge(sSpawn, center, RoadEdge.RoadType.AVENUE));
     }
 
+    // ============================================================
+    // NGÃ 5 - Giao lộ 5 hướng (bùng binh sao 5 cánh)
+    // Các hướng: Bắc, Nam, Đông, Tây, Tây-Bắc (chéo)
+    // ============================================================
+    private void buildFiveWay() {
+        double cx = 640, cy = 400;
+        IntersectionNode center = new IntersectionNode("Ngã 5", cx, cy, IntersectionNode.NodeType.FIVE_WAY);
+        nodes.add(center);
+
+        // 5 spawn nodes tương ứng 5 hướng
+        IntersectionNode nSpawn  = new IntersectionNode("N",  cx,        cy - 900, IntersectionNode.NodeType.THREE_WAY, true);
+        IntersectionNode sSpawn  = new IntersectionNode("S",  cx,        cy + 900, IntersectionNode.NodeType.THREE_WAY, true);
+        IntersectionNode eSpawn  = new IntersectionNode("E",  cx + 900,  cy,       IntersectionNode.NodeType.THREE_WAY, true);
+        IntersectionNode wSpawn  = new IntersectionNode("W",  cx - 900,  cy,       IntersectionNode.NodeType.THREE_WAY, true);
+        IntersectionNode nwSpawn = new IntersectionNode("NW", cx - 637,  cy - 637, IntersectionNode.NodeType.THREE_WAY, true);
+
+        roads.add(new RoadEdge(nSpawn,  center, RoadEdge.RoadType.AVENUE));
+        roads.add(new RoadEdge(sSpawn,  center, RoadEdge.RoadType.AVENUE));
+        roads.add(new RoadEdge(eSpawn,  center, RoadEdge.RoadType.AVENUE));
+        roads.add(new RoadEdge(wSpawn,  center, RoadEdge.RoadType.AVENUE));
+        roads.add(new RoadEdge(nwSpawn, center, RoadEdge.RoadType.AVENUE));
+    }
+
+    // ============================================================
+    // HỘN HỢP - Mạng lưới có ngã 3, ngã 4 và ngã 5 kết hợp
+    //  Sơ đồ:
+    //    [SPAWN-N]  [SPAWN-N]
+    //       |           |
+    //  [NW-SPAWN]-[ngã 5 trung tâm]-[ngã 4 phải]---[SPAWN-E]
+    //                   |                  |
+    //              [ngã 3 dưới]      [ngã 4 dưới]
+    //               |       |               |
+    //          [SPAWN-SW] [SPAWN-SE]    [SPAWN-SE2]
+    // ============================================================
+    private void buildMixedNetwork() {
+        double cx = 580, cy = 400;
+        double sp = 260;
+
+        // === NGÃ 5 (trung tâm) ===
+        IntersectionNode n5 = new IntersectionNode("N5-Center", cx, cy, IntersectionNode.NodeType.FIVE_WAY);
+        nodes.add(n5);
+
+        // === NGÃ 4 (bên phải) ===
+        IntersectionNode n4R = new IntersectionNode("N4-Right", cx + sp, cy, IntersectionNode.NodeType.FOUR_WAY);
+        nodes.add(n4R);
+
+        // === NGÃ 4 (phía dưới phải) ===
+        IntersectionNode n4B = new IntersectionNode("N4-Bottom", cx + sp, cy + sp, IntersectionNode.NodeType.FOUR_WAY);
+        nodes.add(n4B);
+
+        // === NGÃ 3 (phía dưới trung tâm) ===
+        IntersectionNode n3 = new IntersectionNode("N3-Bottom", cx, cy + sp, IntersectionNode.NodeType.THREE_WAY);
+        nodes.add(n3);
+
+        // Kết nối chính
+        addBidirectional(n5,  n4R);  // ngã 5 <-> ngã 4 phải
+        addBidirectional(n5,  n3);   // ngã 5 <-> ngã 3 dưới
+        addBidirectional(n4R, n4B);  // ngã 4 phải <-> ngã 4 dưới
+        addBidirectional(n3,  n4B);  // ngã 3 <-> ngã 4 dưới
+
+        // Spawn nodes cho Ngã 5
+        addSpawnRoad(cx,       cy - 700, n5);   // Bắc
+        addSpawnRoad(cx - 700, cy,       n5);   // Tây
+        addSpawnRoad(cx - 495, cy - 495, n5);   // Tây-Bắc (chéo, hướng NW)
+
+        // Spawn nodes cho Ngã 4 phải
+        addSpawnRoad(cx + sp,       cy - 700, n4R);  // Bắc
+        addSpawnRoad(cx + sp + 700, cy,       n4R);  // Đông
+
+        // Spawn nodes cho Ngã 4 dưới
+        addSpawnRoad(cx + sp + 700, cy + sp,  n4B);  // Đông
+        addSpawnRoad(cx + sp,       cy + sp + 700, n4B); // Nam
+
+        // Spawn nodes cho Ngã 3
+        addSpawnRoad(cx - 700, cy + sp,       n3);   // Tây
+        addSpawnRoad(cx,       cy + sp + 700, n3);   // Nam
+    }
 
     /**
      * Scan toàn bộ đường để xác định hướng kết nối thực sự của từng node.
