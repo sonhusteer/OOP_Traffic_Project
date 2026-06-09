@@ -18,6 +18,11 @@ public abstract class Vehicle {
     private double speed;
     private int laneIndex;
 
+    // Pre-selected routing path
+    private RoadEdge nextRoad;
+    private boolean nextMovingForward;
+    private int nextLaneIndex;
+
     // Smoothed visual coordinates and offsets
     protected double x;
     protected double y;
@@ -25,6 +30,7 @@ public abstract class Vehicle {
     protected double currentOffsetX;
     protected double currentOffsetY;
     private boolean initializedOffsets = false;
+    private double stoppedTimer = 0.0;
 
     // Dimensions
     private double length;
@@ -54,6 +60,7 @@ public abstract class Vehicle {
         this.angle = roadAngle;
         this.distance = 0.0;
         this.speed = 0.0;
+        this.stoppedTimer = 0.0;
     }
 
     // Static helper to cache and load images
@@ -127,6 +134,12 @@ public abstract class Vehicle {
             if (other.getCurrentRoad() == this.currentRoad 
                 && other.isMovingForward() == this.movingForward 
                 && other.getLaneIndex() == this.laneIndex) {
+                
+                // If this is a priority vehicle, and the other vehicle is yielding to emergency vehicles, we can ignore it
+                if (this.isPriorityVehicle() && other.isEmergencyVehicleNearby(allVehicles, 450.0)) {
+                    continue;
+                }
+                
                 double diff = other.getDistance() - this.distance;
                 if (diff > 0 && diff < minDist) {
                     minDist = diff;
@@ -142,6 +155,13 @@ public abstract class Vehicle {
     }
 
     public void update(List<Vehicle> allVehicles, boolean railBarrierDown) {
+        // Update stopped timer
+        if (speed < 0.05) {
+            stoppedTimer += 1.0 / 60.0;
+        } else {
+            stoppedTimer = 0.0;
+        }
+
         IntersectionNode start = currentRoad.getStartNode();
         IntersectionNode end = currentRoad.getEndNode();
         double sx = start.getX(), sy = start.getY();
@@ -156,6 +176,43 @@ public abstract class Vehicle {
 
         // Target offset calculation
         double targetOffsetVal = getLaneOffset(currentRoad, movingForward, laneIndex);
+
+        // Emergency vehicle nearby logic (Level 1 rule)
+        boolean emergencyNearby = isEmergencyVehicleNearby(allVehicles, 220.0);
+        if (emergencyNearby) {
+            double rw = currentRoad.getWidth();
+            int lanes = currentRoad.getLanesPerDirection();
+            if (lanes > 0) {
+                double laneWidth = (rw / 2) / lanes;
+                // Pull over to the right side of the lane
+                targetOffsetVal += (movingForward ? 1.0 : -1.0) * (laneWidth * 0.45);
+            }
+        }
+
+        // If this is an emergency vehicle, and there is a yielding vehicle ahead, shift to the left to bypass
+        if (this.isPriorityVehicle()) {
+            boolean hasYieldingAhead = false;
+            for (Vehicle other : allVehicles) {
+                if (other != this && other.getCurrentRoad() == currentRoad 
+                    && other.isMovingForward() == movingForward 
+                    && other.getLaneIndex() == laneIndex) {
+                    if (other.getDistance() > this.distance && (other.getDistance() - this.distance) < 150.0) {
+                        hasYieldingAhead = true;
+                        break;
+                    }
+                }
+            }
+            if (hasYieldingAhead) {
+                double rw = currentRoad.getWidth();
+                int lanes = currentRoad.getLanesPerDirection();
+                if (lanes > 0) {
+                    double laneWidth = (rw / 2) / lanes;
+                    // Shift to the left of the lane (opposite direction of pulling over)
+                    targetOffsetVal -= (movingForward ? 1.0 : -1.0) * (laneWidth * 0.35);
+                }
+            }
+        }
+
         double targetOffsetX = px * targetOffsetVal;
         double targetOffsetY = py * targetOffsetVal;
 
@@ -174,13 +231,43 @@ public abstract class Vehicle {
         double targetSpeed = maxSpeed;
         double distLeft = roadLength - distance;
 
+        // Emergency vehicle speed reduction (Level 1 rule)
+        if (emergencyNearby) {
+            targetSpeed = 0;
+        }
+
+        // Non-priority road approach check (Level 3 priority rule)
+        if (distLeft < 120.0 && !isPriorityVehicle()) {
+            IntersectionNode nextNode = movingForward ? end : start;
+            if (!nextNode.isSpawnNode() && currentRoad.getType() != RoadEdge.RoadType.AVENUE) {
+                targetSpeed = Math.min(targetSpeed, maxSpeed * 0.6);
+            }
+        }
+
+        // Right turn on red/yellow light speed reduction (Level 5 rule)
+        if (isRightTurnPlanned() && distLeft < 100.0 && !isPriorityVehicle()) {
+            IntersectionNode nextNode = movingForward ? end : start;
+            if (!nextNode.isSpawnNode()) {
+                IntersectionNode neighborNode = movingForward ? start : end;
+                TrafficLight light = getLightForIncomingRoad(nextNode, neighborNode);
+                if (light != null && (light.getPhase() == TrafficLight.Phase.RED || light.getPhase() == TrafficLight.Phase.YELLOW)) {
+                    targetSpeed = Math.min(targetSpeed, 1.2); // max 1.2 units (~12 km/h)
+                }
+            }
+        }
+
         // 1. Traffic Light check
         if (distLeft < 150 && !isPriorityVehicle()) {
             IntersectionNode nextNode = movingForward ? end : start;
             if (!nextNode.isSpawnNode()) {
                 IntersectionNode neighborNode = movingForward ? start : end;
                 TrafficLight light = getLightForIncomingRoad(nextNode, neighborNode);
-                if (light != null && (light.getPhase() == TrafficLight.Phase.RED || light.getPhase() == TrafficLight.Phase.YELLOW)) {
+                
+                // Allow right turns on red/yellow light, and ignore light if we already crossed the pedestrian crossing (distLeft <= 70.0)
+                boolean alreadyCrossedPedestrian = (distLeft <= 70.0);
+                boolean allowedToGo = isRightTurnPlanned() || alreadyCrossedPedestrian;
+
+                if (light != null && !allowedToGo && (light.getPhase() == TrafficLight.Phase.RED || light.getPhase() == TrafficLight.Phase.YELLOW)) {
                     double stopThreshold = 75.0 + getLength() / 2.0 + 8.0; // Stop behind stop line (75px from center)
                     double stopDist = distLeft - stopThreshold;
                     if (stopDist <= 0) {
@@ -216,6 +303,17 @@ public abstract class Vehicle {
             }
         }
 
+        // 2b. Intersection yielding check (Priority to the right)
+        if (shouldYieldAtIntersection(allVehicles)) {
+            double stopThreshold = 75.0 + getLength() / 2.0 + 8.0; // Stop behind stop line (75px from center)
+            double stopDist = distLeft - stopThreshold;
+            if (stopDist <= 0) {
+                targetSpeed = 0;
+            } else {
+                targetSpeed = Math.min(targetSpeed, maxSpeed * (stopDist / 60.0));
+            }
+        }
+
         // 3. Collision avoidance (Vehicle ahead check)
         Vehicle ahead = findVehicleAhead(allVehicles);
         if (ahead != null) {
@@ -232,6 +330,53 @@ public abstract class Vehicle {
                     targetSpeed = Math.min(targetSpeed, lerp(ahead.getSpeed(), maxSpeed, ratio));
                 }
             }
+        }
+
+        // 3b. Visual collision avoidance (for vehicles on different roads/lanes, e.g. at intersections or turning)
+        for (Vehicle other : allVehicles) {
+            if (other == this) continue;
+
+            boolean sameRoadAndLane = (other.getCurrentRoad() == currentRoad 
+                && other.isMovingForward() == movingForward 
+                && other.getLaneIndex() == laneIndex);
+            if (sameRoadAndLane) continue;
+
+            double diffX = other.getX() - x;
+            double diffY = other.getY() - y;
+            double distSq = diffX * diffX + diffY * diffY;
+            if (distSq < 120 * 120) { // only check nearby vehicles
+                double headingRad = Math.toRadians(angle);
+                double cos = Math.cos(headingRad);
+                double sin = Math.sin(headingRad);
+                double distLong = diffX * cos + diffY * sin;
+                double distLat = Math.abs(-diffX * sin + diffY * cos);
+
+                if (distLong > 0) {
+                    double overlapThreshold = (width + other.getWidth()) / 2.0 + 6.0;
+                    if (distLat < overlapThreshold) {
+                        double minSafe = (length + other.getLength()) / 2.0 + getSafeDistance() * 0.8;
+                        if (distLong < minSafe + 25) {
+                            if (distLong <= minSafe) {
+                                targetSpeed = Math.min(targetSpeed, other.getSpeed() * 0.4);
+                                if (distLong <= minSafe - 5) {
+                                    targetSpeed = 0;
+                                }
+                            } else {
+                                double ratio = (distLong - minSafe) / 25.0;
+                                targetSpeed = Math.min(targetSpeed, lerp(other.getSpeed(), maxSpeed, ratio));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Turn speed reduction rule
+        if (isTurningPlanned() && distLeft < 80.0) {
+            targetSpeed = Math.min(targetSpeed, maxSpeed * 0.3);
+        }
+        if (isCurrentlyTurning()) {
+            targetSpeed = Math.min(targetSpeed, maxSpeed * 0.35);
         }
 
         // Smooth speed transition
@@ -275,7 +420,15 @@ public abstract class Vehicle {
         IntersectionNode start = currentRoad.getStartNode();
         IntersectionNode end = currentRoad.getEndNode();
         double length = Math.hypot(end.getX() - start.getX(), end.getY() - start.getY());
-        return distance >= length - 2.0;
+        
+        double threshold = 2.0;
+        if (isRightTurnPlanned()) {
+            threshold = currentRoad.getWidth() / 2.0 + 10.0;
+        } else if (isLeftTurnPlanned() || isTurningPlanned()) {
+            threshold = 15.0;
+        }
+        
+        return distance >= length - threshold;
     }
 
     public void render(GraphicsContext gc, double darkness) {
@@ -324,7 +477,265 @@ public abstract class Vehicle {
     public void setLaneIndex(int laneIndex) { this.laneIndex = laneIndex; }
     public double getX() { return x; }
     public double getY() { return y; }
+    public double getAngle() { return angle; }
     public double getLength() { return length; }
     public double getWidth() { return width; }
     public Color getColor() { return color; }
+
+    public RoadEdge getNextRoad() { return nextRoad; }
+    public void setNextRoad(RoadEdge nextRoad) { this.nextRoad = nextRoad; }
+    public boolean isNextMovingForward() { return nextMovingForward; }
+    public void setNextMovingForward(boolean forward) { this.nextMovingForward = forward; }
+    public int getNextLaneIndex() { return nextLaneIndex; }
+    public void setNextLaneIndex(int lane) { this.nextLaneIndex = lane; }
+
+    public double getRoadAngle(RoadEdge road, boolean forward) {
+        IntersectionNode start = road.getStartNode();
+        IntersectionNode end = road.getEndNode();
+        double dx = end.getX() - start.getX();
+        double dy = end.getY() - start.getY();
+        double a = Math.toDegrees(Math.atan2(dy, dx));
+        double roadAngle = forward ? a : (a + 180);
+        while (roadAngle < 0) roadAngle += 360;
+        while (roadAngle >= 360) roadAngle -= 360;
+        return roadAngle;
+    }
+
+    public boolean isTurningPlanned() {
+        if (nextRoad == null) return false;
+        double currentA = getRoadAngle(currentRoad, movingForward);
+        double nextA = getRoadAngle(nextRoad, nextMovingForward);
+        double diff = Math.abs(nextA - currentA);
+        while (diff < -180) diff += 360;
+        while (diff > 180) diff -= 360;
+        diff = Math.abs(diff);
+        return diff > 20.0;
+    }
+
+    public boolean isCurrentlyTurning() {
+        double currentRoadAngle = getRoadAngle(currentRoad, movingForward);
+        double diff = currentRoadAngle - angle;
+        while (diff < -180) diff += 360;
+        while (diff > 180) diff -= 360;
+        return Math.abs(diff) > 10.0 && distance < 60.0;
+    }
+
+    public boolean isRightTurnPlanned() {
+        if (nextRoad == null) return false;
+        
+        // Calculate heading vector of current road
+        IntersectionNode currentStart = currentRoad.getStartNode();
+        IntersectionNode currentEnd = currentRoad.getEndNode();
+        double dx1 = currentEnd.getX() - currentStart.getX();
+        double dy1 = currentEnd.getY() - currentStart.getY();
+        if (!movingForward) {
+            dx1 = -dx1;
+            dy1 = -dy1;
+        }
+        
+        // Calculate heading vector of next road
+        IntersectionNode nextStart = nextRoad.getStartNode();
+        IntersectionNode nextEnd = nextRoad.getEndNode();
+        double dx2 = nextEnd.getX() - nextStart.getX();
+        double dy2 = nextEnd.getY() - nextStart.getY();
+        if (!nextMovingForward) {
+            dx2 = -dx2;
+            dy2 = -dy2;
+        }
+        
+        double angle1 = Math.toDegrees(Math.atan2(dy1, dx1));
+        double angle2 = Math.toDegrees(Math.atan2(dy2, dx2));
+        
+        double diff = angle2 - angle1;
+        while (diff < -180) diff += 360;
+        while (diff > 180) diff -= 360;
+        
+        return diff >= 45.0 && diff <= 135.0;
+    }
+
+    public IntersectionNode getTargetNode() {
+        if (currentRoad == null) return null;
+        return movingForward ? currentRoad.getEndNode() : currentRoad.getStartNode();
+    }
+
+    public boolean isLeftTurnPlanned() {
+        if (nextRoad == null) return false;
+        
+        IntersectionNode currentStart = currentRoad.getStartNode();
+        IntersectionNode currentEnd = currentRoad.getEndNode();
+        double dx1 = currentEnd.getX() - currentStart.getX();
+        double dy1 = currentEnd.getY() - currentStart.getY();
+        if (!movingForward) {
+            dx1 = -dx1;
+            dy1 = -dy1;
+        }
+        
+        IntersectionNode nextStart = nextRoad.getStartNode();
+        IntersectionNode nextEnd = nextRoad.getEndNode();
+        double dx2 = nextEnd.getX() - nextStart.getX();
+        double dy2 = nextEnd.getY() - nextStart.getY();
+        if (!nextMovingForward) {
+            dx2 = -dx2;
+            dy2 = -dy2;
+        }
+        
+        double angle1 = Math.toDegrees(Math.atan2(dy1, dx1));
+        double angle2 = Math.toDegrees(Math.atan2(dy2, dx2));
+        
+        double diff = angle2 - angle1;
+        while (diff < -180) diff += 360;
+        while (diff > 180) diff -= 360;
+        
+        return diff >= -135.0 && diff <= -45.0;
+    }
+
+    public void setOffsets(double ox, double oy) {
+        this.currentOffsetX = ox;
+        this.currentOffsetY = oy;
+    }
+
+    public boolean isEmergencyVehicleNearby(List<Vehicle> allVehicles, double radius) {
+        if (this.isPriorityVehicle()) {
+            return false;
+        }
+        double activeRadius = 450.0;
+        for (Vehicle other : allVehicles) {
+            if (other != this && other.isPriorityVehicle()) {
+                // Yield only if the emergency vehicle is on the same road, same direction, and behind us
+                if (other.getCurrentRoad() == this.currentRoad && other.isMovingForward() == this.movingForward) {
+                    if (other.getDistance() < this.distance) {
+                        double dist = Math.hypot(other.getX() - x, other.getY() - y);
+                        if (dist < activeRadius) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    public boolean shouldYieldAtIntersection(List<Vehicle> allVehicles) {
+        if (isPriorityVehicle()) {
+            return false;
+        }
+
+        // Deadlock resolver: if we are stuck for more than 3.5 seconds, ignore yielding rules and go
+        if (stoppedTimer > 3.5) {
+            return false;
+        }
+
+        IntersectionNode targetNode = getTargetNode();
+        if (targetNode == null || targetNode.isSpawnNode()) {
+            return false;
+        }
+
+        double distToNode = Math.hypot(x - targetNode.getX(), y - targetNode.getY());
+        if (distToNode > 120.0) {
+            return false;
+        }
+
+        IntersectionNode start = currentRoad.getStartNode();
+        IntersectionNode end = currentRoad.getEndNode();
+        double roadLength = Math.hypot(end.getX() - start.getX(), end.getY() - start.getY());
+        double distLeft = roadLength - distance;
+        if (distLeft <= 70.0) {
+            return false;
+        }
+
+        IntersectionNode neighborNode = movingForward ? start : end;
+        TrafficLight light = getLightForIncomingRoad(targetNode, neighborNode);
+
+        // Right turn on red check
+        boolean isRightTurnOnRed = isRightTurnPlanned() && (light != null && (light.getPhase() == TrafficLight.Phase.RED || light.getPhase() == TrafficLight.Phase.YELLOW));
+
+        for (Vehicle other : allVehicles) {
+            if (other == this) continue;
+
+            if (other.getTargetNode() != targetNode) {
+                continue;
+            }
+
+            // If other is an emergency vehicle approaching the same intersection, we must yield to it immediately
+            if (other.isPriorityVehicle()) {
+                return true;
+            }
+
+            double otherDistToNode = Math.hypot(other.getX() - targetNode.getX(), other.getY() - targetNode.getY());
+            if (otherDistToNode > 120.0) {
+                continue;
+            }
+
+            IntersectionNode otherStart = other.getCurrentRoad().getStartNode();
+            IntersectionNode otherEnd = other.getCurrentRoad().getEndNode();
+            double otherRoadLength = Math.hypot(otherEnd.getX() - otherStart.getX(), otherEnd.getY() - otherStart.getY());
+            double otherDistLeft = otherRoadLength - other.getDistance();
+            if (otherDistLeft <= 70.0) {
+                continue;
+            }
+
+            // 1. Traffic Light status check first!
+            // If other is stopped by its red/yellow light, we don't yield to it (even if other is on a priority road).
+            IntersectionNode otherNeighbor = other.isMovingForward() ? otherStart : otherEnd;
+            TrafficLight otherLight = other.getLightForIncomingRoad(targetNode, otherNeighbor);
+            boolean otherStoppedByLight = (otherLight != null && 
+                (otherLight.getPhase() == TrafficLight.Phase.RED || otherLight.getPhase() == TrafficLight.Phase.YELLOW) &&
+                !other.isRightTurnPlanned());
+            if (otherStoppedByLight) {
+                continue;
+            }
+
+            // 2. Priority road check (Level 2 priority rule)
+            boolean thisOnPriority = (this.currentRoad.getType() == RoadEdge.RoadType.AVENUE);
+            boolean otherOnPriority = (other.getCurrentRoad().getType() == RoadEdge.RoadType.AVENUE);
+            if (thisOnPriority && !otherOnPriority) {
+                continue; // We have priority, don't yield to side road vehicles
+            }
+            if (!thisOnPriority && otherOnPriority) {
+                return true; // Other is on priority road, we must yield!
+            }
+
+            // 3. Right turn on red yielding to green-light traffic (Level 5 rule)
+            if (isRightTurnOnRed) {
+                if (otherLight != null && otherLight.getPhase() == TrafficLight.Phase.GREEN) {
+                    return true;
+                }
+            }
+
+            // 4. Left turn yielding to oncoming straight traffic (Level 6 rule)
+            if (isLeftTurnPlanned() && !other.isTurningPlanned()) {
+                double headingRad = Math.toRadians(angle);
+                double hx = Math.cos(headingRad);
+                double hy = Math.sin(headingRad);
+
+                double otherHeadingRad = Math.toRadians(other.getAngle());
+                double ox = Math.cos(otherHeadingRad);
+                double oy = Math.sin(otherHeadingRad);
+
+                double dotHeading = hx * ox + hy * oy;
+                if (dotHeading < -0.8 && otherDistToNode < 140.0) {
+                    return true;
+                }
+            }
+
+            // 5. Standard Right-Hand Priority
+            double dx = other.getX() - x;
+            double dy = other.getY() - y;
+
+            double headingRad = Math.toRadians(angle);
+            double rx = -Math.sin(headingRad);
+            double ry = Math.cos(headingRad);
+            double dotRight = dx * rx + dy * ry;
+
+            double hx = Math.cos(headingRad);
+            double hy = Math.sin(headingRad);
+            double dotForward = dx * hx + dy * hy;
+
+            if (dotRight > 15.0 && dotForward > -20.0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }
