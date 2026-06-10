@@ -195,8 +195,8 @@ public class SimulationEngine extends AnimationTimer {
         }
         vehicles.removeAll(toRemove);
 
-        // 5. Tự động sinh xe
-        if (autoSpawnEnabled) {
+        // 5. Tự động sinh xe (tối đa 20 xe trên map)
+        if (autoSpawnEnabled && vehicles.size() < 20) {
             spawnTimer += 1.0 / 60.0;
             if (spawnTimer >= 1.5) {
                 spawnTimer = 0.0;
@@ -433,6 +433,9 @@ public class SimulationEngine extends AnimationTimer {
         List<RoadEdge> candidates = new ArrayList<>();
         List<RoadEdge> uTurnCandidates = new ArrayList<>();
 
+        List<RoadEdge> fullCandidates = new ArrayList<>();
+        List<RoadEdge> fullUTurnCandidates = new ArrayList<>();
+
         for (RoadEdge road : cityMap.getRoads()) {
             if (road == current)
                 continue;
@@ -441,12 +444,26 @@ public class SimulationEngine extends AnimationTimer {
                     || (road.getStartNode() == fromNode && road.getEndNode() == targetNode);
 
             if (road.getStartNode() == targetNode || road.getEndNode() == targetNode) {
-                if (isReverse) {
-                    uTurnCandidates.add(road);
+                long count = vehicles.stream().filter(veh -> veh.getCurrentRoad() == road).count();
+                if (count >= 8) {
+                    if (isReverse) {
+                        fullUTurnCandidates.add(road);
+                    } else {
+                        fullCandidates.add(road);
+                    }
                 } else {
-                    candidates.add(road);
+                    if (isReverse) {
+                        uTurnCandidates.add(road);
+                    } else {
+                        candidates.add(road);
+                    }
                 }
             }
+        }
+
+        if (candidates.isEmpty() && uTurnCandidates.isEmpty()) {
+            candidates = fullCandidates;
+            uTurnCandidates = fullUTurnCandidates;
         }
 
         RoadEdge nextRoad = null;
@@ -505,7 +522,10 @@ public class SimulationEngine extends AnimationTimer {
         List<RoadEdge> spawnRoads = new ArrayList<>();
         for (RoadEdge road : cityMap.getRoads()) {
             if (road.getStartNode().isSpawnNode()) {
-                spawnRoads.add(road);
+                long count = vehicles.stream().filter(v -> v.getCurrentRoad() == road).count();
+                if (count < 8) {
+                    spawnRoads.add(road);
+                }
             }
         }
 
