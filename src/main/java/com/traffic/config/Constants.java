@@ -21,4 +21,7 @@ public class Constants {
     
     // Bật/tắt đồ họa (Nhà cửa, cây cối, đèn đường...)
     public static boolean BASIC_MODE = false;
+
+    // Hệ số tốc độ xe (1.0 = bình thường)
+    public static double VEHICLE_SPEED_MULTIPLIER = 1.0;
 }
