@@ -107,6 +107,57 @@ public class MainView {
         HBox dispRow = new HBox(20, rbBasic, rbGraphic);
         secDisplay.getChildren().add(dispRow);
         
+        // Khối SINH XE
+        VBox secVehicle = createSection("🚗 SINH XE & ĐIỀU KHIỂN");
+        Label lblCount = new Label("Số lượng xe: 0");
+        lblCount.setTextFill(Color.web("#bdc3c7"));
+        engine.setVehicleCountLabel(lblCount);
+
+        String btnStyle = "-fx-background-color: #2d3748; -fx-text-fill: white; -fx-cursor: hand; -fx-background-radius: 4;";
+        Button btnSpawnCar       = new Button("🚗 Ô tô");
+        Button btnSpawnMoto      = new Button("🏍 Xe máy");
+        Button btnSpawnBike      = new Button("🚲 Xe đạp");
+        Button btnSpawnAmbulance = new Button("🚑 Cứu thương");
+        Button btnSpawnFireTruck = new Button("🚒 Cứu hỏa");
+        Button btnSpawnRandom    = new Button("🎲 Sinh ngẫu nhiên");
+        Button btnClearVehicles  = new Button("🗑 Xóa tất cả xe");
+
+        btnSpawnCar.setStyle(btnStyle);
+        btnSpawnMoto.setStyle(btnStyle);
+        btnSpawnBike.setStyle(btnStyle);
+        btnSpawnAmbulance.setStyle("-fx-background-color: #ff003c; -fx-text-fill: white; -fx-font-weight: bold; -fx-cursor: hand; -fx-background-radius: 4;");
+        btnSpawnFireTruck.setStyle("-fx-background-color: #ff3b00; -fx-text-fill: white; -fx-font-weight: bold; -fx-cursor: hand; -fx-background-radius: 4;");
+        btnSpawnRandom.setStyle("-fx-background-color: #2ecc71; -fx-text-fill: white; -fx-font-weight: bold; -fx-cursor: hand; -fx-background-radius: 4;");
+        btnClearVehicles.setStyle("-fx-background-color: #636e72; -fx-text-fill: white; -fx-cursor: hand; -fx-background-radius: 4;");
+
+        for (Button b : new Button[]{btnSpawnCar, btnSpawnMoto, btnSpawnBike, btnSpawnAmbulance, btnSpawnFireTruck, btnSpawnRandom, btnClearVehicles})
+            b.setMaxWidth(Double.MAX_VALUE);
+
+        btnSpawnCar.setOnAction(e       -> engine.spawnVehicle("car"));
+        btnSpawnMoto.setOnAction(e      -> engine.spawnVehicle("motorcycle"));
+        btnSpawnBike.setOnAction(e      -> engine.spawnVehicle("bicycle"));
+        btnSpawnAmbulance.setOnAction(e -> engine.spawnVehicle("ambulance"));
+        btnSpawnFireTruck.setOnAction(e -> engine.spawnVehicle("firetruck"));
+        btnSpawnRandom.setOnAction(e    -> engine.spawnRandomVehicle());
+        btnClearVehicles.setOnAction(e  -> engine.clearAllVehicles());
+
+        CheckBox chkAutoSpawn = new CheckBox("Tự động sinh xe");
+        chkAutoSpawn.setSelected(true);
+        chkAutoSpawn.setTextFill(Color.web("#bdc3c7"));
+        chkAutoSpawn.setOnAction(e -> engine.setAutoSpawnEnabled(chkAutoSpawn.isSelected()));
+
+        HBox spawnRow1 = new HBox(6, btnSpawnCar, btnSpawnMoto, btnSpawnBike);
+        HBox spawnRow2 = new HBox(6, btnSpawnAmbulance, btnSpawnFireTruck);
+        spawnRow1.setMaxWidth(Double.MAX_VALUE);
+        spawnRow2.setMaxWidth(Double.MAX_VALUE);
+        javafx.scene.layout.HBox.setHgrow(btnSpawnCar, javafx.scene.layout.Priority.ALWAYS);
+        javafx.scene.layout.HBox.setHgrow(btnSpawnMoto, javafx.scene.layout.Priority.ALWAYS);
+        javafx.scene.layout.HBox.setHgrow(btnSpawnBike, javafx.scene.layout.Priority.ALWAYS);
+        javafx.scene.layout.HBox.setHgrow(btnSpawnAmbulance, javafx.scene.layout.Priority.ALWAYS);
+        javafx.scene.layout.HBox.setHgrow(btnSpawnFireTruck, javafx.scene.layout.Priority.ALWAYS);
+
+        secVehicle.getChildren().addAll(lblCount, chkAutoSpawn, spawnRow1, spawnRow2, btnSpawnRandom, btnClearVehicles);
+
         // Khối THỜI GIAN (Day/Night Toggle)
         VBox secTime = createSection("🌙 THỜI GIAN");
 
@@ -197,7 +248,7 @@ public class MainView {
 
         secTime.getChildren().addAll(toggleRow, lblTimeStatus, btnRow);
 
-        panel.getChildren().addAll(secMap, secCtrl, secZoom, secLightMode, secDisplay, secTime);
+        panel.getChildren().addAll(secMap, secCtrl, secZoom, secLightMode, secDisplay, secVehicle, secTime);
         ScrollPane scroll = new ScrollPane(panel);
         scroll.setFitToWidth(true);
         scroll.setStyle("-fx-background: #1e272e; -fx-border-color: #1e272e;");

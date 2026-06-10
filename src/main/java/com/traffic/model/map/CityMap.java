@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class CityMap {
+    public static final double BK_RAIL_X = 275; // Vị trí X đường sắt trong map Bách Khoa
+
     private List<IntersectionNode> nodes = new ArrayList<>();
     private List<RoadEdge> roads = new ArrayList<>();
 

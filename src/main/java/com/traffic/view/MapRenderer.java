@@ -562,15 +562,164 @@ public class MapRenderer {
     }
 
     // =========================================================
-    // ĐỒ HỌA ĐẶC TRƯNG MAP HỖN HỢP  (sông + cầu)
-    // Sông chảy ngang ở y ≈ 530, cắt qua đường dọc x=580 và x=840
+    // ĐỒ HỌA ĐẶC TRƯNG BÁCH KHOA HÀ NỘI
     // =========================================================
 
+    /** Vẽ đường sắt Hà Nội - Sài Gòn chạy dọc bên trái Giải Phóng */
+    public static void drawRailway(GraphicsContext gc, double railX, double fromY, double toY) {
+        if (Constants.BASIC_MODE) return;
+        // Ballast (đá ba lát)
+        gc.setFill(Color.web("#b0a898")); gc.fillRect(railX - 18, fromY, 36, toY - fromY);
+        // 2 ray thép
+        gc.setStroke(Color.web("#8a8a8a")); gc.setLineWidth(4);
+        gc.strokeLine(railX - 10, fromY, railX - 10, toY);
+        gc.strokeLine(railX + 10, fromY, railX + 10, toY);
+        // Tà vẹt (sleepers) mỗi 22px
+        gc.setStroke(Color.web("#5c3d1e")); gc.setLineWidth(6);
+        for (double y = fromY; y < toY; y += 22) gc.strokeLine(railX - 16, y, railX + 16, y);
+        // Viền ray bóng
+        gc.setStroke(Color.web("#c0c0c0")); gc.setLineWidth(2);
+        gc.strokeLine(railX - 10, fromY, railX - 10, toY);
+        gc.strokeLine(railX + 10, fromY, railX + 10, toY);
+    }
+
+    /** Vẽ cổng parabol đặc trưng ĐHBK Hà Nội */
+    public static void drawHUSTGate(GraphicsContext gc, double gateX, double gateY) {
+        if (Constants.BASIC_MODE) return;
+        double gateW = 130, gateH = 90;
+        double lx = gateX - gateW / 2, rx = gateX + gateW / 2, baseY = gateY + 5;
+        // 2 trụ cổng (đỏ gạch BK)
+        gc.setFill(Color.web("#8B1A1A")); gc.fillRect(lx - 8, baseY - gateH, 16, gateH); gc.fillRect(rx - 8, baseY - gateH, 16, gateH);
+        gc.setStroke(Color.web("#C8960C")); gc.setLineWidth(2); gc.strokeRect(lx - 8, baseY - gateH, 16, gateH); gc.strokeRect(rx - 8, baseY - gateH, 16, gateH);
+        // Vòm parabol (3 đường cung lồng nhau)
+        double arcW = gateW + 16, arcH = gateH * 0.9;
+        gc.setFill(Color.web("#f5f0e8")); gc.fillArc(gateX - arcW/2, baseY - arcH*2 + arcH*0.1, arcW, arcH*2, 0, 180, javafx.scene.shape.ArcType.CHORD);
+        gc.setStroke(Color.web("#8B1A1A")); gc.setLineWidth(5); gc.strokeArc(gateX - arcW/2, baseY - arcH*2 + arcH*0.1, arcW, arcH*2, 0, 180, javafx.scene.shape.ArcType.OPEN);
+        double arcW2 = arcW - 14, arcH2 = arcH * 0.82;
+        gc.setStroke(Color.web("#C8960C")); gc.setLineWidth(3); gc.strokeArc(gateX - arcW2/2, baseY - arcH2*2 + arcH2*0.12 + 6, arcW2, arcH2*2, 0, 180, javafx.scene.shape.ArcType.OPEN);
+        // Chữ tên trường trên cổng
+        gc.setFill(Color.web("#8B1A1A")); gc.setFont(Font.font("Arial", FontWeight.BOLD, 8));
+        gc.fillText("ĐẠI HỌC BÁCH KHOA", gateX - 45, baseY - arcH + 24);
+        gc.setFill(Color.web("#C8960C")); gc.setFont(Font.font("Arial", FontWeight.BOLD, 7));
+        gc.fillText("1956", gateX - 10, baseY - 5);
+        // Đèn trang trí đỉnh trụ
+        gc.setFill(Color.web("#FFD700")); gc.fillOval(lx - 5, baseY - gateH - 5, 10, 10); gc.fillOval(rx - 5, baseY - gateH - 5, 10, 10);
+    }
+
+    /** Vẽ hồ nước trong campus */
+    public static void drawCampusLake(GraphicsContext gc, double cx, double cy, double rx, double ry) {
+        if (Constants.BASIC_MODE) return;
+        gc.setFill(Color.web("#2980b9", 0.25)); gc.fillOval(cx-rx+4, cy-ry+4, rx*2, ry*2);
+        gc.setFill(Color.web("#3498db", 0.75)); gc.fillOval(cx-rx, cy-ry, rx*2, ry*2);
+        gc.setFill(Color.web("#74b9ff", 0.5)); gc.fillOval(cx-rx*0.5, cy-ry*0.55, rx*0.6, ry*0.4);
+        gc.setStroke(Color.web("#2471a3")); gc.setLineWidth(2); gc.strokeOval(cx-rx, cy-ry, rx*2, ry*2);
+        gc.setFill(Color.web("#1a5276")); gc.setFont(Font.font("Arial", FontWeight.BOLD, 9)); gc.fillText("Hồ BK", cx - 16, cy + 5);
+    }
+
+    /** Vẽ tòa nhà ĐHBK đặc trưng (màu đỏ gạch) */
+    public static void drawHUSTBuilding(GraphicsContext gc, double x, double y, double w, double h, String label) {
+        if (Constants.BASIC_MODE) return;
+        gc.setFill(Color.web("#C0392B")); gc.fillRect(x, y, w, h);
+        gc.setFill(Color.web("#ABEBC6", 0.7));
+        int cols = Math.max(2, (int)(w/18)), rows = Math.max(2, (int)(h/18));
+        for (int r = 0; r < rows; r++) for (int c = 0; c < cols; c++) gc.fillRect(x + c*(w/cols)+3, y + r*(h/rows)+3, w/(cols*2.0), h/(rows*2.0));
+        gc.setFill(Color.web("#BDC3C7")); gc.fillRect(x-3, y-6, w+6, 8);
+        gc.setStroke(Color.web("#922B21")); gc.setLineWidth(1.5); gc.strokeRect(x, y, w, h);
+        gc.setFill(Color.WHITE); gc.setFont(Font.font("Arial", FontWeight.BOLD, 9)); gc.fillText(label, x+3, y+h/2+4);
+    }
+
+    /** Vẽ toàn bộ cảnh đặc trưng ĐHBK Hà Nội */
+    public static void drawBachKhoaLandmarks(GraphicsContext gc) {
+        if (Constants.BASIC_MODE) return;
+        // Đường sắt
+        drawRailway(gc, com.traffic.model.map.CityMap.BK_RAIL_X, -100, 900);
+        // Nhãn đường Giải Phóng
+        gc.setFill(Color.web("#2c3e50")); gc.setFont(Font.font("Arial", FontWeight.BOLD, 11));
+        gc.fillText("Đ. Giải Phóng", 225, 400);
+        // Nhãn đường sắt (xoay dọc)
+        gc.save(); gc.translate(130, 400); gc.rotate(-90);
+        gc.setFill(Color.web("#555")); gc.setFont(Font.font("Arial", FontWeight.BOLD, 9));
+        gc.fillText("Đường sắt HN-SG", -55, 0); gc.restore();
+        // Cổng parabol ĐHBK
+        drawHUSTGate(gc, 475, 403);
+        // Hồ campus
+        drawCampusLake(gc, 850, 400, 55, 38);
+        // Các tòa nhà
+        drawHUSTBuilding(gc, 635, 255, 72, 58, "C1");
+        drawHUSTBuilding(gc, 635, 455, 72, 58, "B1");
+        drawHUSTBuilding(gc, 755, 335, 56, 46, "TQB");
+        // Cây xanh campus
+        double[] tx = {482, 512, 542, 622, 652, 682, 732};
+        double[] ty = {358, 325, 358, 278, 293, 278, 358};
+        for (int i = 0; i < tx.length; i++) {
+            gc.setFill(Color.web("#5d4037", 0.8)); gc.fillRect(tx[i]-2, ty[i]+8, 4, 12);
+            gc.setFill(Color.web("#27ae60")); gc.fillOval(tx[i]-9, ty[i]-9, 18, 18);
+            gc.setFill(Color.web("#58d68d")); gc.fillOval(tx[i]-6, ty[i]-12, 13, 13);
+        }
+        // Logo HUST
+        gc.setFill(Color.web("#8B1A1A", 0.12)); gc.fillOval(678, 378, 124, 84);
+        gc.setStroke(Color.web("#8B1A1A", 0.35)); gc.setLineWidth(2); gc.strokeOval(678, 378, 124, 84);
+        gc.setFill(Color.web("#8B1A1A")); gc.setFont(Font.font("Arial", FontWeight.BOLD, 15)); gc.fillText("HUST", 716, 426);
+        // Biển tên trường
+        gc.setFill(Color.web("#8B1A1A")); gc.fillRoundRect(453, 318, 178, 32, 6, 6);
+        gc.setFill(Color.WHITE); gc.setFont(Font.font("Arial", FontWeight.BOLD, 10)); gc.fillText("ĐH Bách Khoa Hà Nội", 460, 339);
+    }
+
     /**
-     * Vẽ toàn bộ cảnh sông + cầu cho map Hỗn Hợp.
-     * Gọi SAU drawRoads / drawIntersectionDetails nhưng
-     * TRƯỚC drawDecorationsAbove để cầu nằm đúng thứ tự z.
+     * Vẽ rào chắn đường sắt (tự động hạ/nâng theo timer).
+     * @param barrierDown  true = rào đang hạ (tàu đang qua)
+     * @param timer        thời gian còn lại ở trạng thái hiện tại (giây)
+     * @param totalTime    tổng thời gian của trạng thái hiện tại
      */
+    public static void drawRailBarrier(GraphicsContext gc, double cx, double cy,
+                                       boolean barrierDown, double timer, double totalTime) {
+        // Góc tay rào: 0° = nằm ngang (đóng), -80° = dựng đứng (mở)
+        double progress = Math.min(1.0, (totalTime - timer) / 0.8); // 0.8s animation
+        double targetAngle = barrierDown ? 0.0 : -80.0;
+        double prevAngle   = barrierDown ? -80.0 : 0.0;
+        double armAngle = prevAngle + (targetAngle - prevAngle) * progress;
+
+        // === TRỤ CHẮN (cột đứng) ===
+        gc.setFill(Color.web("#e74c3c")); gc.fillRect(cx - 5, cy - 28, 10, 28); // thân trụ
+        gc.setFill(Color.web("#c0392b")); gc.fillRect(cx - 7, cy - 30, 14, 6);  // đỉnh trụ
+        gc.setFill(Color.BLACK); gc.fillOval(cx - 4, cy - 24, 8, 8);            // khớp xoay
+
+        // === ĐÈN CẢNH BÁO trên trụ ===
+        boolean blinkOn = (timer % 0.5) < 0.25; // chớp 2Hz
+        gc.setFill(barrierDown && blinkOn ? Color.web("#ff0000") : Color.web("#880000"));
+        gc.fillOval(cx - 5, cy - 42, 10, 10);
+
+        // === TAY RÀO (xoay quanh khớp) ===
+        gc.save();
+        gc.translate(cx, cy - 20); // điểm xoay = khớp
+        gc.rotate(armAngle);
+        // Vẽ tay rào dài 70px với sọc đỏ-trắng
+        double armLen = 70;
+        int stripes = 5;
+        for (int i = 0; i < stripes; i++) {
+            double sx = i * armLen / stripes;
+            gc.setFill(i % 2 == 0 ? Color.web("#e74c3c") : Color.WHITE);
+            gc.fillRect(sx, -4, armLen / stripes, 8);
+        }
+        // Viền tay rào
+        gc.setStroke(Color.web("#c0392b")); gc.setLineWidth(1);
+        gc.strokeRect(0, -4, armLen, 8);
+        // Đầu tay rào (hình tròn nhỏ)
+        gc.setFill(Color.web("#e74c3c")); gc.fillOval(armLen - 5, -5, 10, 10);
+        gc.restore();
+
+        // === BIỂN CẢNH BÁO bên đường ===
+        if (barrierDown) {
+            gc.setFill(Color.web("#e74c3c", 0.85)); gc.fillRoundRect(cx + 5, cy - 45, 52, 14, 3, 3);
+            gc.setFill(Color.WHITE); gc.setFont(Font.font("Arial", FontWeight.BOLD, 8));
+            gc.fillText("🚂 TÀU QUA!", cx + 7, cy - 34);
+        }
+    }
+
+    // =========================================================
+    // ĐỒ HỌA ĐẶC TRƯNG MAP HỖN HỢP (sông + cầu + cây ven bờ)
+    // =========================================================
+
     public static void drawMixedMapLandmarks(GraphicsContext gc, long tick) {
         if (Constants.BASIC_MODE) return;
 
@@ -592,7 +741,7 @@ public class MapRenderer {
         drawRiverBankTrees(gc, RIVER_Y, RIVER_W, RIVER_FROM, RIVER_TO);
 
         // --- Nhãn sông ---
-        gc.setFill(Color.web("#1a6ea8")); 
+        gc.setFill(Color.web("#1a6ea8"));
         gc.setFont(Font.font("Arial", FontWeight.BOLD, 13));
         gc.fillText("Sông Hồng", 270, RIVER_Y + 5);
     }
@@ -600,17 +749,14 @@ public class MapRenderer {
     /** Vẽ thân sông với sóng và gradient */
     private static void drawRiver(GraphicsContext gc, double riverY, double riverW,
                                    double fromX, double toX, long tick) {
-        // --- Nền sông (xanh đậm) ---
         gc.setFill(Color.web("#1565c0", 0.88));
         gc.fillRect(fromX, riverY - riverW / 2, toX - fromX, riverW);
 
-        // --- Gradient viền bờ (shadow) ---
         gc.setFill(Color.web("#0d47a1", 0.6));
         gc.fillRect(fromX, riverY - riverW / 2, toX - fromX, 8);
         gc.fillRect(fromX, riverY + riverW / 2 - 8, toX - fromX, 8);
 
-        // --- Sóng nước (animate theo tick) ---
-        double waveOffset = (tick % 120) * 0.5; // di chuyển chậm
+        double waveOffset = (tick % 120) * 0.5;
         gc.setStroke(Color.web("#64b5f6", 0.55));
         gc.setLineWidth(2);
         gc.setLineDashes(null);
@@ -622,76 +768,62 @@ public class MapRenderer {
             }
         }
 
-        // --- Ánh sáng mặt nước (highlight) ---
         gc.setFill(Color.web("#90caf9", 0.18));
         gc.fillRect(fromX, riverY - riverW / 2 + 4, toX - fromX, 14);
 
-        // --- Bờ sông (dải đất nâu) ---
         gc.setFill(Color.web("#8d6e63", 0.75));
         gc.fillRect(fromX, riverY - riverW / 2 - 8, toX - fromX, 9);
         gc.fillRect(fromX, riverY + riverW / 2,     toX - fromX, 9);
 
-        // --- Cỏ ven bờ ---
         gc.setFill(Color.web("#66bb6a", 0.65));
         gc.fillRect(fromX, riverY - riverW / 2 - 14, toX - fromX, 7);
         gc.fillRect(fromX, riverY + riverW / 2 +  8, toX - fromX, 7);
     }
 
-    /**
-     * Vẽ 1 cây cầu tại vị trí (bridgeX, riverY).
-     * vertical=true → cầu bắc qua sông theo chiều dọc (đường chạy Bắc-Nam).
-     */
     private static void drawBridge(GraphicsContext gc, double bridgeX, double riverY,
                                     double riverW, boolean vertical) {
-        double roadW   = Constants.ROAD_WIDTH;       // chiều rộng đường
-        double deckW   = roadW + 18;                 // mặt cầu rộng hơn đường một chút
-        double deckLen = riverW + 22;                // chiều dài cầu (vượt qua sông)
+        double roadW   = Constants.ROAD_WIDTH;
+        double deckW   = roadW + 18;
+        double deckLen = riverW + 22;
 
         double dx = bridgeX - deckW / 2;
         double dy = riverY  - deckLen / 2;
 
-        // === Trụ cầu (bê tông xám) — 2 trụ hai đầu cầu ===
         gc.setFill(Color.web("#78909c"));
-        gc.fillRoundRect(dx - 6, dy - 6,  deckW + 12, 12, 4, 4);  // trụ Bắc
-        gc.fillRoundRect(dx - 6, dy + deckLen - 6, deckW + 12, 12, 4, 4); // trụ Nam
+        gc.fillRoundRect(dx - 6, dy - 6,  deckW + 12, 12, 4, 4);
+        gc.fillRoundRect(dx - 6, dy + deckLen - 6, deckW + 12, 12, 4, 4);
 
-        // === Mặt cầu (bê tông sáng hơn đường nhựa) ===
         gc.setFill(Color.web("#90a4ae"));
         gc.fillRect(dx, dy, deckW, deckLen);
 
-        // === Vạch giữa mặt cầu ===
         gc.setStroke(Color.web("#ffe082")); gc.setLineWidth(3); gc.setLineDashes(10, 8);
         gc.strokeLine(bridgeX, dy + 4, bridgeX, dy + deckLen - 4);
         gc.setLineDashes(null);
 
-        // === Lan can hai bên (đỏ-trắng) ===
         double rail = deckW / 2 - 3;
         int railSections = 5;
         double secH = deckLen / railSections;
         for (int i = 0; i < railSections; i++) {
             Color rc = (i % 2 == 0) ? Color.web("#e53935") : Color.WHITE;
             gc.setFill(rc);
-            gc.fillRect(bridgeX - rail - 5, dy + i * secH, 5, secH + 1); // lan can trái
-            gc.fillRect(bridgeX + rail,     dy + i * secH, 5, secH + 1); // lan can phải
+            gc.fillRect(bridgeX - rail - 5, dy + i * secH, 5, secH + 1);
+            gc.fillRect(bridgeX + rail,     dy + i * secH, 5, secH + 1);
         }
 
-        // === Viền cầu ===
         gc.setStroke(Color.web("#546e7a")); gc.setLineWidth(2);
         gc.strokeRect(dx, dy, deckW, deckLen);
 
-        // === Biển tên cầu ===
         gc.setFill(Color.web("#1a237e")); gc.fillRoundRect(bridgeX - 26, riverY - 9, 52, 18, 4, 4);
         gc.setFill(Color.WHITE); gc.setFont(Font.font("Arial", FontWeight.BOLD, 9));
         gc.fillText("CẦU", bridgeX - 11, riverY + 4);
     }
 
-    /** Vẽ cây dọc hai bờ sông, tránh vị trí cầu */
     private static void drawRiverBankTrees(GraphicsContext gc, double riverY, double riverW,
                                             double fromX, double toX) {
-        double northBankY = riverY - riverW / 2 - 20; // bờ Bắc
-        double southBankY = riverY + riverW / 2 + 20; // bờ Nam
+        double northBankY = riverY - riverW / 2 - 20;
+        double southBankY = riverY + riverW / 2 + 20;
         double[] bridgeXs = {580, 840};
-        double avoidR = Constants.ROAD_WIDTH / 2 + 30; // vùng trống quanh cầu
+        double avoidR = Constants.ROAD_WIDTH / 2 + 30;
 
         for (double tx = fromX + 40; tx < toX; tx += 55) {
             boolean nearBridge = false;
@@ -703,9 +835,8 @@ public class MapRenderer {
         }
     }
 
-    /** Vẽ một cây ven sông nhỏ (nhìn từ trên xuống) */
     private static void drawRiverTree(GraphicsContext gc, double tx, double ty) {
-        double r = 9 + (Math.abs(tx * 13) % 6); // bán kính ngẫu nhiên nhẹ
+        double r = 9 + (Math.abs(tx * 13) % 6);
         gc.setFill(Color.rgb(0, 0, 0, 0.2)); gc.fillOval(tx - r + 3, ty + 2, r * 2 - 4, r);
         gc.setStroke(Color.web("#4e342e")); gc.setLineWidth(2.5);
         gc.strokeLine(tx, ty + r * 0.4, tx, ty + r * 1.1);
@@ -714,4 +845,3 @@ public class MapRenderer {
         gc.setFill(Color.web("#66bb6a")); gc.fillOval(tx - r * 0.35, ty - r * 0.85, r * 0.75, r * 0.75);
     }
 }
-
