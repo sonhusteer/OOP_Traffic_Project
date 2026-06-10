@@ -1,7 +1,9 @@
 package com.traffic.view;
 
+import com.traffic.config.Constants;
 import com.traffic.engine.SimulationEngine;
 import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.scene.Cursor;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
@@ -41,17 +43,16 @@ public class MainView {
         ToggleGroup mapGroup = new ToggleGroup();
         RadioButton rbGrid  = createRadio("Ô Cờ (Grid)", mapGroup);
         RadioButton rbNga4 = createRadio("Ngã Tư", mapGroup);
-        RadioButton rbCloverleaf = createRadio("Cloverleaf", mapGroup);
-        RadioButton rbBachKhoa   = createRadio("Bách Khoa", mapGroup);
-        RadioButton rbNga3       = createRadio("Ngã Ba", mapGroup);
+        RadioButton rbNga3 = createRadio("Ngã Ba", mapGroup);
+        RadioButton rbNga5    = createRadio("Ngã 5", mapGroup);
+        RadioButton rbMixed   = createRadio("Hỗn Hợp", mapGroup);
         rbGrid.setSelected(true);
         mapGroup.selectedToggleProperty().addListener((obs, oldV, newV) -> {
             if (newV != null) engine.changeMap(((RadioButton)newV).getText());
         });
-        HBox mapRow1 = new HBox(20, rbGrid, rbNga4);
-        HBox mapRow2 = new HBox(20, rbCloverleaf, rbBachKhoa);
-        HBox mapRow3 = new HBox(20, rbNga3);
-        secMap.getChildren().addAll(mapRow1, mapRow2, mapRow3);
+        HBox mapRow1 = new HBox(20, rbGrid, rbNga4, rbNga3);
+        HBox mapRow2 = new HBox(20, rbNga5, rbMixed);
+        secMap.getChildren().addAll(mapRow1, mapRow2);
 
         // Khối ĐIỀU KHIỂN
         VBox secCtrl = createSection("🎛 ĐIỀU KHIỂN");
@@ -105,93 +106,109 @@ public class MainView {
         });
         HBox dispRow = new HBox(20, rbBasic, rbGraphic);
         secDisplay.getChildren().add(dispRow);
-
-        // Khối 7: VEHICLES
-        VBox secVehicle = createSection("🚗 SINH XE & ĐIỀU KHIỂN");
         
-        // Dynamic vehicle count label
-        Label lblCount = new Label("Số lượng xe: 0");
-        lblCount.setTextFill(Color.web("#00f0ff"));
-        lblCount.setFont(Font.font("System", FontWeight.BOLD, 13));
-        engine.setVehicleCountLabel(lblCount);
+        // Khối THỜI GIAN (Day/Night Toggle)
+        VBox secTime = createSection("🌙 THỜI GIAN");
 
-        // Buttons for spawn
-        Button btnSpawnCar = new Button("Ô tô");
-        Button btnSpawnMoto = new Button("Xe máy");
-        Button btnSpawnBike = new Button("Xe đạp");
-        Button btnSpawnAmbulance = new Button("Cứu thương");
-        Button btnSpawnFireTruck = new Button("Cứu hỏa");
-        Button btnSpawnRandom = new Button("Sinh ngẫu nhiên");
-        
-        // Style buttons
-        String btnStyle = "-fx-background-color: #34495e; -fx-text-fill: white; -fx-font-weight: bold; -fx-cursor: hand; -fx-background-radius: 4;";
-        btnSpawnCar.setStyle(btnStyle);
-        btnSpawnMoto.setStyle(btnStyle);
-        btnSpawnBike.setStyle(btnStyle);
-        btnSpawnAmbulance.setStyle("-fx-background-color: #ff003c; -fx-text-fill: white; -fx-font-weight: bold; -fx-cursor: hand; -fx-background-radius: 4;");
-        btnSpawnFireTruck.setStyle("-fx-background-color: #ff3b00; -fx-text-fill: white; -fx-font-weight: bold; -fx-cursor: hand; -fx-background-radius: 4;");
-        btnSpawnRandom.setStyle("-fx-background-color: #2ecc71; -fx-text-fill: white; -fx-font-weight: bold; -fx-cursor: hand; -fx-background-radius: 4;");
-        
-        btnSpawnCar.setMaxWidth(Double.MAX_VALUE);
-        btnSpawnMoto.setMaxWidth(Double.MAX_VALUE);
-        btnSpawnBike.setMaxWidth(Double.MAX_VALUE);
-        btnSpawnAmbulance.setMaxWidth(Double.MAX_VALUE);
-        btnSpawnFireTruck.setMaxWidth(Double.MAX_VALUE);
-        btnSpawnRandom.setMaxWidth(Double.MAX_VALUE);
+        // Hàng nhãn: 🌞 ──────── 🌙
+        Label lblSun  = new Label("🌞");
+        Label lblMoon = new Label("🌙");
+        lblSun .setStyle("-fx-font-size: 18px;");
+        lblMoon.setStyle("-fx-font-size: 18px;");
 
-        // Actions
-        btnSpawnCar.setOnAction(e -> engine.spawnVehicle("car"));
-        btnSpawnMoto.setOnAction(e -> engine.spawnVehicle("motorcycle"));
-        btnSpawnBike.setOnAction(e -> engine.spawnVehicle("bicycle"));
-        btnSpawnAmbulance.setOnAction(e -> engine.spawnVehicle("ambulance"));
-        btnSpawnFireTruck.setOnAction(e -> engine.spawnVehicle("firetruck"));
-        btnSpawnRandom.setOnAction(e -> engine.spawnRandomVehicle());
+        // Toggle track
+        StackPane track = new StackPane();
+        track.setPrefSize(64, 28);
+        track.setMaxSize(64, 28);
+        track.setStyle("-fx-background-color: #2c3e50; -fx-background-radius: 14;");
 
-        // Grid for individual vehicle spawn
-        GridPane gridSpawn = new GridPane();
-        gridSpawn.setHgap(8);
-        gridSpawn.setVgap(8);
-        gridSpawn.addColumn(0, btnSpawnCar, btnSpawnMoto, btnSpawnBike);
-        gridSpawn.addColumn(1, btnSpawnAmbulance, btnSpawnFireTruck, btnSpawnRandom);
-        
-        // Make columns equal width
-        ColumnConstraints col1 = new ColumnConstraints();
-        col1.setPercentWidth(50);
-        ColumnConstraints col2 = new ColumnConstraints();
-        col2.setPercentWidth(50);
-        gridSpawn.getColumnConstraints().addAll(col1, col2);
+        // Toggle thumb
+        StackPane thumb = new StackPane();
+        thumb.setPrefSize(24, 24);
+        thumb.setMaxSize(24, 24);
+        thumb.setStyle("-fx-background-color: linear-gradient(to bottom, #f9ca24, #f0932b); "
+                     + "-fx-background-radius: 12; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 4, 0, 0, 1);");
+        StackPane.setAlignment(thumb, javafx.geometry.Pos.CENTER_LEFT);
+        thumb.setTranslateX(2);
+        track.getChildren().add(thumb);
 
-        // Auto spawn and clear controls
-        CheckBox chkAutoSpawn = createCheck("Tự động sinh xe", engine.isAutoSpawnEnabled());
-        chkAutoSpawn.setOnAction(e -> engine.setAutoSpawnEnabled(chkAutoSpawn.isSelected()));
+        // Nhãn trạng thái
+        Label lblTimeStatus = new Label("Tự động (Chu kỳ)");
+        lblTimeStatus.setTextFill(Color.web("#f9ca24"));
+        lblTimeStatus.setFont(Font.font("System", FontWeight.BOLD, 11));
 
-        // Tốc độ xe (Slider)
-        VBox boxSpeed = new VBox(4);
-        Label lblSpeed = new Label("Tốc độ xe: 100%");
-        lblSpeed.setTextFill(Color.web("#bdc3c7"));
-        Slider sliderSpeed = new Slider(0.2, 2.5, 1.0);
-        sliderSpeed.setShowTickMarks(true);
-        sliderSpeed.setShowTickLabels(true);
-        sliderSpeed.setCursor(Cursor.HAND);
-        sliderSpeed.valueProperty().addListener((obs, oldVal, newVal) -> {
-            double val = newVal.doubleValue();
-            com.traffic.config.Constants.VEHICLE_SPEED_MULTIPLIER = val;
-            lblSpeed.setText(String.format("Tốc độ xe: %d%%", (int)(val * 100)));
-        });
-        boxSpeed.getChildren().addAll(lblSpeed, sliderSpeed);
+        // 3 nút chế độ
+        Button btnAuto  = createTimeBtn("🔄 Tự động");
+        Button btnDay   = createTimeBtn("☀ Ban Ngày");
+        Button btnNight = createTimeBtn("🌙 Ban Đêm");
 
-        Button btnClear = new Button("🗑 Xóa tất cả xe");
-        btnClear.setMaxWidth(Double.MAX_VALUE);
-        btnClear.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold; -fx-cursor: hand; -fx-background-radius: 4;");
-        btnClear.setOnAction(e -> engine.clearAllVehicles());
+        // Highlight nút đang chọn
+        Runnable refreshTimeUI = () -> {
+            String base = "-fx-background-radius: 8; -fx-font-size: 11px; -fx-cursor: hand; "
+                        + "-fx-padding: 5 8 5 8; -fx-border-radius: 8; -fx-border-width: 1;";
+            btnAuto .setStyle(base + (Constants.TIME_MODE == 0
+                    ? "-fx-background-color: #6c5ce7; -fx-text-fill: white; -fx-border-color: #a29bfe;"
+                    : "-fx-background-color: #2d3748; -fx-text-fill: #bdc3c7; -fx-border-color: #4a5568;"));
+            btnDay  .setStyle(base + (Constants.TIME_MODE == 1
+                    ? "-fx-background-color: #e67e22; -fx-text-fill: white; -fx-border-color: #f39c12;"
+                    : "-fx-background-color: #2d3748; -fx-text-fill: #bdc3c7; -fx-border-color: #4a5568;"));
+            btnNight.setStyle(base + (Constants.TIME_MODE == 2
+                    ? "-fx-background-color: #2980b9; -fx-text-fill: white; -fx-border-color: #00cec9;"
+                    : "-fx-background-color: #2d3748; -fx-text-fill: #bdc3c7; -fx-border-color: #4a5568;"));
 
-        secVehicle.getChildren().addAll(lblCount, gridSpawn, chkAutoSpawn, boxSpeed, btnClear);
-        
-        panel.getChildren().addAll(secMap, secCtrl, secZoom, secLightMode, secDisplay, secVehicle);
+            // Cập nhật thumb & màu track
+            if (Constants.TIME_MODE == 1) {
+                thumb.setTranslateX(2);
+                thumb.setStyle("-fx-background-color: linear-gradient(to bottom, #f9ca24, #f0932b); "
+                             + "-fx-background-radius: 12; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 4, 0, 0, 1);");
+                track.setStyle("-fx-background-color: #e67e22; -fx-background-radius: 14;");
+                lblTimeStatus.setText("Ban Ngày");
+                lblTimeStatus.setTextFill(Color.web("#f9ca24"));
+            } else if (Constants.TIME_MODE == 2) {
+                thumb.setTranslateX(38);
+                thumb.setStyle("-fx-background-color: linear-gradient(to bottom, #74b9ff, #0984e3); "
+                             + "-fx-background-radius: 12; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 4, 0, 0, 1);");
+                track.setStyle("-fx-background-color: #2c3e50; -fx-background-radius: 14;");
+                lblTimeStatus.setText("Ban Đêm");
+                lblTimeStatus.setTextFill(Color.web("#74b9ff"));
+            } else {
+                thumb.setTranslateX(20);
+                thumb.setStyle("-fx-background-color: linear-gradient(to bottom, #a29bfe, #6c5ce7); "
+                             + "-fx-background-radius: 12; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 4, 0, 0, 1);");
+                track.setStyle("-fx-background-color: #6c5ce7; -fx-background-radius: 14;");
+                lblTimeStatus.setText("Tự động (Chu kỳ)");
+                lblTimeStatus.setTextFill(Color.web("#a29bfe"));
+            }
+        };
+
+        btnAuto.setOnAction(e  -> { Constants.TIME_MODE = 0; refreshTimeUI.run(); });
+        btnDay.setOnAction(e   -> { Constants.TIME_MODE = 1; refreshTimeUI.run(); });
+        btnNight.setOnAction(e -> { Constants.TIME_MODE = 2; refreshTimeUI.run(); });
+
+        // Khởi tạo style ban đầu
+        refreshTimeUI.run();
+
+        // Layout hàng toggle: icon + track + icon
+        HBox toggleRow = new HBox(8, lblSun, track, lblMoon);
+        toggleRow.setAlignment(Pos.CENTER);
+
+        HBox btnRow = new HBox(6, btnAuto, btnDay, btnNight);
+        btnRow.setAlignment(Pos.CENTER);
+
+        secTime.getChildren().addAll(toggleRow, lblTimeStatus, btnRow);
+
+        panel.getChildren().addAll(secMap, secCtrl, secZoom, secLightMode, secDisplay, secTime);
         ScrollPane scroll = new ScrollPane(panel);
         scroll.setFitToWidth(true);
         scroll.setStyle("-fx-background: #1e272e; -fx-border-color: #1e272e;");
         return scroll;
+    }
+
+    private Button createTimeBtn(String text) {
+        Button btn = new Button(text);
+        btn.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(btn, Priority.ALWAYS);
+        return btn;
     }
 
     private VBox createSection(String titleStr) {
