@@ -9,8 +9,8 @@ public class FireTruck extends Vehicle {
     public FireTruck(double x, double y, IDriver driver) {
         super(x, y, 130, driver);
         this.name       = "Fire";
-        this.width      = 26;
-        this.height     = 56;
+        this.width      = 56;
+        this.height     = 26;
         this.isPriority = true;  // ← xe ưu tiên
     }
 

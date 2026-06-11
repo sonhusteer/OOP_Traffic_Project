@@ -11,8 +11,8 @@ public class Ambulance extends Vehicle {
     public Ambulance(double x, double y, IDriver driver) {
         super(x, y, 150, driver);
         this.name        = "Ambu";
-        this.width       = 22;
-        this.height      = 44;
+        this.width       = 44;
+        this.height      = 22;
         this.isPriority  = true;   // ← xe ưu tiên
         this.sirenActive = true;
     }

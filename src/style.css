@@ -1,0 +1,176 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Traffic Simulation — JavaFX Dark Theme
+   ═══════════════════════════════════════════════════════════════════ */
+
+.root {
+    -fx-base: #1a1a2e;
+    -fx-background: #1a1a2e;
+    -fx-accent: #4488ff;
+    -fx-focus-color: #4488ff44;
+    -fx-faint-focus-color: #4488ff22;
+}
+
+/* ── Labels ────────────────────────────────────────────────────────── */
+.label {
+    -fx-text-fill: #b0b8d0;
+    -fx-font-family: "SansSerif";
+}
+
+/* ── ComboBox ─────────────────────────────────────────────────────── */
+.dark-combo {
+    -fx-background-color: #2a2a44;
+    -fx-text-fill: white;
+    -fx-border-color: #444466;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-font-size: 12px;
+}
+.dark-combo .list-cell {
+    -fx-text-fill: white;
+    -fx-background-color: #2a2a44;
+}
+.dark-combo .list-view {
+    -fx-background-color: #222240;
+}
+.dark-combo .list-view .list-cell:hover {
+    -fx-background-color: #3a3a66;
+}
+.dark-combo .list-view .list-cell:filled:selected {
+    -fx-background-color: #4466aa;
+}
+.dark-combo .arrow-button {
+    -fx-background-color: #333355;
+    -fx-border-color: transparent;
+}
+.dark-combo .arrow {
+    -fx-background-color: #99aacc;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────── */
+.btn-spawn {
+    -fx-background-color: linear-gradient(to bottom, #2ecc71, #27ae60);
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-font-size: 13px;
+    -fx-background-radius: 6;
+    -fx-cursor: hand;
+    -fx-padding: 8 16;
+}
+.btn-spawn:hover {
+    -fx-background-color: linear-gradient(to bottom, #3ddb80, #2ecc71);
+    -fx-effect: dropshadow(gaussian, #2ecc7188, 12, 0, 0, 0);
+}
+.btn-spawn:pressed {
+    -fx-background-color: #1e8c4f;
+}
+
+.btn-clear {
+    -fx-background-color: linear-gradient(to bottom, #e74c3c, #c0392b);
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-font-size: 13px;
+    -fx-background-radius: 6;
+    -fx-cursor: hand;
+    -fx-padding: 8 16;
+}
+.btn-clear:hover {
+    -fx-background-color: linear-gradient(to bottom, #ff5c4c, #e74c3c);
+    -fx-effect: dropshadow(gaussian, #e74c3c88, 12, 0, 0, 0);
+}
+.btn-clear:pressed {
+    -fx-background-color: #a5281a;
+}
+
+.btn-action {
+    -fx-background-color: #2a2a50;
+    -fx-text-fill: #c0d0f0;
+    -fx-font-weight: bold;
+    -fx-font-size: 12px;
+    -fx-background-radius: 5;
+    -fx-border-color: #444477;
+    -fx-border-radius: 5;
+    -fx-cursor: hand;
+    -fx-padding: 6 14;
+}
+.btn-action:hover {
+    -fx-background-color: #3a3a66;
+    -fx-border-color: #6666aa;
+    -fx-effect: dropshadow(gaussian, #4466aa44, 8, 0, 0, 0);
+}
+.btn-action:pressed {
+    -fx-background-color: #222244;
+}
+
+/* ── Slider ───────────────────────────────────────────────────────── */
+.slider .track {
+    -fx-background-color: #333355;
+    -fx-background-radius: 4;
+    -fx-pref-height: 6;
+}
+.slider .thumb {
+    -fx-background-color: radial-gradient(center 50% 50%, radius 80%, #6688dd, #3355aa);
+    -fx-background-radius: 10;
+    -fx-pref-width: 16;
+    -fx-pref-height: 16;
+    -fx-cursor: hand;
+}
+.slider .thumb:hover {
+    -fx-effect: dropshadow(gaussian, #4488ff88, 8, 0, 0, 0);
+}
+.slider .axis .tick-mark {
+    -fx-stroke: #555577;
+}
+.slider .axis .tick-label {
+    -fx-text-fill: #8899bb;
+    -fx-font-size: 9px;
+}
+
+/* ── Spinner ──────────────────────────────────────────────────────── */
+.spinner {
+    -fx-background-color: #2a2a44;
+    -fx-border-color: #444466;
+    -fx-border-radius: 4;
+}
+.spinner .text-field {
+    -fx-background-color: #2a2a44;
+    -fx-text-fill: white;
+    -fx-font-size: 12px;
+}
+.spinner .increment-arrow-button,
+.spinner .decrement-arrow-button {
+    -fx-background-color: #333355;
+    -fx-border-color: #444466;
+}
+.spinner .increment-arrow-button .increment-arrow,
+.spinner .decrement-arrow-button .decrement-arrow {
+    -fx-background-color: #99aacc;
+}
+
+/* ── Separator ────────────────────────────────────────────────────── */
+.separator .line {
+    -fx-border-color: #444466;
+    -fx-border-width: 1 0 0 0;
+}
+
+/* ── ScrollBar (trong TextArea) ───────────────────────────────────── */
+.scroll-bar {
+    -fx-background-color: #1a1a2e;
+}
+.scroll-bar .thumb {
+    -fx-background-color: #444466;
+    -fx-background-radius: 4;
+}
+.scroll-bar .thumb:hover {
+    -fx-background-color: #5555aa;
+}
+.scroll-bar .increment-button,
+.scroll-bar .decrement-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+.scroll-bar .increment-arrow,
+.scroll-bar .decrement-arrow {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+    -fx-shape: "";
+}

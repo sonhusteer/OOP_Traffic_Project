@@ -1,25 +1,17 @@
 package com.traffic.drivers;
 
-import com.traffic.core.IDriver;
-import com.traffic.core.Vehicle;
-import com.traffic.map.TrafficLight;
+public class EmergencyDriver extends AbstractBaseDriver {
 
-// Tai xe xe uu tien (Ambulance, FireTruck):
-// Khong tuan thu den do, chay toc do toi da moi luc
-// Cac xe khac phai nhuong duong (xu ly o TrafficEngine)
-public class EmergencyDriver implements IDriver {
+    @Override protected double getBrakeDistance() { return 20.0;  }
+    @Override protected double getStopDistance()  { return 0.0;   }
+    @Override protected double getMaxSpeed()      { return 160.0; }
+    @Override protected double getMinSpeed()      { return 0.0;   }
+    
+    // Khoảng cách an toàn CỰC NHỎ để lách qua mọi khe hở
+    @Override protected double getSafeDistance()  { return 15.0;  }
+    @Override protected double getOvertakeGap()   { return 20.0;  } // Có thể vượt qua các khoảng trống rất hẹp
+    
+    @Override protected boolean canOvertake()     { return true;  }
+    @Override protected boolean obeyTrafficLight(){ return false; } // Không tuân thủ đèn đỏ
 
-    // Toc do cao nhat trong tat ca cac loai driver
-    private static final double EMERGENCY_SPEED = 160.0;
-
-    @Override
-    public void makeDecision(Vehicle vehicle, TrafficLight nextLight) {
-        // Hoan toan bo qua trang thai den giao thong
-        // Ke ca den do cung vuot qua
-        vehicle.setSpeed(EMERGENCY_SPEED);
-
-        // Khong can kiem tra nextLight
-        // Logic nhuong duong cua xe khac duoc xu ly o TrafficEngine:
-        //   khi phat hien EmergencyDriver gan ke -> goi vehicle.setSpeed(giam) voi xe thuong
-    }
 }

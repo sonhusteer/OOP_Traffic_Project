@@ -39,18 +39,20 @@ public class RoadNetwork {
     }
 
     /**
-     * Đăng ký toàn bộ đèn của mạng lưới vào engine.
+     * Đăng ký toàn bộ đèn VÀ ngã rẽ của mạng lưới vào engine.
      * Gọi 1 lần duy nhất khi khởi tạo simulation.
      *
-     * Ví dụ dùng:
-     *   RoadNetwork network = new RoadNetwork();
-     *   network.addIntersection(ngaTu1);
-     *   network.addIntersection(ngaTu2);
-     *   network.registerTo(engine);   // đăng ký tất cả đèn vào engine
+     * [Cách B] RoadNetwork tự động truyền Intersection vào engine
+     * → MainApp không cần gọi thêm engine.addIntersection().
      */
     public void registerTo(TrafficEngine engine) {
-        for (TrafficLight light : getAllLights()) {
-            engine.addTrafficLight(light);
+        for (Intersection intersection : intersections) {
+            // Đăng ký đèn
+            for (TrafficLight light : intersection.getAllLights()) {
+                engine.addTrafficLight(light);
+            }
+            // Đăng ký ngã rẽ để engine phát hiện xung đột
+            engine.addIntersection(intersection);
         }
     }
 }

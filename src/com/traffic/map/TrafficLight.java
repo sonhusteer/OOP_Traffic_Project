@@ -43,6 +43,9 @@ public abstract class TrafficLight {
      * Tránh đèn chạy quá nhanh khi tick() được gọi 33 lần/giây.
      */
     public final void tick(double deltaTime) {
+        // Đang ở chế độ thủ công → không đếm ngược tự động
+        if (manualMode) return;
+
         timeAccumulator += deltaTime;
 
         // Mỗi khi tích lũy đủ 1 giây → đếm ngược 1 đơn vị
@@ -64,6 +67,36 @@ public abstract class TrafficLight {
         };
     }
 
+    // ── Điều khiển thủ công (Manual Mode) ───────────────────────────────
+
+    // Khi manualMode = true, đèn KHÔNG tự chuyển theo timer
+    private boolean manualMode = false;
+
+    /**
+     * Bật/tắt chế độ điều khiển thủ công.
+     * Khi bật: đèn đứng yên, chờ người dùng click.
+     * Khi tắt: đèn tiếp tục chạy tự động từ timeLeft hiện tại.
+     */
+    public void setManualMode(boolean manual) {
+        this.manualMode = manual;
+    }
+
+    public boolean isManualMode() { return manualMode; }
+
+    /**
+     * Chuyển màu đèn thủ công theo thứ tự: RED → GREEN → YELLOW → RED.
+     * Chỉ hoạt động khi manualMode = true.
+     * Reset timeLeft về giá trị tương ứng của màu mới.
+     */
+    public void manualSwitch() {
+        if (!manualMode) return;
+        state = switch (state) {
+            case RED    -> { timeLeft = greenTime;  yield State.GREEN;  }
+            case GREEN  -> { timeLeft = yellowTime; yield State.YELLOW; }
+            case YELLOW -> { timeLeft = redTime;    yield State.RED;    }
+        };
+    }
+
     // ── Kiểm tra trạng thái ───────────────────────────────────────────────
 
     public boolean isRed()    { return state == State.RED;    }
@@ -73,7 +106,7 @@ public abstract class TrafficLight {
     // ── Getters ───────────────────────────────────────────────────────────
 
     public State    getState()    { return state;        }
-    public double       getTimeLeft() { return timeLeft;     }
+    public double   getTimeLeft() { return timeLeft;     }
     public Vector2D getPosition() { return position;     }
     public String   getColor()    { return state.name(); }
 

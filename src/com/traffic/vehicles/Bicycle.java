@@ -9,8 +9,8 @@ public class Bicycle extends Vehicle {
     public Bicycle(double x, double y, IDriver driver) {
         super(x, y, 30, driver);
         this.name      = "Bike";
-        this.width     = 10;
-        this.height    = 20;
+        this.width     = 20;
+        this.height    = 10;
         this.isPriority = false;
     }
 

@@ -1,257 +1,437 @@
 package com.traffic.ui;
 
-import com.traffic.core.IRenderer;
 import com.traffic.core.Vector2D;
 import com.traffic.core.Vehicle;
 import com.traffic.map.Lane;
 import com.traffic.map.TrafficLight;
-import java.awt.*;
-import java.awt.geom.AffineTransform;
-import java.awt.image.BufferedImage;
+import javafx.scene.canvas.GraphicsContext;
+import javafx.scene.image.Image;
+import javafx.scene.paint.*;
+import javafx.scene.shape.StrokeLineCap;
+import javafx.scene.shape.StrokeLineJoin;
+import javafx.scene.text.Font;
+import javafx.scene.text.FontWeight;
 import java.io.InputStream;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import javax.imageio.ImageIO;
-import javax.swing.*;
 
 /**
- * Chế độ Graphic: vẽ xe bằng ảnh thật, xoay theo hướng,
- * hiệu ứng đèn nháy cho xe ưu tiên.
- *
- * Cùng implements IRenderer với BasicRenderer — đa hình:
- *   engine.setRenderer(new BasicRenderer(lanes));    // đổi sang Basic
- *   engine.setRenderer(new JavaFXRenderer(lanes));   // đổi sang Graphic
- * Không cần sửa bất kỳ dòng nào ở TrafficEngine.
+ * Chế độ Graphic — hỗ trợ sprite ảnh xe + hiệu ứng nâng cao.
+ * Dùng JavaFX Canvas. Nếu không tìm thấy ảnh, fallback về vẽ 2D.
  */
-public class JavaFXRenderer extends JPanel implements IRenderer {
+public class JavaFXRenderer extends AbstractBaseRenderer {
 
-    private final List<Lane>                   lanes;
-    private final List<Vehicle>                vehicles = new ArrayList<>();
-    private final List<TrafficLight>           lights   = new ArrayList<>();
-    private final Map<String, BufferedImage>   sprites  = new HashMap<>();
+    private final Map<String, Image> sprites = new HashMap<>();
 
-    // Hiệu ứng blink cho xe ưu tiên
-    private boolean blinkOn   = true;
-    private long    lastBlink = 0;
+    // ── Bảng màu đường & nền ─────────────────────────────────────────────
+    private static final Color ASPHALT   = Color.rgb(45, 48, 55);
+    private static final Color EDGE_MARK = Color.rgb(255, 220, 60, 200.0 / 255);
+    private static final Color BG_DARK   = Color.rgb(25, 30, 35);
+    private static final Color BG_GRASS  = Color.rgb(35, 50, 32);
 
-    // Màu fallback khi chưa có ảnh
-    private static final Map<String, Color> FALLBACK_COLORS = Map.of(
-        "car",        new Color(30,  120, 255),
-        "motorcycle", new Color(255, 140, 0),
-        "bicycle",    new Color(50,  200, 50),
-        "ambulance",  Color.WHITE,
-        "firetruck",  new Color(220, 30,  30)
+    // ── Bảng màu xe ─────────────────────────────────────────────────────
+    private static final Map<String, Color> VEHICLE_COLORS = Map.of(
+        "car",        Color.rgb(66, 133, 244),
+        "motorcycle", Color.rgb(255, 152, 0),
+        "bicycle",    Color.rgb(76, 175, 80),
+        "ambulance",  Color.rgb(240, 240, 240),
+        "firetruck",  Color.rgb(211, 47, 47)
+    );
+
+    private static final Map<String, Color> VEHICLE_COLORS_DARK = Map.of(
+        "car",        Color.rgb(25, 82, 180),
+        "motorcycle", Color.rgb(200, 100, 0),
+        "bicycle",    Color.rgb(40, 120, 45),
+        "ambulance",  Color.rgb(160, 165, 170),
+        "firetruck",  Color.rgb(150, 20, 20)
     );
 
     public JavaFXRenderer(List<Lane> lanes) {
-        this.lanes = lanes;
-        setBackground(new Color(20, 20, 20)); // nền tối cho chế độ graphic
-        setPreferredSize(new Dimension(800, 600));
+        super(lanes);
         loadSprites();
     }
 
-    // ── Load ảnh từ resources/images/ ────────────────────────────────────
-
+    /** Tải sprite PNG từ /images/. Nếu không có, fallback về 2D shapes. */
     private void loadSprites() {
         String[] types = {"car", "motorcycle", "bicycle", "ambulance", "firetruck"};
         for (String type : types) {
             try {
                 InputStream is = getClass().getResourceAsStream("/images/" + type + ".png");
                 if (is != null) {
-                    sprites.put(type, ImageIO.read(is));
-                } else {
-                    System.out.println("[Renderer] Chưa có ảnh: " + type + ".png — dùng màu fallback");
+                    sprites.put(type, new Image(is));
                 }
-            } catch (Exception e) {
-                System.out.println("[Renderer] Lỗi load ảnh: " + type + " — " + e.getMessage());
-            }
+            } catch (Exception ignored) {}
         }
     }
 
-    // ── IRenderer ────────────────────────────────────────────────────────
-
+    // =====================================================================
+    //  MAIN DRAW
+    // =====================================================================
     @Override
-    public void clear() {
-        vehicles.clear();
-        lights.clear();
+    public void draw(GraphicsContext gc, double w, double h) {
+        drawBackground(gc, w, h);
+        drawLanes(gc);
+        drawLights(gc);
+        drawVehicles(gc);
+        drawHUD(gc, w);
     }
 
-    @Override
-    public void renderVehicles(List<Vehicle> list) {
-        vehicles.addAll(list);
+    // =====================================================================
+    //  1. NỀN CỎ — gradient tối hơn BasicRenderer
+    // =====================================================================
+    private void drawBackground(GraphicsContext gc, double w, double h) {
+        // Gradient nền tối hơn BasicRenderer
+        LinearGradient bg = new LinearGradient(
+            0, 0, w, h, false, CycleMethod.NO_CYCLE,
+            new Stop(0, BG_DARK),
+            new Stop(1, BG_GRASS)
+        );
+        gc.setFill(bg);
+        gc.fillRect(0, 0, w, h);
+
+        // Lưới mờ nhạt giúp có chiều sâu
+        gc.setStroke(Color.rgb(255, 255, 255, 6.0 / 255));
+        gc.setLineWidth(1);
+        for (int x = 0; x < (int) w; x += 40) gc.strokeLine(x, 0, x, h);
+        for (int y = 0; y < (int) h; y += 40) gc.strokeLine(0, y, w, y);
     }
 
-    @Override
-    public void renderLights(List<TrafficLight> list) {
-        lights.addAll(list);
-    }
-
-    // ── Swing paint ──────────────────────────────────────────────────────
-
-    @Override
-    protected void paintComponent(Graphics g) {
-        super.paintComponent(g);
-        Graphics2D g2 = (Graphics2D) g;
-        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
-                            RenderingHints.VALUE_ANTIALIAS_ON);
-        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
-                            RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-
-        drawLanes(g2);
-        drawLights(g2);
-        drawVehicles(g2);
-    }
-
-    // ── Vẽ đường ─────────────────────────────────────────────────────────
-
-    private void drawLanes(Graphics2D g2) {
+    // =====================================================================
+    //  2. VẼ ĐƯỜNG — asphalt 80px, vạch mép vàng
+    // =====================================================================
+    private void drawLanes(GraphicsContext gc) {
         if (lanes == null) return;
+
         for (Lane lane : lanes) {
             List<Vector2D> pts = lane.getwaypoints();
             if (pts == null || pts.size() < 2) continue;
 
-            // Mặt đường
-            g2.setColor(new Color(50, 50, 50));
-            g2.setStroke(new BasicStroke(42, BasicStroke.CAP_ROUND,
-                                         BasicStroke.JOIN_ROUND));
+            // Shadow nhẹ bên dưới đường
+            gc.setStroke(Color.rgb(0, 0, 0, 60.0 / 255));
+            gc.setLineWidth(84);
+            gc.setLineCap(StrokeLineCap.ROUND);
+            gc.setLineJoin(StrokeLineJoin.ROUND);
             for (int i = 0; i < pts.size() - 1; i++) {
-                g2.drawLine((int) pts.get(i).getX(), (int) pts.get(i).getY(),
-                            (int) pts.get(i+1).getX(), (int) pts.get(i+1).getY());
+                gc.strokeLine(
+                    pts.get(i).getX() + 2, pts.get(i).getY() + 3,
+                    pts.get(i + 1).getX() + 2, pts.get(i + 1).getY() + 3
+                );
             }
 
-            // Vạch kẻ trắng mờ hơn
-            float[] dash = {12f, 12f};
-            g2.setColor(new Color(200, 200, 200, 160));
-            g2.setStroke(new BasicStroke(2, BasicStroke.CAP_BUTT,
-                    BasicStroke.JOIN_BEVEL, 0, dash, 0));
+            // Mặt đường asphalt (rộng 80px)
+            gc.setStroke(ASPHALT);
+            gc.setLineWidth(80);
+            gc.setLineCap(StrokeLineCap.ROUND);
+            gc.setLineJoin(StrokeLineJoin.ROUND);
             for (int i = 0; i < pts.size() - 1; i++) {
-                g2.drawLine((int) pts.get(i).getX(), (int) pts.get(i).getY(),
-                            (int) pts.get(i+1).getX(), (int) pts.get(i+1).getY());
+                gc.strokeLine(
+                    pts.get(i).getX(), pts.get(i).getY(),
+                    pts.get(i + 1).getX(), pts.get(i + 1).getY()
+                );
             }
+
+            // Highlight nhẹ ở giữa mặt đường (ánh đèn phản chiếu)
+            gc.setStroke(Color.rgb(255, 255, 255, 8.0 / 255));
+            gc.setLineWidth(30);
+            gc.setLineCap(StrokeLineCap.ROUND);
+            gc.setLineJoin(StrokeLineJoin.ROUND);
+            for (int i = 0; i < pts.size() - 1; i++) {
+                gc.strokeLine(
+                    pts.get(i).getX(), pts.get(i).getY(),
+                    pts.get(i + 1).getX(), pts.get(i + 1).getY()
+                );
+            }
+
+            // Vạch mép đường vàng (2 bên, offset=40)
+            gc.setStroke(EDGE_MARK);
+            gc.setLineDashes(18, 8);
+            gc.setLineWidth(1.5);
+            gc.setLineCap(StrokeLineCap.BUTT);
+            gc.setLineJoin(StrokeLineJoin.BEVEL);
+            for (int side : new int[]{-1, 1}) {
+                for (int i = 0; i < pts.size() - 1; i++) {
+                    double[] off  = perp(pts.get(i), pts.get(i + 1), 40.0 * side);
+                    double[] off2 = perp(pts.get(i + 1), pts.get(i), -40.0 * side);
+                    gc.strokeLine(
+                        pts.get(i).getX()     + off[0],  pts.get(i).getY()     + off[1],
+                        pts.get(i + 1).getX() + off2[0], pts.get(i + 1).getY() + off2[1]
+                    );
+                }
+            }
+            // Reset dashes
+            gc.setLineDashes((double[]) null);
         }
     }
 
-    // ── Vẽ đèn ───────────────────────────────────────────────────────────
+    /** Tính vector perpendicular offset (sang trái khi facing từ p1→p2) */
+    private double[] perp(Vector2D p1, Vector2D p2, double offset) {
+        double dx = p2.getX() - p1.getX();
+        double dy = p2.getY() - p1.getY();
+        double len = Math.hypot(dx, dy);
+        if (len == 0) return new double[]{0, 0};
+        double nx = -dy / len;
+        double ny =  dx / len;
+        return new double[]{nx * offset, ny * offset};
+    }
 
-    private void drawLights(Graphics2D g2) {
+    // =====================================================================
+    //  3. ĐÈN GIAO THÔNG — glow lớn hơn BasicRenderer
+    // =====================================================================
+    private void drawLights(GraphicsContext gc) {
         for (TrafficLight light : lights) {
             if (light == null) continue;
-            int x = (int) light.getPosition().getX();
-            int y = (int) light.getPosition().getY();
-            drawTrafficLight(g2, x - 15, y - 40, light);
+            double x = light.getPosition().getX();
+            double y = light.getPosition().getY();
+            drawTrafficLight(gc, x, y, light);
         }
     }
 
-    private void drawTrafficLight(Graphics2D g2, int x, int y, TrafficLight light) {
-        // Cột đèn
-        g2.setColor(new Color(40, 40, 40));
-        g2.fillRoundRect(x, y, 30, 80, 8, 8);
+    private void drawTrafficLight(GraphicsContext gc, double cx, double cy, TrafficLight light) {
+        // Kích thước nhỏ gọn: 14×38
+        int bw = 14, bh = 38;
+        double bx = cx - bw / 2.0, by = cy - bh / 2.0;
 
-        // Viền phát sáng theo trạng thái
+        // Khung đèn — pill shape tối
+        gc.setFill(Color.rgb(20, 22, 26));
+        gc.fillRoundRect(bx - 1, by - 1, bw + 2, bh + 2, 8, 8);
+        gc.setStroke(Color.rgb(50, 54, 62));
+        gc.setLineWidth(1);
+        gc.strokeRoundRect(bx, by, bw, bh, 8, 8);
+
         String color = light.getColor();
-        Color glow = switch (color) {
-            case "GREEN"  -> new Color(0,   255, 0,   60);
-            case "YELLOW" -> new Color(255, 255, 0,   60);
-            default       -> new Color(255, 0,   0,   60);
-        };
-        g2.setColor(glow);
-        g2.fillRoundRect(x - 3, y - 3, 36, 86, 10, 10);
 
-        // 3 bóng đèn
-        drawBulb(g2, x + 5, y + 5,  color.equals("RED"),    Color.RED,    new Color(80,0,0));
-        drawBulb(g2, x + 5, y + 30, color.equals("YELLOW"), Color.YELLOW, new Color(80,80,0));
-        drawBulb(g2, x + 5, y + 55, color.equals("GREEN"),  Color.GREEN,  new Color(0,80,0));
+        // Vẽ 3 bóng đèn — glow lớn hơn BasicRenderer (r+5 thay vì r+3)
+        drawBulb(gc, cx, by + 6,  "RED",    color, 9);
+        drawBulb(gc, cx, by + 20, "YELLOW", color, 9);
+        drawBulb(gc, cx, by + 34, "GREEN",  color, 9);
 
-        // Số giây — đa hình
+        // Số đếm ngược nhỏ bên cạnh
         String display = light.getDisplay();
         if (!display.isEmpty()) {
-            g2.setColor(Color.WHITE);
-            g2.setFont(new Font("Arial", Font.BOLD, 13));
-            g2.drawString(display, x + 35, y + 45);
+            gc.setFont(Font.font("SansSerif", FontWeight.BOLD, 10));
+            Color textColor = switch (color) {
+                case "GREEN"  -> Color.rgb(80, 220, 80);
+                case "YELLOW" -> Color.rgb(255, 220, 50);
+                default       -> Color.rgb(255, 90, 90);
+            };
+            gc.setFill(Color.rgb(0, 0, 0, 130.0 / 255));
+            gc.fillRoundRect(cx + bw / 2.0 + 3, cy - 8, 20, 14, 4, 4);
+            gc.setFill(textColor);
+            gc.fillText(display, cx + bw / 2.0 + 5, cy + 3);
+        }
+
+        // Huy hiệu vàng nếu ở chế độ thủ công
+        if (light.isManualMode()) {
+            gc.setStroke(Color.rgb(255, 200, 0));
+            gc.setLineWidth(1.5);
+            gc.strokeRoundRect(bx - 3, by - 3, bw + 6, bh + 6, 10, 10);
         }
     }
 
-    private void drawBulb(Graphics2D g2, int x, int y,
-                           boolean on, Color onColor, Color offColor) {
-        g2.setColor(on ? onColor : offColor);
-        g2.fillOval(x, y, 20, 20);
+    private void drawBulb(GraphicsContext gc, double cx, double cy,
+                           String bulbColor, String activeColor, int r) {
+        boolean on = bulbColor.equals(activeColor);
+
+        Color onColor = switch (bulbColor) {
+            case "RED"    -> Color.rgb(255, 60, 60);
+            case "YELLOW" -> Color.rgb(255, 215, 0);
+            default       -> Color.rgb(60, 220, 60);
+        };
+        Color offColor = switch (bulbColor) {
+            case "RED"    -> Color.rgb(80, 20, 20);
+            case "YELLOW" -> Color.rgb(80, 70, 0);
+            default       -> Color.rgb(10, 65, 10);
+        };
+
         if (on) {
-            // Hào quang phát sáng
-            g2.setColor(new Color(onColor.getRed(), onColor.getGreen(),
-                                  onColor.getBlue(), 60));
-            g2.fillOval(x - 3, y - 3, 26, 26);
+            // Quầng sáng lớn hơn BasicRenderer (r+5 thay vì r+3)
+            Color glow = Color.rgb(
+                (int) (onColor.getRed() * 255),
+                (int) (onColor.getGreen() * 255),
+                (int) (onColor.getBlue() * 255),
+                50.0 / 255
+            );
+            gc.setFill(glow);
+            gc.fillOval(cx - r - 5, cy - r - 5, (r + 5) * 2, (r + 5) * 2);
+        }
+
+        // Bóng đèn
+        gc.setFill(on ? onColor : offColor);
+        gc.fillOval(cx - r, cy - r, r * 2, r * 2);
+
+        if (on) {
+            // Highlight nhỏ ở góc trái trên
+            gc.setFill(Color.rgb(255, 255, 255, 80.0 / 255));
+            gc.fillOval(cx - r + 2, cy - r + 2, r - 2, r - 2);
         }
     }
 
-    // ── Vẽ xe ────────────────────────────────────────────────────────────
-
-    private void drawVehicles(Graphics2D g2) {
+    // =====================================================================
+    //  4. VẼ XE — sprite hoặc fallback 2D shapes
+    // =====================================================================
+    private void drawVehicles(GraphicsContext gc) {
         for (Vehicle v : vehicles) {
             if (v == null || v.getPosition() == null) continue;
-
-            // Hiệu ứng blink cho xe ưu tiên — vẽ TRƯỚC thân xe
-            if (v.isPriority()) drawBlinkEffect(g2, v);
-
-            drawVehicle(g2, v);
+            drawVehicle(gc, v);
         }
     }
 
-    private void drawVehicle(Graphics2D g2, Vehicle v) {
+    private void drawVehicle(GraphicsContext gc, Vehicle v) {
         double w = v.getWidth(), h = v.getHeight();
-        AffineTransform old = g2.getTransform();
+        double px = v.getPosition().getX();
+        double py = v.getPosition().getY();
 
-        g2.translate(v.getPosition().getX(), v.getPosition().getY());
-        g2.rotate(Math.toRadians(v.getAngle()));
+        // Đèn nhấp nháy đỏ/xanh cho xe ưu tiên (vẽ ngoài transform)
+        if (v.isPriority()) {
+            long t = System.currentTimeMillis() / 250;
+            Color blinkColor = (t % 2 == 0)
+                ? Color.rgb(255, 20, 20, 220.0 / 255)
+                : Color.rgb(20, 100, 255, 220.0 / 255);
+            gc.save();
+            gc.translate(px, py);
+            gc.rotate(v.getAngle());
+            gc.setFill(blinkColor);
+            gc.fillRoundRect(-w / 2, -h / 2 - 4, w, 4, 2, 2);
+            gc.restore();
+        }
 
-        BufferedImage img = sprites.get(v.getTypeName());
+        gc.save();
+        gc.translate(px, py);
+        gc.rotate(v.getAngle());   // JavaFX rotate() takes degrees
 
-        if (img != null) {
-            // Vẽ ảnh thật — xoay theo góc đã translate ở trên
-            g2.drawImage(img, (int)(-w/2), (int)(-h/2), (int)w, (int)h, null);
+        // Viền cảnh báo STOP (cam)
+        if (v.getYieldMode() == Vehicle.YieldMode.STOP) {
+            gc.setStroke(Color.rgb(255, 140, 0, 160.0 / 255));
+            gc.setLineWidth(2.5);
+            gc.strokeRoundRect(-w / 2 - 4, -h / 2 - 4, w + 8, h + 8, 5, 5);
+        }
+
+        // Kiểm tra sprite
+        if (sprites.containsKey(v.getTypeName())) {
+            // ── Vẽ sprite ───────────────────────────────────────────────
+            Image sprite = sprites.get(v.getTypeName());
+            gc.drawImage(sprite, -w / 2, -h / 2, w, h);
         } else {
-            // Fallback: hình chữ nhật màu
-            Color c = FALLBACK_COLORS.getOrDefault(v.getTypeName(), Color.GRAY);
-            g2.setColor(c);
-            g2.fillRect((int)(-w/2), (int)(-h/2), (int)w, (int)h);
+            // ── Fallback: vẽ 2D shapes giống BasicRenderer ──────────────
 
-            // Bánh xe
-            g2.setColor(new Color(20, 20, 20));
-            g2.fillRect((int)( w/2-5), (int)(-h/2-3), 4, 3);
-            g2.fillRect((int)( w/2-5), (int)( h/2),   4, 3);
-            g2.fillRect((int)(-w/2+1), (int)(-h/2-3), 4, 3);
-            g2.fillRect((int)(-w/2+1), (int)( h/2),   4, 3);
+            Color base = VEHICLE_COLORS.getOrDefault(v.getTypeName(), Color.GRAY);
+            Color dark = VEHICLE_COLORS_DARK.getOrDefault(v.getTypeName(), Color.DARKGRAY);
+
+            // Shadow dưới xe
+            gc.setFill(Color.rgb(0, 0, 0, 60.0 / 255));
+            gc.fillRoundRect(-w / 2 + 2, -h / 2 + 2, w, h, 4, 4);
+
+            // Thân xe — gradient dọc
+            LinearGradient bodyGrad = new LinearGradient(
+                -w / 2, 0, w / 2, 0, false, CycleMethod.NO_CYCLE,
+                new Stop(0, base),
+                new Stop(1, dark)
+            );
+            gc.setFill(bodyGrad);
+            gc.fillRoundRect(-w / 2, -h / 2, w, h, 4, 4);
+
+            // Highlight trên nóc
+            gc.setFill(Color.rgb(255, 255, 255, 40.0 / 255));
+            gc.fillRoundRect(-w / 2 + 2, -h / 2 + 1, w - 4, h / 2 - 2, 3, 3);
+
+            // Viền ngoài xe
+            gc.setStroke(Color.rgb(0, 0, 0, 120.0 / 255));
+            gc.setLineWidth(1);
+            gc.strokeRoundRect(-w / 2, -h / 2, w, h, 4, 4);
+
+            // Bánh xe 4 góc
+            drawWheels(gc, w, h);
+
+            // Đèn hậu đỏ (phía sau xe)
+            gc.setFill(Color.rgb(255, 50, 50, 200.0 / 255));
+            gc.fillRect(-w / 2, -h / 2, 3, h);
+
+            // Đèn pha trắng (phía trước)
+            gc.setFill(Color.rgb(255, 255, 200, 180.0 / 255));
+            gc.fillRect(w / 2 - 3, -h / 2, 3, h);
         }
 
-        // Tên xe nhỏ
-        g2.setColor(new Color(255, 255, 255, 200));
-        g2.setFont(new Font("SansSerif", Font.BOLD, 8));
-        g2.drawString(v.getName().substring(0, Math.min(3, v.getName().length())),
-                (int)(-w/2 + 2), 3);
+        // Label tên & tốc độ (vẽ cho cả sprite lẫn 2D)
+        gc.setFill(Color.WHITE);
+        gc.setFont(Font.font("SansSerif", FontWeight.BOLD, 8));
+        String label = v.getName().substring(0, Math.min(3, v.getName().length()));
+        // Ước lượng chiều rộng text (JavaFX không có FontMetrics trực tiếp trên GC)
+        double labelW = label.length() * 5.0;
+        gc.fillText(label, -labelW / 2, 3);
 
-        g2.setTransform(old);
+        int spd = (int) v.getSpeed();
+        gc.setFill(spd == 0 ? Color.rgb(255, 100, 100) : Color.rgb(180, 255, 180));
+        gc.setFont(Font.font("SansSerif", FontWeight.NORMAL, 7));
+        gc.fillText(spd + "", w / 2 - 12, h / 2 - 1);
+
+        gc.restore();
     }
 
-    /** Đèn nháy đỏ ↔ xanh cho xe cứu thương / cứu hỏa */
-    private void drawBlinkEffect(Graphics2D g2, Vehicle v) {
-        long now = System.currentTimeMillis();
-        if (now - lastBlink > 300) {
-            blinkOn   = !blinkOn;
-            lastBlink = now;
+    private void drawWheels(GraphicsContext gc, double w, double h) {
+        gc.setFill(Color.rgb(25, 25, 25));
+        int wr = 4, wh = 3;
+        // Bánh trước phải / trái
+        gc.fillRoundRect(w / 2 - wr - 1, -h / 2 - wh, wr, wh, 2, 2);
+        gc.fillRoundRect(-w / 2 + 1,      -h / 2 - wh, wr, wh, 2, 2);
+        // Bánh sau phải / trái
+        gc.fillRoundRect(w / 2 - wr - 1,  h / 2,       wr, wh, 2, 2);
+        gc.fillRoundRect(-w / 2 + 1,       h / 2,       wr, wh, 2, 2);
+    }
+
+    // =====================================================================
+    //  5. HUD ĐÈN GIAO THÔNG — góc trái trên
+    // =====================================================================
+    private void drawHUD(GraphicsContext gc, double canvasW) {
+        if (lights.isEmpty()) return;
+
+        int panelW = 180, rowH = 22;
+        int panelH = lights.size() * rowH + 16;
+        int px = 10, py = 10;
+
+        // Nền HUD mờ (glassmorphism style)
+        gc.setFill(Color.rgb(10, 12, 18, 200.0 / 255));
+        gc.fillRoundRect(px, py, panelW, panelH, 10, 10);
+        gc.setStroke(Color.rgb(255, 255, 255, 20.0 / 255));
+        gc.setLineWidth(1);
+        gc.strokeRoundRect(px, py, panelW, panelH, 10, 10);
+
+        gc.setFont(Font.font("SansSerif", FontWeight.BOLD, 10));
+
+        for (int i = 0; i < lights.size(); i++) {
+            TrafficLight light = lights.get(i);
+            int ry = py + 8 + i * rowH;
+
+            // Chấm màu đèn
+            Color dotColor = switch (light.getColor()) {
+                case "GREEN"  -> Color.rgb(50, 220, 80);
+                case "YELLOW" -> Color.rgb(255, 210, 40);
+                default       -> Color.rgb(240, 70, 70);
+            };
+
+            // Glow nhỏ cho dot
+            gc.setFill(Color.color(dotColor.getRed(), dotColor.getGreen(), dotColor.getBlue(), 60.0 / 255));
+            gc.fillOval(px + 10 - 3, ry - 2, 14, 14);
+            gc.setFill(dotColor);
+            gc.fillOval(px + 10, ry, 9, 9);
+
+            // Tên đèn
+            gc.setFill(Color.rgb(200, 200, 200));
+            gc.fillText(light.getColor(), px + 26, ry + 9);
+
+            // Thời gian còn lại
+            int tl = (int) light.getTimeLeft();
+            gc.setFill(dotColor);
+            String tStr = tl + "s";
+            gc.fillText(tStr, px + panelW - 30, ry + 9);
+
+            // Thanh tiến trình mini
+            gc.setFill(Color.rgb(255, 255, 255, 20.0 / 255));
+            gc.fillRoundRect(px + 26, ry + 11, panelW - 60, 3, 2, 2);
+            double maxTime = 13.0;
+            int barW = (int) Math.min((tl / maxTime) * (panelW - 60), panelW - 60);
+            gc.setFill(dotColor);
+            gc.fillRoundRect(px + 26, ry + 11, Math.max(barW, 2), 3, 2, 2);
         }
-        Color blinkColor = blinkOn
-                ? new Color(255, 0,   0,   100)   // đỏ
-                : new Color(0,   100, 255, 100);   // xanh dương
-        double w = v.getWidth(), h = v.getHeight();
-        AffineTransform old = g2.getTransform();
-
-        g2.translate(v.getPosition().getX(), v.getPosition().getY());
-        g2.rotate(Math.toRadians(v.getAngle()));
-        g2.setColor(blinkColor);
-        g2.fillOval((int)(-w/2 - 5), (int)(-h/2 - 5),
-                    (int)(w + 10),    (int)(h + 10));
-
-        g2.setTransform(old);
     }
 }

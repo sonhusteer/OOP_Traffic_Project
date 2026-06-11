@@ -1,212 +1,278 @@
 package com.traffic.ui;
 
-import com.traffic.core.IRenderer;
 import com.traffic.core.Vector2D;
 import com.traffic.core.Vehicle;
 import com.traffic.map.Lane;
 import com.traffic.map.TrafficLight;
-import java.awt.*;
-import java.awt.geom.AffineTransform;
-import java.util.ArrayList;
+import javafx.scene.canvas.GraphicsContext;
+import javafx.scene.paint.*;
+import javafx.scene.shape.StrokeLineCap;
+import javafx.scene.shape.StrokeLineJoin;
+import javafx.scene.text.Font;
+import javafx.scene.text.FontWeight;
 import java.util.List;
 import java.util.Map;
-import javax.swing.*;
 
 /**
- * Chế độ Basic: vẽ xe = hình chữ nhật màu + tên.
- * Implements IRenderer → thể hiện tính đa hình với JavaFXRenderer.
- *
- * Cùng lời gọi engine.render() nhưng cho giao diện hoàn toàn khác.
+ * Chế độ vẽ cơ bản — hình khối 2D, gradient, glow.
+ * Sử dụng JavaFX GraphicsContext.
  */
-public class BasicRenderer extends JPanel implements IRenderer {
+public class BasicRenderer extends AbstractBaseRenderer {
 
-    private final List<Lane>         lanes;
-    private final List<Vehicle>      vehicles = new ArrayList<>();
-    private final List<TrafficLight> lights   = new ArrayList<>();
+    private static final Color ASPHALT   = Color.rgb(45, 48, 55);
+    private static final Color EDGE_MARK = Color.rgb(255, 220, 60, 0.78);
+    private static final Color BG_DARK   = Color.rgb(30, 38, 28);
+    private static final Color BG_GRASS  = Color.rgb(44, 62, 38);
 
-    // Màu xe theo loại
     private static final Map<String, Color> VEHICLE_COLORS = Map.of(
-        "car",        new Color(30, 120, 255),
-        "motorcycle", new Color(255, 140, 0),
-        "bicycle",    new Color(50, 200, 50),
-        "ambulance",  Color.WHITE,
-        "firetruck",  new Color(220, 30, 30)
+        "car",        Color.rgb(66, 133, 244),
+        "motorcycle", Color.rgb(255, 152, 0),
+        "bicycle",    Color.rgb(76, 175, 80),
+        "ambulance",  Color.rgb(240, 240, 240),
+        "firetruck",  Color.rgb(211, 47, 47)
     );
 
     public BasicRenderer(List<Lane> lanes) {
-        this.lanes = lanes;
-        setBackground(new Color(34, 139, 34)); // nền cỏ xanh
-        setPreferredSize(new Dimension(800, 600));
-    }
-
-    // ── IRenderer ────────────────────────────────────────────────────────
-
-    @Override
-    public void clear() {
-        vehicles.clear();
-        lights.clear();
+        super(lanes);
     }
 
     @Override
-    public void renderVehicles(List<Vehicle> list) {
-        vehicles.addAll(list);
+    public void draw(GraphicsContext gc, double w, double h) {
+        drawBackground(gc, w, h);
+        drawLanes(gc);
+        drawLights(gc);
+        drawVehicles(gc);
+        drawHUD(gc, w);
     }
 
-    @Override
-    public void renderLights(List<TrafficLight> list) {
-        lights.addAll(list);
+    // ── Nền ──────────────────────────────────────────────────────────────
+
+    private void drawBackground(GraphicsContext gc, double w, double h) {
+        gc.setFill(new LinearGradient(0, 0, 1, 1, true, CycleMethod.NO_CYCLE,
+            new Stop(0, BG_DARK), new Stop(1, BG_GRASS)));
+        gc.fillRect(0, 0, w, h);
     }
 
-    // ── Swing paint ──────────────────────────────────────────────────────
+    // ── Đường ────────────────────────────────────────────────────────────
 
-    @Override
-    protected void paintComponent(Graphics g) {
-        super.paintComponent(g);
-        Graphics2D g2 = (Graphics2D) g;
-        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
-                            RenderingHints.VALUE_ANTIALIAS_ON);
-
-        drawLanes(g2);
-        drawLights(g2);
-        drawVehicles(g2);
-        drawDebugOverlay(g2);
-    }
-
-    // ── Vẽ đường ─────────────────────────────────────────────────────────
-
-    private void drawLanes(Graphics2D g2) {
+    private void drawLanes(GraphicsContext gc) {
         if (lanes == null) return;
         for (Lane lane : lanes) {
             List<Vector2D> pts = lane.getwaypoints();
             if (pts == null || pts.size() < 2) continue;
 
-            // Mặt đường xám
-            g2.setColor(new Color(60, 60, 60));
-            g2.setStroke(new BasicStroke(40, BasicStroke.CAP_ROUND,
-                                         BasicStroke.JOIN_ROUND));
+            // Shadow
+            gc.setLineCap(StrokeLineCap.ROUND);
+            gc.setLineJoin(StrokeLineJoin.ROUND);
+            gc.setLineWidth(84);
+            gc.setStroke(Color.rgb(0, 0, 0, 0.24));
+            gc.setLineDashes();
             for (int i = 0; i < pts.size() - 1; i++) {
-                g2.drawLine((int) pts.get(i).getX(), (int) pts.get(i).getY(),
-                            (int) pts.get(i+1).getX(), (int) pts.get(i+1).getY());
+                gc.strokeLine(pts.get(i).getX() + 2, pts.get(i).getY() + 3,
+                              pts.get(i+1).getX() + 2, pts.get(i+1).getY() + 3);
             }
 
-            // Vạch kẻ trắng đứt
-            float[] dash = {10f, 10f};
-            g2.setColor(Color.WHITE);
-            g2.setStroke(new BasicStroke(2, BasicStroke.CAP_BUTT,
-                    BasicStroke.JOIN_BEVEL, 0, dash, 0));
+            // Asphalt 80px
+            gc.setLineWidth(80);
+            gc.setStroke(ASPHALT);
             for (int i = 0; i < pts.size() - 1; i++) {
-                g2.drawLine((int) pts.get(i).getX(), (int) pts.get(i).getY(),
-                            (int) pts.get(i+1).getX(), (int) pts.get(i+1).getY());
+                gc.strokeLine(pts.get(i).getX(), pts.get(i).getY(),
+                              pts.get(i+1).getX(), pts.get(i+1).getY());
             }
+
+            // Highlight ánh sáng
+            gc.setLineWidth(30);
+            gc.setStroke(Color.rgb(255, 255, 255, 0.03));
+            for (int i = 0; i < pts.size() - 1; i++) {
+                gc.strokeLine(pts.get(i).getX(), pts.get(i).getY(),
+                              pts.get(i+1).getX(), pts.get(i+1).getY());
+            }
+
+            // Vạch mép vàng đứt đoạn (2 bên)
+            gc.setLineCap(StrokeLineCap.BUTT);
+            gc.setLineJoin(StrokeLineJoin.BEVEL);
+            gc.setLineWidth(1.5);
+            gc.setStroke(EDGE_MARK);
+            gc.setLineDashes(18, 8);
+            for (int side : new int[]{-1, 1}) {
+                for (int i = 0; i < pts.size() - 1; i++) {
+                    double[] off1 = perp(pts.get(i), pts.get(i+1), 40.0 * side);
+                    double[] off2 = perp(pts.get(i+1), pts.get(i), -40.0 * side);
+                    gc.strokeLine(
+                        pts.get(i).getX()   + off1[0], pts.get(i).getY()   + off1[1],
+                        pts.get(i+1).getX() + off2[0], pts.get(i+1).getY() + off2[1]);
+                }
+            }
+            gc.setLineDashes();
         }
     }
 
-    // ── Vẽ đèn ───────────────────────────────────────────────────────────
+    private double[] perp(Vector2D p1, Vector2D p2, double offset) {
+        double dx = p2.getX() - p1.getX();
+        double dy = p2.getY() - p1.getY();
+        double len = Math.hypot(dx, dy);
+        if (len == 0) return new double[]{0, 0};
+        return new double[]{-dy / len * offset, dx / len * offset};
+    }
 
-    private void drawLights(Graphics2D g2) {
+    // ── Đèn giao thông ──────────────────────────────────────────────────
+
+    private void drawLights(GraphicsContext gc) {
         for (TrafficLight light : lights) {
             if (light == null) continue;
-            int x = (int) light.getPosition().getX();
-            int y = (int) light.getPosition().getY();
-            drawTrafficLight(g2, x - 15, y - 40, light);
+            double x = light.getPosition().getX() - 12;
+            double y = light.getPosition().getY() - 35;
+            drawTrafficLight(gc, x, y, light);
         }
     }
 
-    private void drawTrafficLight(Graphics2D g2, int x, int y, TrafficLight light) {
-        // Hộp đèn
-        g2.setColor(new Color(30, 30, 30));
-        g2.fillRoundRect(x, y, 30, 80, 6, 6);
+    private void drawTrafficLight(GraphicsContext gc, double x, double y, TrafficLight light) {
+        // Manual mode border
+        if (light.isManualMode()) {
+            gc.setStroke(Color.rgb(255, 220, 0, 0.8));
+            gc.setLineWidth(2.5);
+            gc.setLineDashes();
+            gc.strokeRoundRect(x - 3, y - 3, 30, 70, 8, 8);
+        }
 
+        // Body
+        gc.setFill(Color.rgb(35, 35, 40));
+        gc.fillRoundRect(x, y, 24, 64, 6, 6);
+
+        // Glow
         String color = light.getColor();
+        Color glow = switch (color) {
+            case "GREEN"  -> Color.rgb(0, 255, 0, 0.2);
+            case "YELLOW" -> Color.rgb(255, 255, 0, 0.2);
+            default       -> Color.rgb(255, 0, 0, 0.2);
+        };
+        gc.setFill(glow);
+        gc.fillRoundRect(x - 3, y - 3, 30, 70, 8, 8);
 
-        g2.setColor(color.equals("RED")    ? Color.RED    : new Color(80, 0, 0));
-        g2.fillOval(x + 5, y + 5,  20, 20);
-        g2.setColor(color.equals("YELLOW") ? Color.YELLOW : new Color(80, 80, 0));
-        g2.fillOval(x + 5, y + 30, 20, 20);
-        g2.setColor(color.equals("GREEN")  ? Color.GREEN  : new Color(0, 80, 0));
-        g2.fillOval(x + 5, y + 55, 20, 20);
+        // 3 bulbs
+        drawBulb(gc, x + 4, y + 4,  color.equals("RED"),    Color.RED,    Color.rgb(80, 0, 0));
+        drawBulb(gc, x + 4, y + 24, color.equals("YELLOW"), Color.YELLOW, Color.rgb(80, 80, 0));
+        drawBulb(gc, x + 4, y + 44, color.equals("GREEN"),  Color.GREEN,  Color.rgb(0, 80, 0));
 
-        // Số giây — đa hình: mỗi loại đèn getDisplay() khác nhau
+        // Countdown
         String display = light.getDisplay();
         if (!display.isEmpty()) {
-            g2.setColor(Color.WHITE);
-            g2.setFont(new Font("Arial", Font.BOLD, 13));
-            g2.drawString(display, x + 35, y + 45);
+            gc.setFill(Color.WHITE);
+            gc.setFont(Font.font("SansSerif", FontWeight.BOLD, 11));
+            gc.fillText(display, x + 28, y + 38);
+        }
+
+        // Manual indicator
+        if (light.isManualMode()) {
+            gc.setFill(Color.rgb(255, 220, 0));
+            gc.setFont(Font.font("SansSerif", FontWeight.BOLD, 10));
+            gc.fillText("M", x + 28, y + 52);
         }
     }
 
-    // ── Vẽ xe ────────────────────────────────────────────────────────────
+    private void drawBulb(GraphicsContext gc, double x, double y, boolean on, Color onColor, Color offColor) {
+        gc.setFill(on ? onColor : offColor);
+        gc.fillOval(x, y, 16, 16);
+        if (on) {
+            gc.setFill(Color.color(onColor.getRed(), onColor.getGreen(), onColor.getBlue(), 0.25));
+            gc.fillOval(x - 3, y - 3, 22, 22);
+        }
+    }
 
-    private void drawVehicles(Graphics2D g2) {
+    // ── Xe ───────────────────────────────────────────────────────────────
+
+    private void drawVehicles(GraphicsContext gc) {
         for (Vehicle v : vehicles) {
             if (v == null || v.getPosition() == null) continue;
-            drawVehicle(g2, v);
+            if (v.isPriority()) drawBlink(gc, v);
+            drawVehicle(gc, v);
         }
     }
 
-    private void drawVehicle(Graphics2D g2, Vehicle v) {
-        double w = v.getWidth(), h = v.getHeight();
-        AffineTransform old = g2.getTransform();
+    private void drawVehicle(GraphicsContext gc, Vehicle v) {
+        double vx = v.getPosition().getX();
+        double vy = v.getPosition().getY();
+        double w  = v.getWidth();
+        double h  = v.getHeight();
 
-        g2.translate(v.getPosition().getX(), v.getPosition().getY());
-        g2.rotate(Math.toRadians(v.getAngle()));
+        gc.save();
+        gc.translate(vx, vy);
+        gc.rotate(v.getAngle());
 
-        // Thân xe
-        Color c = VEHICLE_COLORS.getOrDefault(v.getTypeName(), Color.GRAY);
-        g2.setColor(c);
-        g2.fillRect((int)(-w/2), (int)(-h/2), (int)w, (int)h);
+        // Yield warning
+        if (v.getYieldMode() == Vehicle.YieldMode.STOP) {
+            gc.setStroke(Color.rgb(255, 140, 0, 0.8));
+            gc.setLineWidth(2.5);
+            gc.setLineDashes();
+            gc.strokeRect(-w/2 - 3, -h/2 - 3, w + 6, h + 6);
+        }
 
-        // Viền
-        g2.setColor(Color.BLACK);
-        g2.setStroke(new BasicStroke(1));
-        g2.drawRect((int)(-w/2), (int)(-h/2), (int)w, (int)h);
+        // Body
+        Color base = VEHICLE_COLORS.getOrDefault(v.getTypeName(), Color.GRAY);
+        Color dark = base.deriveColor(0, 1, 0.6, 1);
+        gc.setFill(base);
+        gc.fillRoundRect(-w/2, -h/2, w, h, 4, 4);
 
-        // Bánh xe
-        g2.setColor(new Color(20, 20, 20));
-        int wx = 4, wy = 3;
-        g2.fillRect((int)( w/2 - wx - 1), (int)(-h/2 - wy), wx, wy);
-        g2.fillRect((int)( w/2 - wx - 1), (int)( h/2),      wx, wy);
-        g2.fillRect((int)(-w/2 + 1),      (int)(-h/2 - wy), wx, wy);
-        g2.fillRect((int)(-w/2 + 1),      (int)( h/2),      wx, wy);
+        // Roof highlight
+        gc.setFill(Color.rgb(255, 255, 255, 0.15));
+        gc.fillRoundRect(-w/2 + 3, -h/2 + 2, w - 6, h * 0.35, 3, 3);
 
-        // Tên xe
-        g2.setColor(Color.WHITE);
-        g2.setFont(new Font("SansSerif", Font.BOLD, 9));
+        // Headlights (front = right side in local space)
+        gc.setFill(Color.rgb(255, 240, 150, 0.9));
+        gc.fillRect(w/2 - 3, -h/2 + 2, 3, 4);
+        gc.fillRect(w/2 - 3,  h/2 - 6, 3, 4);
+
+        // Taillights (back = left side)
+        gc.setFill(Color.rgb(255, 30, 30, 0.8));
+        gc.fillRect(-w/2, -h/2 + 2, 3, 4);
+        gc.fillRect(-w/2,  h/2 - 6, 3, 4);
+
+        // Wheels
+        gc.setFill(Color.rgb(25, 25, 25));
+        gc.fillOval(w/2 - 6, -h/2 - 3, 5, 4);
+        gc.fillOval(w/2 - 6,  h/2 - 1, 5, 4);
+        gc.fillOval(-w/2 + 1, -h/2 - 3, 5, 4);
+        gc.fillOval(-w/2 + 1,  h/2 - 1, 5, 4);
+
+        // Name
+        gc.setFill(Color.rgb(255, 255, 255, 0.8));
+        gc.setFont(Font.font("SansSerif", FontWeight.BOLD, 7));
         String label = v.getName().substring(0, Math.min(3, v.getName().length()));
-        g2.drawString(label, (int)(-w/2 + 2), 3);
+        gc.fillText(label, -w/2 + 2, 3);
 
-        // Tốc độ
-        int spd = (int) v.getSpeed();
-        g2.setColor(spd == 0 ? Color.RED : new Color(180, 255, 180));
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 8));
-        g2.drawString(String.valueOf(spd), (int)(w/2 - 14), 3);
-
-        g2.setTransform(old);
+        gc.restore();
     }
 
-    // ── Debug overlay ─────────────────────────────────────────────────────
+    private void drawBlink(GraphicsContext gc, Vehicle v) {
+        long t = System.currentTimeMillis() + v.hashCode();
+        boolean on = (t % 500) < 250;
+        Color c = on ? Color.rgb(255, 0, 0, 0.35) : Color.rgb(0, 100, 255, 0.35);
+        double w = v.getWidth(), h = v.getHeight();
 
-    private void drawDebugOverlay(Graphics2D g2) {
-        if (lights.isEmpty()) return;
-        int x = 8, y = 8, lineH = 20;
+        gc.save();
+        gc.translate(v.getPosition().getX(), v.getPosition().getY());
+        gc.rotate(v.getAngle());
+        gc.setFill(c);
+        gc.fillOval(-w/2 - 6, -h/2 - 6, w + 12, h + 12);
+        gc.restore();
+    }
 
-        g2.setColor(new Color(0, 0, 0, 160));
-        g2.fillRoundRect(x - 4, y - 4, 230, lineH * lights.size() + 8, 8, 8);
-        g2.setFont(new Font("Monospaced", Font.BOLD, 12));
+    // ── HUD ──────────────────────────────────────────────────────────────
 
-        int ty = y + lineH - 4;
-        for (TrafficLight light : lights) {
-            Color sc = switch (light.getColor()) {
-                case "GREEN"  -> new Color(50, 220, 50);
-                case "YELLOW" -> Color.YELLOW;
-                default       -> new Color(220, 50, 50);
-            };
-            g2.setColor(sc);
-            g2.fillOval(x, ty - 13, 13, 13);
-            g2.setColor(Color.WHITE);
-            g2.drawString(String.format("%-6s %2ds",
-                    light.getColor(), (int) light.getTimeLeft()), x + 18, ty);
-            ty += lineH;
-        }
+    private void drawHUD(GraphicsContext gc, double w) {
+        gc.setFill(Color.rgb(0, 0, 0, 0.45));
+        gc.fillRoundRect(10, 10, 190, 46, 10, 10);
+        gc.setStroke(Color.rgb(255, 255, 255, 0.1));
+        gc.setLineWidth(1);
+        gc.setLineDashes();
+        gc.strokeRoundRect(10, 10, 190, 46, 10, 10);
+
+        gc.setFill(Color.WHITE);
+        gc.setFont(Font.font("SansSerif", FontWeight.BOLD, 13));
+        gc.fillText("🚦 Traffic Sim", 22, 32);
+
+        gc.setFill(Color.rgb(180, 220, 180));
+        gc.setFont(Font.font("SansSerif", 11));
+        gc.fillText(vehicles.size() + " vehicles", 22, 48);
     }
 }

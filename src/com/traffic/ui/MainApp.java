@@ -1,442 +1,395 @@
 package com.traffic.ui;
 
-import com.traffic.core.IRenderer;
 import com.traffic.core.TrafficEngine;
 import com.traffic.core.Vehicle;
 import com.traffic.core.VehicleFactory;
 import com.traffic.map.*;
-import java.awt.*;
-import java.util.ArrayList;
+import com.traffic.maps.*;
+import javafx.application.Application;
+import javafx.animation.AnimationTimer;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.Scene;
+import javafx.scene.canvas.Canvas;
+import javafx.scene.canvas.GraphicsContext;
+import javafx.scene.control.*;
+import javafx.scene.input.MouseButton;
+import javafx.scene.layout.*;
+import javafx.scene.paint.Color;
+import javafx.scene.text.Font;
+import javafx.scene.text.FontWeight;
+import javafx.stage.Stage;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
-import javax.swing.*;
 
 /**
- * Entry point của toàn bộ simulation.
- *
- * Tận dụng:
- *  - VehicleFactory     → tạo xe không cần biết class cụ thể
- *  - RoadNetwork        → quản lý và đăng ký đèn vào engine
- *  - TrafficEngine      → tick + render
- *  - IRenderer          → đổi chế độ vẽ lúc runtime (BasicRenderer / JavaFXRenderer)
- *  - SoundManager       → âm thanh xe ưu tiên
- *
- * [MỚI] SpawnPanel sidebar bên phải:
- *  - Chọn loại xe (car/motorcycle/bicycle/ambulance/firetruck)
- *  - Chọn làn đường (road1–road4)
- *  - Chọn offset xuất phát (đầu / giữa / cuối làn)
- *  - Nút Spawn → thêm xe ngay lập tức
- *  - Nút Clear All → xóa toàn bộ xe
- *  - Log hiển thị lịch sử spawn
+ * Entry‑point JavaFX — thay thế hoàn toàn Swing.
  */
-public class MainApp {
+public class MainApp extends Application {
+
+    private static final MapConfig[] ALL_MAPS = {
+        new CrossroadsMap(),
+        new TJunctionMap(),
+        new FiveWayMap(),
+        new NetworkMap(),
+        new HighwayMap()
+    };
+
+    // ── State ────────────────────────────────────────────────────────────
+    private MapConfig currentMap;
+    private TrafficEngine engine;
+    private AbstractBaseRenderer basicRenderer;
+    private AbstractBaseRenderer graphicRenderer;
+    private AbstractBaseRenderer activeRenderer;
+    private boolean isBasicMode = true;
+    private boolean paused = false;
+    private double simSpeed = 1.0;
+
+    private Canvas canvas;
+    private Label lblVehicles;
+    private Label lblSpeed;
+    private VBox spawnContainer;
+    private TextArea spawnLog;
+
+    // ── Entry Point ──────────────────────────────────────────────────────
 
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(MainApp::launch);
+        launch(args);
     }
 
-    private static void launch() {
+    @Override
+    public void start(Stage stage) {
+        // Khởi tạo map & renderer
+        currentMap = ALL_MAPS[0];
+        basicRenderer   = new BasicRenderer(currentMap.getLanes());
+        graphicRenderer = new JavaFXRenderer(currentMap.getLanes());
+        activeRenderer  = basicRenderer;
 
-        // ──── 1. THIẾT LẬP ĐÈN ĐỒNG BỘ ──────────────────────────────────
-        TrafficLight lightH1 = new CountdownLight(10, 13, 355, 255);
-        TrafficLight lightH2 = new NoCountdownLight(10, 13, 445, 325);
-        lightH1.setInitialState(TrafficLight.State.GREEN, 10);
-        lightH2.setInitialState(TrafficLight.State.GREEN, 10);
+        engine = new TrafficEngine(activeRenderer);
+        registerMap(engine, currentMap);
 
-        TrafficLight lightV1 = new SmartTrafficLight(10, 13, 425, 255);
-        TrafficLight lightV2 = new Last10SecondsLight(10, 13, 355, 325);
-        lightV1.setInitialState(TrafficLight.State.RED, 13);
-        lightV2.setInitialState(TrafficLight.State.RED, 13);
+        // ── Layout ───────────────────────────────────────────────────────
+        BorderPane root = new BorderPane();
+        root.setStyle("-fx-background-color: #1a1a2e;");
 
-        // ──── 2. THIẾT LẬP LÀN ĐƯỜNG & NGÃ TƯ ───────────────────────────
-        List<Lane> allLanes = new ArrayList<>();
+        // Canvas (center)
+        canvas = new Canvas(800, 600);
+        StackPane canvasHolder = new StackPane(canvas);
+        canvasHolder.setStyle("-fx-background-color: #1a1a2e;");
+        root.setCenter(canvasHolder);
 
-        Lane road1 = new Lane(50, 280, 750, 280, lightH1); // → Phải
-        road1.addwaypoint(370, 280);
-        allLanes.add(road1);
-
-        Lane road2 = new Lane(750, 320, 50, 320, lightH2); // ← Trái
-        road2.addwaypoint(430, 320);
-        allLanes.add(road2);
-
-        Lane road3 = new Lane(380, 50, 380, 550, lightV1); // ↓ Xuống
-        road3.addwaypoint(380, 270);
-        allLanes.add(road3);
-
-        Lane road4 = new Lane(420, 550, 420, 50, lightV2); // ↑ Lên
-        road4.addwaypoint(420, 330);
-        allLanes.add(road4);
-
-        Intersection ngaTu = new Intersection(Intersection.Type.CROSSROADS, 400, 300);
-        for (Lane lane : allLanes) ngaTu.addLane(lane);
-
-        RoadNetwork network = new RoadNetwork();
-        network.addIntersection(ngaTu);
-
-        // ──── 3. RENDERER & ENGINE ────────────────────────────────────────
-        AtomicReference<IRenderer> rendererRef = new AtomicReference<>();
-
-        BasicRenderer  basicRenderer   = new BasicRenderer(allLanes);
-        JavaFXRenderer graphicRenderer = new JavaFXRenderer(allLanes);
-        rendererRef.set(basicRenderer);
-
-        TrafficEngine engine = new TrafficEngine(basicRenderer);
-        network.registerTo(engine);
-
-        // ──── 4. TẠO PHƯƠNG TIỆN BAN ĐẦU ────────────────────────────────
-        spawnVehicles(engine, road1, road2, road3, road4);
-
-        // ──── 5. GIAO DIỆN CHÍNH ─────────────────────────────────────────
-        JFrame frame = new JFrame("🚦 Traffic Simulation");
-        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setLayout(new BorderLayout());
-
-        JPanel centerPanel = new JPanel(new CardLayout());
-        centerPanel.add(basicRenderer,   "basic");
-        centerPanel.add(graphicRenderer, "graphic");
-        frame.add(centerPanel, BorderLayout.CENTER);
-
-        // ──── 6. SPAWN PANEL (sidebar phải) ──────────────────────────────
-        Lane[] laneArray = { road1, road2, road3, road4 };
-        JTextArea spawnLog = new JTextArea(6, 22);
-        JPanel spawnPanel = buildSpawnPanel(engine, laneArray, spawnLog);
-        frame.add(spawnPanel, BorderLayout.EAST);
-
-        // ──── 7. CONTROL PANEL (dưới) ────────────────────────────────────
-        AtomicReference<Double> simSpeed = new AtomicReference<>(1.0);
-        AtomicBoolean paused  = new AtomicBoolean(false);
-        AtomicBoolean isBasic = new AtomicBoolean(true);
-
-        JSlider speedSlider = new JSlider(1, 30, 10);
-        speedSlider.setMajorTickSpacing(10);
-        speedSlider.setMinorTickSpacing(5);
-        speedSlider.setPaintTicks(true);
-        speedSlider.setPreferredSize(new Dimension(180, 40));
-        speedSlider.setOpaque(false);
-
-        JLabel speedLabel = new JLabel("Tốc độ: 1.0x");
-        speedLabel.setFont(new Font("SansSerif", Font.BOLD, 12));
-        speedLabel.setPreferredSize(new Dimension(100, 30));
-
-        speedSlider.addChangeListener(e -> {
-            double s = speedSlider.getValue() / 10.0;
-            simSpeed.set(s);
-            speedLabel.setText(String.format("Tốc độ: %.1fx", s));
+        // Mouse handler
+        canvas.setOnMouseClicked(e -> {
+            boolean left = e.getButton() == MouseButton.PRIMARY;
+            activeRenderer.handleClick(e.getX(), e.getY(), left);
         });
 
-        JButton btnPause = new JButton("⏸  Pause");
-        btnPause.setFont(new Font("SansSerif", Font.BOLD, 12));
-        btnPause.setPreferredSize(new Dimension(110, 32));
-        btnPause.addActionListener(e -> {
-            boolean now = !paused.get();
-            paused.set(now);
-            btnPause.setText(now ? "▶  Resume" : "⏸  Pause");
+        // Sidebar (right)
+        spawnLog = new TextArea();
+        spawnContainer = buildSidebar(currentMap);
+        root.setRight(spawnContainer);
+
+        // Toolbar (bottom)
+        HBox toolbar = buildToolbar();
+        root.setBottom(toolbar);
+
+        // ── Scene ────────────────────────────────────────────────────────
+        Scene scene = new Scene(root, 1080, 680);
+        try {
+            String css = getClass().getResource("/style.css") != null
+                       ? getClass().getResource("/style.css").toExternalForm()
+                       : null;
+            if (css != null) scene.getStylesheets().add(css);
+        } catch (Exception ignored) {}
+
+        stage.setTitle("🚦 Traffic Simulation");
+        stage.setScene(scene);
+        stage.show();
+
+        // ── Game Loop ────────────────────────────────────────────────────
+        AnimationTimer timer = new AnimationTimer() {
+            @Override
+            public void handle(long now) {
+                if (!paused) {
+                    double dt = 0.03 * simSpeed;
+                    engine.tick(dt);
+                    engine.render();
+
+                    // Siren
+                    boolean hasEmergency = false;
+                    for (Vehicle v : engine.getVehicles()) {
+                        if (v.isPriority() && v.getSpeed() > 0) {
+                            hasEmergency = true;
+                            break;
+                        }
+                    }
+                    if (hasEmergency) {
+                        SoundManager.getInstance().loop("siren.wav");
+                    } else {
+                        SoundManager.getInstance().stop("siren.wav");
+                    }
+                }
+
+                // Draw
+                GraphicsContext gc = canvas.getGraphicsContext2D();
+                gc.clearRect(0, 0, canvas.getWidth(), canvas.getHeight());
+                activeRenderer.draw(gc, canvas.getWidth(), canvas.getHeight());
+
+                lblVehicles.setText("🚗 " + engine.getVehicles().size());
+            }
+        };
+        timer.start();
+    }
+
+    // ── Sidebar ──────────────────────────────────────────────────────────
+
+    private VBox buildSidebar(MapConfig map) {
+        VBox sidebar = new VBox(10);
+        sidebar.setPadding(new Insets(16, 12, 16, 12));
+        sidebar.setPrefWidth(230);
+        sidebar.setStyle(
+            "-fx-background-color: linear-gradient(to bottom, #1e1e30, #16162a);"
+          + "-fx-border-color: #333355; -fx-border-width: 0 0 0 1;"
+        );
+
+        // Title
+        Label title = new Label("🚘 Spawn Vehicle");
+        title.setFont(Font.font("SansSerif", FontWeight.BOLD, 15));
+        title.setTextFill(Color.rgb(180, 200, 255));
+
+        // Vehicle type
+        Label lblType = makeLabel("Loại xe:");
+        String[] types = {"car", "motorcycle", "bicycle", "ambulance", "firetruck"};
+        String[] typeLabels = {"Car", "Motorcycle", "Bicycle", "Ambulance", "Firetruck"};
+        ComboBox<String> cmbType = new ComboBox<>();
+        cmbType.getItems().addAll(typeLabels);
+        cmbType.getSelectionModel().selectFirst();
+        cmbType.setMaxWidth(Double.MAX_VALUE);
+        cmbType.getStyleClass().add("dark-combo");
+
+        // Lane
+        Label lblLane = makeLabel("Làn đường:");
+        String[] laneNames = map.getLaneNames();
+        ComboBox<String> cmbLane = new ComboBox<>();
+        cmbLane.getItems().addAll(laneNames);
+        cmbLane.getSelectionModel().selectFirst();
+        cmbLane.setMaxWidth(Double.MAX_VALUE);
+        cmbLane.getStyleClass().add("dark-combo");
+
+        // Offset
+        Label lblOffset = makeLabel("Vị trí:");
+        ComboBox<String> cmbOffset = new ComboBox<>();
+        cmbOffset.getItems().addAll("Đầu làn", "Giữa làn", "Cuối làn");
+        cmbOffset.getSelectionModel().selectFirst();
+        cmbOffset.setMaxWidth(Double.MAX_VALUE);
+        cmbOffset.getStyleClass().add("dark-combo");
+
+        // Count
+        Label lblCount = makeLabel("Số lượng:");
+        Spinner<Integer> spinner = new Spinner<>(1, 10, 1);
+        spinner.setMaxWidth(Double.MAX_VALUE);
+
+        // Spawn button
+        Button btnSpawn = new Button("✦ Spawn");
+        btnSpawn.getStyleClass().add("btn-spawn");
+        btnSpawn.setMaxWidth(Double.MAX_VALUE);
+        Lane[] laneArray = map.getLanes().toArray(new Lane[0]);
+        btnSpawn.setOnAction(e -> {
+            int laneIdx = cmbLane.getSelectionModel().getSelectedIndex();
+            if (laneIdx < 0 || laneIdx >= laneArray.length) return;
+
+            String type = types[cmbType.getSelectionModel().getSelectedIndex()];
+            Lane lane = laneArray[laneIdx];
+            int count = spinner.getValue();
+            int offIdx = cmbOffset.getSelectionModel().getSelectedIndex();
+
+            for (int i = 0; i < count; i++) {
+                Vehicle v = VehicleFactory.create(type, 0, 0);
+                v.setLane(lane);
+                applyOffset(v, lane, offIdx, i);
+                engine.addVehicle(v);
+            }
+
+            spawnLog.appendText(String.format("[+] %dx %s → %s\n",
+                count, type, laneNames[laneIdx]));
         });
 
-        JButton btnMode = new JButton("🎨 → Graphic");
-        btnMode.setFont(new Font("SansSerif", Font.BOLD, 12));
-        btnMode.setPreferredSize(new Dimension(130, 32));
-        btnMode.addActionListener(e -> {
-            CardLayout cl = (CardLayout) centerPanel.getLayout();
-            if (isBasic.get()) {
+        // Clear button
+        Button btnClear = new Button("✕ Clear All");
+        btnClear.getStyleClass().add("btn-clear");
+        btnClear.setMaxWidth(Double.MAX_VALUE);
+        btnClear.setOnAction(e -> {
+            engine.clearVehicles();
+            spawnLog.appendText("[!] Đã xóa tất cả xe\n");
+        });
+
+        // Separator
+        Separator sep = new Separator();
+        sep.setStyle("-fx-background-color: #444466;");
+
+        // Log
+        Label lblLog = makeLabel("📋 Lịch sử:");
+        spawnLog.setEditable(false);
+        spawnLog.setPrefRowCount(5);
+        spawnLog.setWrapText(true);
+        spawnLog.setStyle(
+            "-fx-control-inner-background: #111120;"
+          + "-fx-text-fill: #88cc88;"
+          + "-fx-font-family: 'Consolas';"
+          + "-fx-font-size: 11px;"
+        );
+
+        sidebar.getChildren().addAll(
+            title,
+            lblType, cmbType,
+            lblLane, cmbLane,
+            lblOffset, cmbOffset,
+            lblCount, spinner,
+            btnSpawn, btnClear,
+            sep, lblLog, spawnLog
+        );
+        VBox.setVgrow(spawnLog, Priority.ALWAYS);
+        return sidebar;
+    }
+
+    // ── Toolbar ──────────────────────────────────────────────────────────
+
+    private HBox buildToolbar() {
+        HBox toolbar = new HBox(14);
+        toolbar.setPadding(new Insets(8, 16, 8, 16));
+        toolbar.setAlignment(Pos.CENTER_LEFT);
+        toolbar.setStyle(
+            "-fx-background-color: linear-gradient(to right, #1a1a2e, #16213e);"
+          + "-fx-border-color: #333355; -fx-border-width: 1 0 0 0;"
+        );
+
+        // Map selector
+        Label lblMap = new Label("🗺");
+        lblMap.setFont(Font.font(16));
+        ComboBox<String> cmbMap = new ComboBox<>();
+        for (MapConfig m : ALL_MAPS) cmbMap.getItems().add(m.getName());
+        cmbMap.getSelectionModel().selectFirst();
+        cmbMap.getStyleClass().add("dark-combo");
+
+        Button btnLoad = new Button("Load");
+        btnLoad.getStyleClass().add("btn-action");
+        btnLoad.setOnAction(e -> {
+            int idx = cmbMap.getSelectionModel().getSelectedIndex();
+            if (idx < 0) return;
+            loadMap(ALL_MAPS[idx]);
+        });
+
+        // Speed slider
+        Slider speedSlider = new Slider(0.1, 3.0, 1.0);
+        speedSlider.setPrefWidth(160);
+        speedSlider.setShowTickLabels(true);
+        speedSlider.setMajorTickUnit(1.0);
+        lblSpeed = new Label("1.0×");
+        lblSpeed.setFont(Font.font("SansSerif", FontWeight.BOLD, 12));
+        lblSpeed.setTextFill(Color.rgb(180, 200, 255));
+        lblSpeed.setPrefWidth(50);
+        speedSlider.valueProperty().addListener((obs, oldV, newV) -> {
+            simSpeed = newV.doubleValue();
+            lblSpeed.setText(String.format("%.1f×", simSpeed));
+        });
+
+        // Buttons
+        Button btnPause = new Button("⏸ Pause");
+        btnPause.getStyleClass().add("btn-action");
+        btnPause.setOnAction(e -> {
+            paused = !paused;
+            btnPause.setText(paused ? "▶ Resume" : "⏸ Pause");
+        });
+
+        Button btnMode = new Button("🎨 Graphic");
+        btnMode.getStyleClass().add("btn-action");
+        btnMode.setOnAction(e -> {
+            if (isBasicMode) {
+                activeRenderer = graphicRenderer;
                 engine.setRenderer(graphicRenderer);
-                cl.show(centerPanel, "graphic");
-                btnMode.setText("⬜ → Basic");
-                isBasic.set(false);
+                btnMode.setText("📐 Basic");
+                isBasicMode = false;
             } else {
+                activeRenderer = basicRenderer;
                 engine.setRenderer(basicRenderer);
-                cl.show(centerPanel, "basic");
-                btnMode.setText("🎨 → Graphic");
-                isBasic.set(true);
+                btnMode.setText("🎨 Graphic");
+                isBasicMode = true;
             }
         });
 
-        JButton btnMute = new JButton("🔊 Mute");
-        btnMute.setFont(new Font("SansSerif", Font.BOLD, 12));
-        btnMute.setPreferredSize(new Dimension(100, 32));
-        btnMute.addActionListener(e -> {
+        Button btnMute = new Button("🔊 Mute");
+        btnMute.getStyleClass().add("btn-action");
+        btnMute.setOnAction(e -> {
             SoundManager sm = SoundManager.getInstance();
             sm.setMuted(!sm.isMuted());
             btnMute.setText(sm.isMuted() ? "🔇 Unmute" : "🔊 Mute");
         });
 
-        JLabel lblVehicles = new JLabel("Xe: 0");
-        lblVehicles.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        // Vehicle count
+        lblVehicles = new Label("🚗 0");
+        lblVehicles.setFont(Font.font("SansSerif", FontWeight.BOLD, 12));
+        lblVehicles.setTextFill(Color.rgb(180, 220, 180));
 
-        JPanel controlPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 8));
-        controlPanel.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, Color.GRAY));
-        controlPanel.add(new JLabel("Tốc độ:"));
-        controlPanel.add(speedSlider);
-        controlPanel.add(speedLabel);
-        controlPanel.add(Box.createHorizontalStrut(10));
-        controlPanel.add(btnPause);
-        controlPanel.add(btnMode);
-        controlPanel.add(btnMute);
-        controlPanel.add(Box.createHorizontalStrut(10));
-        controlPanel.add(lblVehicles);
+        // Spacers
+        Region sp1 = new Region(); HBox.setHgrow(sp1, Priority.SOMETIMES);
+        Region sp2 = new Region(); sp2.setPrefWidth(8);
+        Region sp3 = new Region(); sp3.setPrefWidth(8);
 
-        frame.add(controlPanel, BorderLayout.SOUTH);
-        frame.setSize(1060, 660);  // rộng hơn để chứa sidebar
-        frame.setLocationRelativeTo(null);
-
-        // ──── 8. VÒNG LẶP SIMULATION ─────────────────────────────────────
-        Timer timer = new Timer(30, e -> {
-            if (!paused.get()) {
-                double dt = 0.03 * simSpeed.get();
-                engine.tick(dt);
-                engine.render();
-
-                for (Vehicle v : engine.getVehicles()) {
-                    if (v.isPriority() && v.getSpeed() > 0)
-                        SoundManager.getInstance().loop("siren.wav");
-                }
-
-                lblVehicles.setText("Xe: " + engine.getVehicles().size());
-            }
-
-            if (isBasic.get()) basicRenderer.repaint();
-            else                graphicRenderer.repaint();
-        });
-
-        timer.start();
-        frame.setVisible(true);
+        toolbar.getChildren().addAll(
+            lblMap, cmbMap, btnLoad,
+            sp2,
+            new Label("⚡") {{ setFont(Font.font(14)); }},
+            speedSlider, lblSpeed,
+            sp3,
+            btnPause, btnMode, btnMute,
+            sp1,
+            lblVehicles
+        );
+        return toolbar;
     }
 
-    // ── Spawn Panel sidebar ───────────────────────────────────────────────
+    // ── Map Loading ──────────────────────────────────────────────────────
 
-    /**
-     * Tạo panel bên phải để spawn xe lúc runtime.
-     * Gồm:
-     *  - Combo chọn loại xe
-     *  - Combo chọn làn đường
-     *  - Combo chọn offset xuất phát
-     *  - Spinner số lượng xe (1–10)
-     *  - Nút Spawn + Clear All
-     *  - Text area log
-     */
-    private static JPanel buildSpawnPanel(TrafficEngine engine,
-                                          Lane[] lanes,
-                                          JTextArea logArea) {
+    private void loadMap(MapConfig newMap) {
+        engine.clearVehicles();
+        engine.getLights().clear();
+        engine.getIntersections().clear();
 
-        // ── Outer panel ──────────────────────────────────────────────────
-        JPanel panel = new JPanel();
-        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-        panel.setBackground(new Color(30, 30, 40));
-        panel.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 1, 0, 0, new Color(80, 80, 100)),
-                BorderFactory.createEmptyBorder(12, 10, 12, 10)
-        ));
-        panel.setPreferredSize(new Dimension(220, 0));
+        currentMap = newMap;
+        registerMap(engine, newMap);
+        basicRenderer.setLanes(newMap.getLanes());
+        graphicRenderer.setLanes(newMap.getLanes());
 
-        // ── Tiêu đề ──────────────────────────────────────────────────────
-        JLabel title = new JLabel("🚗  Spawn Vehicle");
-        title.setFont(new Font("SansSerif", Font.BOLD, 14));
-        title.setForeground(new Color(200, 220, 255));
-        title.setAlignmentX(Component.LEFT_ALIGNMENT);
-        panel.add(title);
-        panel.add(Box.createVerticalStrut(12));
+        // Rebuild sidebar
+        BorderPane root = (BorderPane) canvas.getScene().getRoot();
+        spawnContainer = buildSidebar(newMap);
+        root.setRight(spawnContainer);
 
-        // ── Loại xe ──────────────────────────────────────────────────────
-        panel.add(makeLabel("Loại xe:"));
-        String[] types = { "car", "motorcycle", "bicycle", "ambulance", "firetruck" };
-        String[] typeLabels = { "🚗 Car", "🏍 Motorcycle", "🚲 Bicycle", "🚑 Ambulance", "🚒 Firetruck" };
-        JComboBox<String> cmbType = makeCombo(typeLabels);
-        panel.add(cmbType);
-        panel.add(Box.createVerticalStrut(10));
-
-        // ── Làn đường ────────────────────────────────────────────────────
-        panel.add(makeLabel("Làn đường:"));
-        String[] laneLabels = {
-            "Làn 1 → Phải",
-            "Làn 2 ← Trái",
-            "Làn 3 ↓ Xuống",
-            "Làn 4 ↑ Lên"
-        };
-        JComboBox<String> cmbLane = makeCombo(laneLabels);
-        panel.add(cmbLane);
-        panel.add(Box.createVerticalStrut(10));
-
-        // ── Vị trí xuất phát ─────────────────────────────────────────────
-        panel.add(makeLabel("Vị trí xuất phát:"));
-        String[] offsetLabels = { "▶ Đầu làn (mặc định)", "◉ Giữa làn", "◀ Cuối làn" };
-        JComboBox<String> cmbOffset = makeCombo(offsetLabels);
-        panel.add(cmbOffset);
-        panel.add(Box.createVerticalStrut(10));
-
-        // ── Số lượng xe ──────────────────────────────────────────────────
-        panel.add(makeLabel("Số lượng:"));
-        SpinnerNumberModel spinModel = new SpinnerNumberModel(1, 1, 10, 1);
-        JSpinner spinner = new JSpinner(spinModel);
-        spinner.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
-        spinner.setAlignmentX(Component.LEFT_ALIGNMENT);
-        styleSpinner(spinner);
-        panel.add(spinner);
-        panel.add(Box.createVerticalStrut(14));
-
-        // ── Nút Spawn ─────────────────────────────────────────────────────
-        JButton btnSpawn = makeButton("➕  Spawn", new Color(40, 160, 80));
-        btnSpawn.addActionListener(e -> {
-            String type   = types[cmbType.getSelectedIndex()];
-            Lane   lane   = lanes[cmbLane.getSelectedIndex()];
-            int    count  = (int) spinner.getValue();
-            int    offIdx = cmbOffset.getSelectedIndex();
-
-            for (int i = 0; i < count; i++) {
-                Vehicle v = VehicleFactory.create(type, 0, 0);
-                v.setLane(lane);
-
-                // Áp dụng offset theo lựa chọn
-                applyOffset(v, lane, offIdx, i);
-
-                engine.addVehicle(v);
-            }
-
-            // Ghi log
-            String laneStr = laneLabels[cmbLane.getSelectedIndex()];
-            String msg = String.format("[+] %dx %s → %s\n", count, type, laneStr);
-            logArea.insert(msg, 0);  // chèn lên đầu để thấy mới nhất
-        });
-        panel.add(btnSpawn);
-        panel.add(Box.createVerticalStrut(8));
-
-        // ── Nút Clear All ─────────────────────────────────────────────────
-        JButton btnClear = makeButton("🗑  Clear All", new Color(180, 50, 50));
-        btnClear.addActionListener(e -> {
-            engine.clearVehicles();
-            logArea.insert("[!] Đã xóa tất cả xe\n", 0);
-        });
-        panel.add(btnClear);
-        panel.add(Box.createVerticalStrut(16));
-
-        // ── Separator ────────────────────────────────────────────────────
-        JSeparator sep = new JSeparator();
-        sep.setForeground(new Color(80, 80, 100));
-        sep.setMaximumSize(new Dimension(Integer.MAX_VALUE, 1));
-        panel.add(sep);
-        panel.add(Box.createVerticalStrut(10));
-
-        // ── Log ───────────────────────────────────────────────────────────
-        JLabel logTitle = new JLabel("📋  Lịch sử spawn:");
-        logTitle.setFont(new Font("SansSerif", Font.BOLD, 12));
-        logTitle.setForeground(new Color(180, 200, 230));
-        logTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
-        panel.add(logTitle);
-        panel.add(Box.createVerticalStrut(6));
-
-        logArea.setEditable(false);
-        logArea.setFont(new Font("Monospaced", Font.PLAIN, 11));
-        logArea.setBackground(new Color(18, 18, 28));
-        logArea.setForeground(new Color(160, 220, 160));
-        logArea.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-
-        JScrollPane scrollLog = new JScrollPane(logArea);
-        scrollLog.setAlignmentX(Component.LEFT_ALIGNMENT);
-        scrollLog.setMaximumSize(new Dimension(Integer.MAX_VALUE, 200));
-        scrollLog.setBorder(BorderFactory.createLineBorder(new Color(60, 60, 80)));
-        panel.add(scrollLog);
-
-        return panel;
+        spawnLog.appendText("[✓] Map: " + newMap.getName() + "\n");
     }
 
-    // ── Helper: tính offset xuất phát ────────────────────────────────────
+    private static void registerMap(TrafficEngine engine, MapConfig map) {
+        RoadNetwork network = new RoadNetwork();
+        for (Intersection intersection : map.getIntersections()) {
+            network.addIntersection(intersection);
+        }
+        network.registerTo(engine);
+    }
 
-    /**
-     * offIdx:
-     *   0 = đầu làn  → offset (0, 0), xe xếp hàng cách nhau 60px
-     *   1 = giữa làn → đặt xe ở khoảng giữa waypoint đầu–cuối
-     *   2 = cuối làn → spawn từ cuối, dồn về đầu
-     *
-     * i = thứ tự xe trong batch (để xếp hàng không đè nhau)
-     */
+    // ── Helpers ──────────────────────────────────────────────────────────
+
     private static void applyOffset(Vehicle v, Lane lane, int offIdx, int i) {
-        int gap = 55; // khoảng cách giữa các xe cùng batch
+        int gap = 55;
         switch (offIdx) {
-            case 0 -> v.setLaneStartOffset(i * gap, 0);          // đầu làn
-            case 1 -> v.setLaneStartOffset(i * gap - 200, 0);    // giữa làn (xấp xỉ)
-            case 2 -> v.setLaneStartOffset(i * gap - 400, 0);    // cuối làn
+            case 0 -> v.setLaneStartOffset(i * gap, 0);
+            case 1 -> v.setLaneStartOffset(i * gap - 200, 0);
+            case 2 -> v.setLaneStartOffset(i * gap - 400, 0);
         }
     }
 
-    // ── Helper: style components ──────────────────────────────────────────
-
-    private static JLabel makeLabel(String text) {
-        JLabel lbl = new JLabel(text);
-        lbl.setFont(new Font("SansSerif", Font.PLAIN, 12));
-        lbl.setForeground(new Color(190, 200, 220));
-        lbl.setAlignmentX(Component.LEFT_ALIGNMENT);
+    private Label makeLabel(String text) {
+        Label lbl = new Label(text);
+        lbl.setFont(Font.font("SansSerif", 12));
+        lbl.setTextFill(Color.rgb(170, 185, 210));
         return lbl;
-    }
-
-    private static JComboBox<String> makeCombo(String[] items) {
-        JComboBox<String> combo = new JComboBox<>(items);
-        combo.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
-        combo.setAlignmentX(Component.LEFT_ALIGNMENT);
-        combo.setBackground(new Color(50, 50, 65));
-        combo.setForeground(Color.WHITE);
-        combo.setFont(new Font("SansSerif", Font.PLAIN, 12));
-        return combo;
-    }
-
-    private static void styleSpinner(JSpinner spinner) {
-        spinner.getEditor().getComponent(0).setBackground(new Color(50, 50, 65));
-        ((JSpinner.DefaultEditor) spinner.getEditor()).getTextField()
-                .setForeground(Color.WHITE);
-    }
-
-    private static JButton makeButton(String text, Color bg) {
-        JButton btn = new JButton(text);
-        btn.setFont(new Font("SansSerif", Font.BOLD, 13));
-        btn.setBackground(bg);
-        btn.setForeground(Color.WHITE);
-        btn.setFocusPainted(false);
-        btn.setBorderPainted(false);
-        btn.setOpaque(true);
-        btn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 36));
-        btn.setAlignmentX(Component.LEFT_ALIGNMENT);
-        btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        return btn;
-    }
-
-    // ── Spawn ban đầu ─────────────────────────────────────────────────────
-
-    private static void spawnVehicles(TrafficEngine engine,
-                                      Lane road1, Lane road2,
-                                      Lane road3, Lane road4) {
-        Vehicle car1 = VehicleFactory.create("car", 0, 0);
-        car1.setLane(road1);
-        engine.addVehicle(car1);
-
-        Vehicle ambulance = VehicleFactory.create("ambulance", 0, 0);
-        ambulance.setLane(road1);
-        ambulance.setLaneStartOffset(-80, 0);
-        engine.addVehicle(ambulance);
-
-        Vehicle car2 = VehicleFactory.create("car", 0, 0);
-        car2.setLane(road2);
-        engine.addVehicle(car2);
-
-        Vehicle moto1 = VehicleFactory.create("motorcycle", 0, 0);
-        moto1.setLane(road2);
-        moto1.setLaneStartOffset(60, 0);
-        engine.addVehicle(moto1);
-
-        Vehicle car3 = VehicleFactory.create("car", 0, 0);
-        car3.setLane(road3);
-        engine.addVehicle(car3);
-
-        Vehicle bicycle = VehicleFactory.create("bicycle", 0, 0);
-        bicycle.setLane(road3);
-        bicycle.setLaneStartOffset(0, -40);
-        engine.addVehicle(bicycle);
-
-        Vehicle firetruck = VehicleFactory.create("firetruck", 0, 0);
-        firetruck.setLane(road4);
-        engine.addVehicle(firetruck);
-
-        Vehicle moto2 = VehicleFactory.create("motorcycle", 0, 0);
-        moto2.setLane(road4);
-        moto2.setLaneStartOffset(0, 70);
-        engine.addVehicle(moto2);
     }
 }
