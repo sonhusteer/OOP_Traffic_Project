@@ -21,9 +21,6 @@ public class VehicleSpawner {
     }
 
     private static final double SPAWN_GAP = 58.0;
-    private static final double FRONT_GAP = 62.0;
-    private static final double BACK_GAP = 36.0;
-    private static final double LATERAL_GAP = 24.0;
 
     private final TrafficEngine engine;
     private final Map<Lane, Double> lastAutoOffsetByLane = new HashMap<>();
@@ -46,8 +43,7 @@ public class VehicleSpawner {
             boolean spawned = false;
 
             for (double offset : candidates) {
-                if (canSpawnAt(lane, progress, offset)) {
-                    create(type, lane, progress, offset);
+                if (createIfPossible(type, lane, progress, offset)) {
                     created++;
                     spawned = true;
                     break;
@@ -57,8 +53,7 @@ public class VehicleSpawner {
             if (!spawned && position == SpawnPosition.START) {
                 double fallbackProgress = baseProgress - (i + 1) * SPAWN_GAP;
                 for (double offset : candidates) {
-                    if (canSpawnAt(lane, fallbackProgress, offset)) {
-                        create(type, lane, fallbackProgress, offset);
+                    if (createIfPossible(type, lane, fallbackProgress, offset)) {
                         created++;
                         break;
                     }
@@ -69,21 +64,26 @@ public class VehicleSpawner {
     }
 
     public boolean canSpawnAt(Lane lane, double progress, double lateralOffset) {
-        return lane != null && lane.isSpaceFree(progress, lateralOffset,
-                FRONT_GAP, BACK_GAP, LATERAL_GAP, null);
+        Vehicle probe = VehicleFactory.create("Car", 0, 0);
+        return lane != null && lane.isSpawnSpaceFree(progress, lateralOffset,
+                probe.getWidth(), probe.getHeight());
     }
 
     public void clearState() {
         lastAutoOffsetByLane.clear();
     }
 
-    private void create(String type, Lane lane, double progress, double offset) {
+    private boolean createIfPossible(String type, Lane lane, double progress, double offset) {
         Vehicle v = VehicleFactory.create(type, 0, 0);
+        if (lane == null || !lane.isSpawnSpaceFree(progress, offset, v.getWidth(), v.getHeight())) {
+            return false;
+        }
         v.setLanePosition(lane, progress, offset);
         v.setPreferredLateralOffset(offset);
         v.setTargetLateralOffset(offset);
         engine.addVehicle(v);
         lastAutoOffsetByLane.put(lane, offset);
+        return true;
     }
 
     private double baseProgress(Lane lane, SpawnPosition position) {
@@ -108,6 +108,6 @@ public class VehicleSpawner {
         double last = lastAutoOffsetByLane.getOrDefault(lane, Vehicle.RIGHT_OFFSET);
         double first = last == Vehicle.RIGHT_OFFSET ? Vehicle.LEFT_OFFSET : Vehicle.RIGHT_OFFSET;
         double second = first == Vehicle.LEFT_OFFSET ? Vehicle.RIGHT_OFFSET : Vehicle.LEFT_OFFSET;
-        return new double[] { first, second, Vehicle.CENTER_OFFSET };
+        return new double[] { first, second };
     }
 }

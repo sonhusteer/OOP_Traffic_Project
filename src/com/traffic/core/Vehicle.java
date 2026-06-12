@@ -401,16 +401,26 @@ public abstract class Vehicle {
     public YieldMode getYieldMode() { return yieldMode; }
     public void setYieldMode(YieldMode m) {
         yieldMode = m == null ? YieldMode.NONE : m;
-        if (!isOvertaking()) {
-            maneuverState = switch (yieldMode) {
-                case YIELD_RIGHT, PULL_RIGHT -> ManeuverState.YIELDING_RIGHT;
-                case HOLD_POSITION, BLOCKED_YIELD -> ManeuverState.HOLDING_POSITION;
-                case STOP_BEFORE_CONFLICT, STOP -> ManeuverState.STOPPED_FOR_CONFLICT;
-                case CLEAR_CONFLICT, CLEAR_INTERSECTION -> ManeuverState.CLEARING_CONFLICT;
-                case CLEAR_PATH, URGENT_CLEAR_PATH -> ManeuverState.URGENT_CLEARING;
-                default -> ManeuverState.NORMAL;
-            };
+
+        // NONE means no new external yield command this frame. It must not
+        // cancel an active in-lane maneuver such as GAP_FILLING; the driver
+        // decides when old yield states should return to normal.
+        if (yieldMode == YieldMode.NONE) {
+            return;
         }
+
+        if (isOvertaking() || maneuverState == ManeuverState.GAP_FILLING) {
+            return;
+        }
+
+        maneuverState = switch (yieldMode) {
+            case YIELD_RIGHT, PULL_RIGHT -> ManeuverState.YIELDING_RIGHT;
+            case HOLD_POSITION, BLOCKED_YIELD -> ManeuverState.HOLDING_POSITION;
+            case STOP_BEFORE_CONFLICT, STOP -> ManeuverState.STOPPED_FOR_CONFLICT;
+            case CLEAR_CONFLICT, CLEAR_INTERSECTION -> ManeuverState.CLEARING_CONFLICT;
+            case CLEAR_PATH, URGENT_CLEAR_PATH -> ManeuverState.URGENT_CLEARING;
+            default -> maneuverState;
+        };
     }
     public boolean isChangingLane() { return isChangingLane; }
     public double getLaneChangeCooldown() { return laneChangeCooldown; }

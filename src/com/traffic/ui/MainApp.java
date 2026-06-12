@@ -31,6 +31,7 @@ public class MainApp extends Application {
     private static final MapConfig[] ALL_MAPS = {
         new CrossroadsMap(),
         new TJunctionMap(),
+        new FiveWayMap(),
         new NetworkMap(),
         new HighwayMap()
     };
@@ -526,14 +527,12 @@ public class MainApp extends Application {
     ) {}
 
     private SpawnProfile getSpawnProfile(MapConfig map) {
-        String name = map != null ? map.getName() : "";
-        return switch (name) {
-            case "Ngã Tư" -> new SpawnProfile(26, 7, 9);
-            case "Ngã Ba" -> new SpawnProfile(18, 5, 8);
-            case "Mạng Lưới" -> new SpawnProfile(36, 7, 9);
-            case "Đại Lộ Cao Tốc" -> new SpawnProfile(70, 18, 6);
-            default -> new SpawnProfile(28, 7, 8);
-        };
+        if (map instanceof CrossroadsMap) return new SpawnProfile(26, 7, 9);
+        if (map instanceof TJunctionMap) return new SpawnProfile(18, 5, 8);
+        if (map instanceof FiveWayMap) return new SpawnProfile(30, 7, 8);
+        if (map instanceof NetworkMap) return new SpawnProfile(36, 7, 9);
+        if (map instanceof HighwayMap) return new SpawnProfile(70, 18, 6);
+        return new SpawnProfile(28, 7, 8);
     }
 
     private int countVehiclesOnLane(Lane lane) {

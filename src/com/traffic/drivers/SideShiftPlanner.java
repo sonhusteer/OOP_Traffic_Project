@@ -123,7 +123,30 @@ public final class SideShiftPlanner {
         if (offset == null) {
             return false;
         }
-        if (!lane.occupancy().isGapFillSpaceFree(vehicle, offset)) {
+        if (!lane.occupancy().isGapFillSpaceFree(vehicle, offset, frontGap, rearGap)) {
+            return false;
+        }
+        return vehicle.requestManeuver(LateralManeuver.gapFill(offset));
+    }
+
+    public boolean tryYieldGapFill(
+            Vehicle vehicle,
+            double frontGap,
+            double rearGap
+    ) {
+        if (vehicle == null || vehicle.getLane() == null) {
+            return false;
+        }
+        if (vehicle.getManeuverCooldown() > 0.0) {
+            return false;
+        }
+
+        Lane lane = vehicle.getLane();
+        Double offset = lane.occupancy().findYieldGapFillOffset(vehicle);
+        if (offset == null) {
+            return false;
+        }
+        if (!lane.occupancy().isGapFillSpaceFree(vehicle, offset, frontGap, rearGap)) {
             return false;
         }
         return vehicle.requestManeuver(LateralManeuver.gapFill(offset));

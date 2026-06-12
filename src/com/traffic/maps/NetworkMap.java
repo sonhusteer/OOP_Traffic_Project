@@ -63,6 +63,8 @@ public class NetworkMap implements MapConfig {
         Lane road1 = new Lane(30, 340, 770, 340, lightLH1);
         road1.addwaypoint(210, 340); // Stop line ngã tư trái
         road1.addwaypoint(510, 340); // Stop line ngã tư phải
+        road1.addControlPoint(210, 340, lightLH1);
+        road1.addControlPoint(510, 340, lightRH1);
         lanes.add(road1);
 
         // Dummy lane để giữ đèn RH1 cho ngã tư phải (vì xe không nhận 2 đèn trên 1 làn)
@@ -72,6 +74,8 @@ public class NetworkMap implements MapConfig {
         Lane road2 = new Lane(770, 260, 30, 260, lightRH2);
         road2.addwaypoint(590, 260); // Stop line ngã tư phải
         road2.addwaypoint(290, 260); // Stop line ngã tư trái
+        road2.addControlPoint(590, 260, lightRH2);
+        road2.addControlPoint(290, 260, lightLH2);
         lanes.add(road2);
 
         // Dummy lane để giữ đèn LH2 cho ngã tư trái
@@ -81,29 +85,39 @@ public class NetworkMap implements MapConfig {
 
         Lane road5 = new Lane(210, 50, 210, 550, lightLV1);
         road5.addwaypoint(210, 260 - 40); // Stop line trên (220)
+        road5.addControlPoint(210, 260 - 40, lightLV1);
         lanes.add(road5);
 
         Lane road6 = new Lane(290, 550, 290, 50, lightLV2);
         road6.addwaypoint(290, 340 + 40); // Stop line dưới (380)
+        road6.addControlPoint(290, 340 + 40, lightLV2);
         lanes.add(road6);
 
         // ── Đường dọc ngã tư PHẢI (cx=550) ─────────────────────────
 
         Lane road7 = new Lane(510, 50, 510, 550, lightRV1);
         road7.addwaypoint(510, 260 - 40); // Stop line trên (220)
+        road7.addControlPoint(510, 260 - 40, lightRV1);
         lanes.add(road7);
 
         Lane road8 = new Lane(590, 550, 590, 50, lightRV2);
         road8.addwaypoint(590, 340 + 40); // Stop line dưới (380)
+        road8.addControlPoint(590, 340 + 40, lightRV2);
         lanes.add(road8);
 
         // Thiết lập láng giềng
+        road1.setOpposingLane(road2);
+        road2.setOpposingLane(road1);
         road1.setLeftNeighbor(road2);
         road2.setLeftNeighbor(road1);
         
+        road5.setOpposingLane(road6);
+        road6.setOpposingLane(road5);
         road5.setLeftNeighbor(road6);
         road6.setLeftNeighbor(road5);
         
+        road7.setOpposingLane(road8);
+        road8.setOpposingLane(road7);
         road7.setLeftNeighbor(road8);
         road8.setLeftNeighbor(road7);
 

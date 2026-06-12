@@ -291,7 +291,10 @@ public final class LaneOccupancy {
             return false;
         }
 
-        Lane opposite = lane.getLeftNeighbor();
+        Lane opposite = lane.getOpposingLane();
+        if (opposite == null && looksOpposing(lane.getLeftNeighbor(), progress)) {
+            opposite = lane.getLeftNeighbor();
+        }
         if (opposite != null) {
             Vector2D p0 = lane.getPositionAt(progress, corridorOffset);
             Vector2D p1 = lane.getPositionAt(progress + Math.max(80.0, frontGap), corridorOffset);
@@ -418,14 +421,65 @@ public final class LaneOccupancy {
         return best;
     }
 
+    /**
+     * Gap-fill while yielding to a priority vehicle: prefer empty space on the
+     * right/center and never move farther left unless no rightward motion exists.
+     */
+    public Double findYieldGapFillOffset(Vehicle vehicle) {
+        if (vehicle == null) {
+            return null;
+        }
+
+        double current = offsetOf(vehicle);
+        double preferred = vehicle.getPreferredLateralOffset();
+        double rightEdge = lane.getRightmostOffset(vehicle);
+        double[] candidates = new double[] {
+                rightEdge,
+                Vehicle.RIGHT_OFFSET,
+                Vehicle.CENTER_OFFSET,
+                preferred
+        };
+
+        Double best = null;
+        double bestScore = Double.MAX_VALUE;
+        for (double candidate : candidates) {
+            double clamped = lane.clampOffset(vehicle, candidate);
+            // Do not make a yielding vehicle slide farther left into the path that
+            // an ambulance/firetruck is likely trying to use.
+            if (clamped < current - 1.5) {
+                continue;
+            }
+            if (Math.abs(clamped - current) < 3.0) {
+                continue;
+            }
+            if (!isGapFillSpaceFree(vehicle, clamped)) {
+                continue;
+            }
+
+            double rightBonus = Math.abs(clamped - rightEdge) * 0.35;
+            double score = Math.abs(clamped - current) + Math.abs(clamped - preferred) * 0.15 + rightBonus;
+            if (score < bestScore) {
+                bestScore = score;
+                best = clamped;
+            }
+        }
+        return best;
+    }
+
     /** Kiem tra khoang trong cho thao tac gap-fill: can ca ngang lan phia truoc. */
     public boolean isGapFillSpaceFree(Vehicle vehicle, double targetOffset) {
+        double frontGap = vehicle != null ? Math.max(42.0, vehicle.getWidth() + 24.0) : 42.0;
+        double rearGap = vehicle != null ? Math.max(26.0, vehicle.getWidth() * 0.55) : 26.0;
+        return isGapFillSpaceFree(vehicle, targetOffset, frontGap, rearGap);
+    }
+
+    public boolean isGapFillSpaceFree(Vehicle vehicle, double targetOffset, double frontGap, double rearGap) {
         if (vehicle == null) {
             return false;
         }
         double progress = progressOf(vehicle);
-        double frontGap = Math.max(42.0, vehicle.getWidth() + 24.0);
-        double rearGap = Math.max(26.0, vehicle.getWidth() * 0.55);
+        frontGap = Math.max(frontGap, vehicle.getWidth() + 20.0);
+        rearGap = Math.max(rearGap, vehicle.getWidth() * 0.50);
         if (!isSideSpaceFree(vehicle, targetOffset, frontGap, rearGap)) {
             return false;
         }
@@ -538,6 +592,17 @@ public final class LaneOccupancy {
             return diff < frontGap + padding;
         }
         return -diff < rearGap + padding;
+    }
+
+
+    private boolean looksOpposing(Lane candidate, double progress) {
+        if (candidate == null) {
+            return false;
+        }
+        Vector2D a = lane.getDirectionAt(progress);
+        Vector2D b = candidate.getDirectionAt(candidate.getProgressOf(lane.getPointAt(progress)));
+        double dot = a.getX() * b.getX() + a.getY() * b.getY();
+        return dot < -0.60;
     }
 
     private double requiredLateralSeparation(Vehicle a, Vehicle b) {

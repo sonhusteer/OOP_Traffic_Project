@@ -39,8 +39,8 @@ public class HighwayMap implements MapConfig {
         // Thiết lập láng giềng chiều Trái → Phải
         // Chỉ giữ neighbor để tham chiếu/hỗ trợ UI.
         // Không cho xe bay sang hẳn lane khác; vượt/né vẫn nằm trong cùng Lane.
-        road1.setLeftNeighbor(road2);
-        road2.setRightNeighbor(road1);
+        road1.setLeftAdjacentLane(road2);
+        road2.setRightAdjacentLane(road1);
         road1.setFormalLaneChangeAllowed(false);
         road2.setFormalLaneChangeAllowed(false);
 
@@ -57,8 +57,8 @@ public class HighwayMap implements MapConfig {
         lanes.add(road4);
 
         // Thiết lập láng giềng chiều Phải → Trái
-        road3.setLeftNeighbor(road4);  // Muốn vượt thì sang trái (road4)
-        road4.setRightNeighbor(road3); // Vượt xong thì tạt phải về (road3)
+        road3.setLeftAdjacentLane(road4);  // Metadata: lane nhanh cùng chiều ở bên trái.
+        road4.setRightAdjacentLane(road3); // Metadata: lane chậm cùng chiều ở bên phải.
 
         // Highway vẫn có 2 lane cùng chiều, nhưng xe chỉ vượt/né trong chính Lane của nó.
         // Việc chuyển hẳn sang lane khác nhìn không tự nhiên với mô hình lane rộng 2 slot.

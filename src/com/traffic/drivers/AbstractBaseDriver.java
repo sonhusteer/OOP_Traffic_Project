@@ -4,6 +4,7 @@ import com.traffic.core.IDriver;
 import com.traffic.core.MathUtils;
 import com.traffic.core.Vehicle;
 import com.traffic.map.Lane;
+import com.traffic.map.LaneControlPoint;
 import com.traffic.map.TrafficLight;
 
 /**
@@ -136,7 +137,7 @@ public abstract class AbstractBaseDriver implements IDriver {
 
         Lane lane = vehicle.getLane();
         if (lane != null) {
-            Vehicle inFront = lane.getVehicleAhead(vehicle);
+            Vehicle inFront = lane.occupancy().vehicleAheadOf(vehicle);
             double longitudinalGap = inFront != null
                     ? inFront.getRearProgress() - vehicle.getFrontProgress()
                     : Double.MAX_VALUE;
@@ -209,13 +210,22 @@ public abstract class AbstractBaseDriver implements IDriver {
         double distanceToStopLine = Double.POSITIVE_INFINITY;
 
         Lane logicalLane = vehicle.getOriginalLane() != null ? vehicle.getOriginalLane() : vehicle.getLane();
-        TrafficLight logicalLight = logicalLane != null ? logicalLane.getLight() : nextLight;
+        double frontProgress = 0.0;
+        LaneControlPoint nextControl = null;
+        TrafficLight logicalLight = null;
 
-        if (obeyTrafficLight() && logicalLight != null && logicalLane != null) {
-            double stopProgress = logicalLane.getStopProgress();
-            double frontProgress = vehicle.getLane() == logicalLane
+        if (logicalLane != null) {
+            frontProgress = vehicle.getLane() == logicalLane
                     ? vehicle.getFrontProgress()
                     : logicalLane.getProgressOf(vehicle.getPosition()) + vehicle.getLongitudinalLength() / 2.0;
+            nextControl = logicalLane.getNextControlPoint(frontProgress);
+            logicalLight = nextControl != null ? nextControl.getLight() : nextLight;
+        } else {
+            logicalLight = nextLight;
+        }
+
+        if (obeyTrafficLight() && logicalLight != null && logicalLane != null) {
+            double stopProgress = nextControl != null ? nextControl.getProgress() : logicalLane.getStopProgress();
             double distToStop = stopProgress - frontProgress;
             distanceToStopLine = distToStop;
             boolean isPastStop = distToStop < -3.0;
@@ -250,7 +260,10 @@ public abstract class AbstractBaseDriver implements IDriver {
      */
     private void handleUrgentClearPath(Vehicle vehicle, TrafficLight nextLight) {
         vehicle.cancelOvertake();
-        vehicle.setManeuverState(Vehicle.ManeuverState.URGENT_CLEARING);
+        boolean continuingGapFill = vehicle.getManeuverState() == Vehicle.ManeuverState.GAP_FILLING;
+        if (!continuingGapFill) {
+            vehicle.setManeuverState(Vehicle.ManeuverState.URGENT_CLEARING);
+        }
 
         Lane lane = vehicle.getLane();
         if (lane != null) {
@@ -261,12 +274,15 @@ public abstract class AbstractBaseDriver implements IDriver {
                             URGENT_FRONT_GAP,
                             URGENT_REAR_GAP
                     );
-            if (canPullRight) {
+            if (continuingGapFill) {
+                // Let the committed gap-fill finish; do not rewrite its target every frame.
+            } else if (canPullRight) {
                 vehicle.setTargetLateralOffset(lane.getRightmostOffset(vehicle));
             } else if (!vehicle.isOvertaking()) {
-                // Khong ep ve preferred ngay lap tuc; giu chuyen dong ngang mem,
-                // tranh cam giac xe bi giat trai/phai khi ambulance o sau.
-                if (Math.abs(vehicle.getTargetLateralOffset() - vehicle.getPreferredLateralOffset()) < 2.0) {
+                // Ben phai dang co xe: khong ep chen. Thu tim mot slot trong
+                // ve phia phai/giua lane de xe tu dien vao cho trong.
+                if (!sideShiftPlanner.tryYieldGapFill(vehicle, URGENT_FRONT_GAP, URGENT_REAR_GAP)
+                        && Math.abs(vehicle.getTargetLateralOffset() - vehicle.getPreferredLateralOffset()) < 2.0) {
                     vehicle.returnToPreferredSlot();
                 }
             }
@@ -287,7 +303,7 @@ public abstract class AbstractBaseDriver implements IDriver {
         }
 
         if (lane != null) {
-            Vehicle inFront = lane.getVehicleAhead(vehicle);
+            Vehicle inFront = lane.occupancy().vehicleAheadOf(vehicle);
             if (inFront != null) {
                 double gap = inFront.getRearProgress() - vehicle.getFrontProgress();
                 if (gap < getSafeDistance() * 0.45) {

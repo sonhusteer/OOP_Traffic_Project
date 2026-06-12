@@ -145,13 +145,26 @@ public final class LanePath {
         return extrapolate(lastValid.a, lastValid.b, lastValid.length + extra);
     }
 
-    /** Lay goc xe tai progress, tinh theo segment ma xe dang di tren do. */
-    public double angleAt(double progress) {
+    /** Lay vector don vi theo huong chay tai progress. */
+    public Vector2D directionAt(double progress) {
         Segment segment = segmentAt(progress);
         if (segment == null) {
-            return 0.0;
+            return new Vector2D(1.0, 0.0);
         }
-        return MathUtils.angleTo(segment.a, segment.b);
+
+        double dx = segment.b.getX() - segment.a.getX();
+        double dy = segment.b.getY() - segment.a.getY();
+        double len = Math.sqrt(dx * dx + dy * dy);
+        if (len < EPSILON) {
+            return new Vector2D(1.0, 0.0);
+        }
+        return new Vector2D(dx / len, dy / len);
+    }
+
+    /** Lay goc xe tai progress, tinh theo segment ma xe dang di tren do. */
+    public double angleAt(double progress) {
+        Vector2D dir = directionAt(progress);
+        return Math.toDegrees(Math.atan2(dir.getY(), dir.getX()));
     }
 
     /**

@@ -54,6 +54,10 @@ public class TJunctionMap implements MapConfig {
         lanes.add(road4);
 
         // Thiết lập láng giềng
+        road1.setOpposingLane(road2);
+        road2.setOpposingLane(road1);
+        road3.setOpposingLane(road4);
+        road4.setOpposingLane(road3);
         road1.setLeftNeighbor(road2);
         road2.setLeftNeighbor(road1);
         road3.setLeftNeighbor(road4);
