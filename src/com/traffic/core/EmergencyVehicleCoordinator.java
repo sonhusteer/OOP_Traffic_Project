@@ -21,7 +21,8 @@ import java.util.List;
  * - PULL_RIGHT -> thu dich lateralOffset sang phai.
  * - CLEAR_PATH -> tang toc nhe de thoat khoi duong xe uu tien.
  * - STOP -> dung lai truoc vung xung dot.
- * - CLEAR_INTERSECTION -> di tiep de thoat khoi giao lo, khong dung giua nga tu.
+ * - CLEAR_INTERSECTION -> di tiep de thoat khoi giao lo, khong dung giua nga
+ * tu.
  */
 public final class EmergencyVehicleCoordinator {
 
@@ -89,13 +90,11 @@ public final class EmergencyVehicleCoordinator {
                     normal,
                     rightOffset,
                     YIELD_FRONT_GAP,
-                    YIELD_REAR_GAP
-            );
+                    YIELD_REAR_GAP);
 
             boolean mergeGapFree = priorityLane.occupancy().hasYieldRightMergeGap(
                     normal,
-                    priority
-            );
+                    priority);
 
             boolean canPullRight = sideSpaceFree && mergeGapFree;
 
@@ -103,16 +102,14 @@ public final class EmergencyVehicleCoordinator {
                     normal,
                     canPullRight
                             ? Vehicle.YieldMode.PULL_RIGHT
-                            : Vehicle.YieldMode.URGENT_CLEAR_PATH
-            );
+                            : Vehicle.YieldMode.URGENT_CLEAR_PATH);
         }
     }
 
     private void applyIntersectionRules(
             Vehicle priority,
             List<Vehicle> vehicles,
-            List<Intersection> intersections
-    ) {
+            List<Intersection> intersections) {
         if (intersections == null || intersections.isEmpty()) {
             return;
         }
@@ -128,8 +125,7 @@ public final class EmergencyVehicleCoordinator {
 
             double priorityDistance = MathUtils.distance(
                     priority.getPosition(),
-                    intersection.getCenter()
-            );
+                    intersection.getCenter());
             if (priorityDistance > INTERSECTION_DANGER_RADIUS) {
                 continue;
             }
@@ -153,8 +149,7 @@ public final class EmergencyVehicleCoordinator {
 
                 double normalDistance = MathUtils.distance(
                         normal.getPosition(),
-                        intersection.getCenter()
-                );
+                        intersection.getCenter());
                 if (normalDistance > INTERSECTION_DANGER_RADIUS) {
                     continue;
                 }
@@ -163,8 +158,7 @@ public final class EmergencyVehicleCoordinator {
                         normal,
                         normalDistance <= INTERSECTION_CLEAR_RADIUS
                                 ? Vehicle.YieldMode.CLEAR_INTERSECTION
-                                : Vehicle.YieldMode.STOP
-                );
+                                : Vehicle.YieldMode.STOP);
             }
         }
     }
