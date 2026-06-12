@@ -7,14 +7,12 @@ import java.util.List;
 /**
  * Map 2 — Ngã Ba hình chữ T (T-Junction).
  *
- *         road3 ↓
- *            |
- * road1 → ───┼────── → road1
- * road2 ← ───┼────── ← road2
- *         (không có đường lên)
+ *         road3 ↓  road4 ↑
+ *            |      |
+ * road1 → ───┼──────┼──── → road1
+ * road2 ← ───┼──────┼──── ← road2
  *
  * Center: (400, 300)
- * 3 làn: ngang trái→phải, ngang phải→trái, dọc trên→dưới
  */
 public class TJunctionMap implements MapConfig {
 
@@ -22,34 +20,41 @@ public class TJunctionMap implements MapConfig {
     private final List<Intersection> intersections = new ArrayList<>();
 
     public TJunctionMap() {
-        // ── Đèn giao thông (3 đèn cho 3 làn) ────────────────────────────
-        TrafficLight lightH1 = new CountdownLight(10, 8, 355, 255);
-        TrafficLight lightH2 = new NoCountdownLight(10, 8, 445, 325);
+        // ── Đèn giao thông (Góc phải theo chuẩn Right-Hand Traffic) ──────
+        TrafficLight lightH1 = new CountdownLight(10, 8, 305, 395); // Đi phải (Bottom)
+        TrafficLight lightH2 = new NoCountdownLight(10, 8, 495, 205); // Đi trái (Top)
         lightH1.setInitialState(TrafficLight.State.GREEN, 10);
         lightH2.setInitialState(TrafficLight.State.GREEN, 10);
 
-        TrafficLight lightV1 = new CountdownLight(10, 8, 425, 255);
+        TrafficLight lightV1 = new CountdownLight(10, 8, 305, 205); // Đi xuống (Left)
         lightV1.setInitialState(TrafficLight.State.RED, 8);
 
-        // ── Làn đường (đường rộng 80px) ──────────────────────────────
-        // Ngang: trái → phải
-        Lane road1 = new Lane(50, 260, 750, 260, lightH1);
-        road1.addwaypoint(350, 260);
+        // ── Làn đường ──────────────────────────────
+        // Ngang: Trái → Phải (Nửa dưới Y=340)
+        Lane road1 = new Lane(50, 340, 750, 340, lightH1);
+        road1.addwaypoint(320, 340); // Stop line
         lanes.add(road1);
 
-        // Ngang: phải → trái
-        Lane road2 = new Lane(750, 340, 50, 340, lightH2);
-        road2.addwaypoint(450, 340);
+        // Ngang: Phải → Trái (Nửa trên Y=260)
+        Lane road2 = new Lane(750, 260, 50, 260, lightH2);
+        road2.addwaypoint(480, 260); // Stop line
         lanes.add(road2);
 
-        // Dọc: trên → dưới
-        Lane road3 = new Lane(400, 50, 400, 550, lightV1);
-        road3.addwaypoint(400, 250);
+        // Dọc: Trên → Dưới (Nửa trái X=360, Vào ngã tư)
+        Lane road3 = new Lane(360, -50, 360, 340, lightV1);
+        road3.addwaypoint(360, 220); // Stop line
         lanes.add(road3);
+
+        // Dọc: Dưới → Trên (Nửa phải X=440, Từ ngã tư đi ra)
+        Lane road4 = new Lane(440, 340, 440, -50, null);
+        // Không add waypoint -> Không hiện stop line trong ngã tư
+        lanes.add(road4);
 
         // Thiết lập láng giềng
         road1.setLeftNeighbor(road2);
         road2.setLeftNeighbor(road1);
+        road3.setLeftNeighbor(road4);
+        road4.setLeftNeighbor(road3);
 
         // ── Ngã ba ──────────────────────────────────────────────────────
         Intersection ngaBa = new Intersection(Intersection.Type.T_JUNCTION, 400, 300);

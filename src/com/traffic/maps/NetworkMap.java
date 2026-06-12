@@ -29,13 +29,13 @@ public class NetworkMap implements MapConfig {
         //  NGÃ TƯ TRÁI — center (250, 300)
         // ═══════════════════════════════════════════════════════════════════
 
-        TrafficLight lightLH1 = new CountdownLight(10, 13, 205, 255);
-        TrafficLight lightLH2 = new NoCountdownLight(10, 13, 295, 325);
+        TrafficLight lightLH1 = new CountdownLight(10, 13, 155, 395); // Đi phải (Bottom)
+        TrafficLight lightLH2 = new NoCountdownLight(10, 13, 345, 205); // Đi trái (Top)
         lightLH1.setInitialState(TrafficLight.State.GREEN, 10);
         lightLH2.setInitialState(TrafficLight.State.GREEN, 10);
 
-        TrafficLight lightLV1 = new CountdownLight(10, 13, 275, 255);
-        TrafficLight lightLV2 = new CountdownLight(10, 13, 205, 325);
+        TrafficLight lightLV1 = new CountdownLight(10, 13, 155, 205); // Đi xuống (Left)
+        TrafficLight lightLV2 = new CountdownLight(10, 13, 345, 395); // Đi lên (Right)
         lightLV1.setInitialState(TrafficLight.State.RED, 13);
         lightLV2.setInitialState(TrafficLight.State.RED, 13);
 
@@ -43,52 +43,60 @@ public class NetworkMap implements MapConfig {
         //  NGÃ TƯ PHẢI — center (550, 300)
         // ═══════════════════════════════════════════════════════════════════
 
-        TrafficLight lightRH1 = new SmartTrafficLight(10, 13, 505, 255);
-        TrafficLight lightRH2 = new Last10SecondsLight(10, 13, 595, 325);
+        TrafficLight lightRH1 = new SmartTrafficLight(10, 13, 455, 395); // Đi phải (Bottom)
+        TrafficLight lightRH2 = new Last10SecondsLight(10, 13, 645, 205); // Đi trái (Top)
         lightRH1.setInitialState(TrafficLight.State.GREEN, 10);
         lightRH2.setInitialState(TrafficLight.State.GREEN, 10);
 
-        TrafficLight lightRV1 = new CountdownLight(10, 13, 575, 255);
-        TrafficLight lightRV2 = new CountdownLight(10, 13, 505, 325);
+        TrafficLight lightRV1 = new CountdownLight(10, 13, 455, 205); // Đi xuống (Left)
+        TrafficLight lightRV2 = new CountdownLight(10, 13, 645, 395); // Đi lên (Right)
         lightRV1.setInitialState(TrafficLight.State.RED, 13);
         lightRV2.setInitialState(TrafficLight.State.RED, 13);
 
         // ═══════════════════════════════════════════════════════════════════
-        //  LÀN ĐƯỜNG
+        //  LÀN ĐƯỜNG (Chuẩn Right-Hand Traffic)
         // ═══════════════════════════════════════════════════════════════════
 
         // ── Đường ngang xuyên suốt ───────────────────────────────────────
 
-        // road1 → trái → phải
-        Lane road1 = new Lane(30, 260, 770, 260, lightLH1);
-        road1.addwaypoint(200, 260);
-        road1.addwaypoint(500, 260);
+        // road1 → Trái → Phải (Nửa dưới Y=340)
+        Lane road1 = new Lane(30, 340, 770, 340, lightLH1);
+        road1.addwaypoint(210, 340); // Stop line ngã tư trái
+        road1.addwaypoint(510, 340); // Stop line ngã tư phải
         lanes.add(road1);
 
-        // road2 ← phải → trái
-        Lane road2 = new Lane(770, 340, 30, 340, lightRH2);
-        road2.addwaypoint(600, 340);
-        road2.addwaypoint(300, 340);
+        // Dummy lane để giữ đèn RH1 cho ngã tư phải (vì xe không nhận 2 đèn trên 1 làn)
+        Lane dummyRH1 = new Lane(510, 340, 510, 340, lightRH1);
+        lanes.add(dummyRH1);
+
+        // road2 ← Phải → Trái (Nửa trên Y=260)
+        Lane road2 = new Lane(770, 260, 30, 260, lightRH2);
+        road2.addwaypoint(590, 260); // Stop line ngã tư phải
+        road2.addwaypoint(290, 260); // Stop line ngã tư trái
         lanes.add(road2);
 
-        // ── Đường dọc ngã tư TRÁI ──────────────────────────────────
+        // Dummy lane để giữ đèn LH2 cho ngã tư trái
+        Lane dummyLH2 = new Lane(290, 260, 290, 260, lightLH2);
+        lanes.add(dummyLH2);
+
+        // ── Đường dọc ngã tư TRÁI (cx=250) ─────────────────────────
 
         Lane road5 = new Lane(210, 50, 210, 550, lightLV1);
-        road5.addwaypoint(210, 250);
+        road5.addwaypoint(210, 260 - 40); // Stop line trên (220)
         lanes.add(road5);
 
         Lane road6 = new Lane(290, 550, 290, 50, lightLV2);
-        road6.addwaypoint(290, 350);
+        road6.addwaypoint(290, 340 + 40); // Stop line dưới (380)
         lanes.add(road6);
 
-        // ── Đường dọc ngã tư PHẢI ──────────────────────────────────
+        // ── Đường dọc ngã tư PHẢI (cx=550) ─────────────────────────
 
         Lane road7 = new Lane(510, 50, 510, 550, lightRV1);
-        road7.addwaypoint(510, 250);
+        road7.addwaypoint(510, 260 - 40); // Stop line trên (220)
         lanes.add(road7);
 
         Lane road8 = new Lane(590, 550, 590, 50, lightRV2);
-        road8.addwaypoint(590, 350);
+        road8.addwaypoint(590, 340 + 40); // Stop line dưới (380)
         lanes.add(road8);
 
         // Thiết lập láng giềng
@@ -102,17 +110,19 @@ public class NetworkMap implements MapConfig {
         road8.setLeftNeighbor(road7);
 
         // ═══════════════════════════════════════════════════════════════════
-        //  NGÃ RẼ (Intersection)
+        //  NGÃ TƯ (Intersection)
         // ═══════════════════════════════════════════════════════════════════
 
         Intersection ngaTuTrai = new Intersection(Intersection.Type.CROSSROADS, 250, 300);
         ngaTuTrai.addLane(road1);
         ngaTuTrai.addLane(road2);
+        ngaTuTrai.addLane(dummyLH2); // Để đèn LH2 được vẽ và quản lý
         ngaTuTrai.addLane(road5);
         ngaTuTrai.addLane(road6);
 
         Intersection ngaTuPhai = new Intersection(Intersection.Type.CROSSROADS, 550, 300);
         ngaTuPhai.addLane(road1);
+        ngaTuPhai.addLane(dummyRH1); // Để đèn RH1 được vẽ và quản lý
         ngaTuPhai.addLane(road2);
         ngaTuPhai.addLane(road7);
         ngaTuPhai.addLane(road8);

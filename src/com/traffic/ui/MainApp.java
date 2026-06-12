@@ -29,7 +29,6 @@ public class MainApp extends Application {
     private static final MapConfig[] ALL_MAPS = {
         new CrossroadsMap(),
         new TJunctionMap(),
-        new FiveWayMap(),
         new NetworkMap(),
         new HighwayMap()
     };
@@ -324,6 +323,15 @@ public class MainApp extends Application {
             btnMute.setText(sm.isMuted() ? "🔇 Unmute" : "🔊 Mute");
         });
 
+        ToggleButton btnRain = new ToggleButton("🌤 Tạnh");
+        btnRain.getStyleClass().add("btn-action");
+        btnRain.setOnAction(e -> {
+            boolean r = btnRain.isSelected();
+            basicRenderer.setRaining(r);
+            graphicRenderer.setRaining(r);
+            btnRain.setText(r ? "🌧 Mưa" : "🌤 Tạnh");
+        });
+
         // Vehicle count
         lblVehicles = new Label("🚗 0");
         lblVehicles.setFont(Font.font("SansSerif", FontWeight.BOLD, 12));
@@ -340,7 +348,7 @@ public class MainApp extends Application {
             new Label("⚡") {{ setFont(Font.font(14)); }},
             speedSlider, lblSpeed,
             sp3,
-            btnPause, btnMode, btnMute,
+            btnPause, btnMode, btnMute, btnRain,
             sp1,
             lblVehicles
         );

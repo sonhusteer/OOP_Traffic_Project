@@ -40,6 +40,7 @@ public class TrafficEngine {
     public void render() {
         if (renderer == null) return;
         renderer.clear();
+        renderer.renderIntersections(intersections);
         renderer.renderLights(lights);
         renderer.renderVehicles(vehicles);
     }

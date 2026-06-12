@@ -25,10 +25,12 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
     private final Map<String, Image> sprites = new HashMap<>();
 
     // ── Bảng màu đường & nền ─────────────────────────────────────────────
-    private static final Color ASPHALT   = Color.rgb(45, 48, 55);
-    private static final Color EDGE_MARK = Color.rgb(255, 220, 60, 200.0 / 255);
-    private static final Color BG_DARK   = Color.rgb(25, 30, 35);
-    private static final Color BG_GRASS  = Color.rgb(35, 50, 32);
+    private static final Color ASPHALT      = Color.rgb(38, 41, 50);
+    private static final Color ASPHALT_EDGE = Color.rgb(52, 56, 66);
+    private static final Color LANE_EDGE    = Color.rgb(255, 210, 50, 0.90);  // vạch mép vàng
+    private static final Color LANE_CENTER  = Color.rgb(255, 255, 255, 0.55); // vạch giữa trắng
+    private static final Color BG_DARK      = Color.rgb(22, 34, 20);
+    private static final Color BG_GRASS     = Color.rgb(38, 58, 32);
 
     // ── Bảng màu xe ─────────────────────────────────────────────────────
     private static final Map<String, Color> VEHICLE_COLORS = Map.of(
@@ -71,17 +73,19 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
     @Override
     public void draw(GraphicsContext gc, double w, double h) {
         drawBackground(gc, w, h);
-        drawLanes(gc);
-        drawLights(gc);
-        drawVehicles(gc);
-        drawHUD(gc, w);
+        drawBuildings(gc, w, h);      // nhà dân cư (dưới cùng)
+        drawLanes(gc);                // đường xe chạy (kẻ vạch qua ngã tư)
+        drawIntersections(gc);        // ngã giao (xóa vạch cũ, vẽ chuẩn)
+        drawLights(gc);              // đèn giao thông
+        drawVehicles(gc);            // xe
+        drawRain(gc, w, h);          // hiệu ứng mưa trơn trượt
+        drawHUD(gc, w);              // HUD
     }
 
     // =====================================================================
     //  1. NỀN CỎ — gradient tối hơn BasicRenderer
     // =====================================================================
     private void drawBackground(GraphicsContext gc, double w, double h) {
-        // Gradient nền tối hơn BasicRenderer
         LinearGradient bg = new LinearGradient(
             0, 0, w, h, false, CycleMethod.NO_CYCLE,
             new Stop(0, BG_DARK),
@@ -90,11 +94,12 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
         gc.setFill(bg);
         gc.fillRect(0, 0, w, h);
 
-        // Lưới mờ nhạt giúp có chiều sâu
-        gc.setStroke(Color.rgb(255, 255, 255, 6.0 / 255));
+        // Lưới cỏ mờ nhạt
+        gc.setStroke(Color.rgb(0, 0, 0, 0.08));
         gc.setLineWidth(1);
-        for (int x = 0; x < (int) w; x += 40) gc.strokeLine(x, 0, x, h);
-        for (int y = 0; y < (int) h; y += 40) gc.strokeLine(0, y, w, y);
+        gc.setLineDashes();
+        for (int x = 0; x < (int) w; x += 32) gc.strokeLine(x, 0, x, h);
+        for (int y = 0; y < (int) h; y += 32) gc.strokeLine(0, y, w, y);
     }
 
     // =====================================================================
@@ -107,60 +112,60 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
             List<Vector2D> pts = lane.getwaypoints();
             if (pts == null || pts.size() < 2) continue;
 
-            // Shadow nhẹ bên dưới đường
-            gc.setStroke(Color.rgb(0, 0, 0, 60.0 / 255));
-            gc.setLineWidth(84);
             gc.setLineCap(StrokeLineCap.ROUND);
             gc.setLineJoin(StrokeLineJoin.ROUND);
-            for (int i = 0; i < pts.size() - 1; i++) {
-                gc.strokeLine(
-                    pts.get(i).getX() + 2, pts.get(i).getY() + 3,
-                    pts.get(i + 1).getX() + 2, pts.get(i + 1).getY() + 3
-                );
-            }
+            gc.setLineDashes();
 
-            // Mặt đường asphalt (rộng 80px)
+            // 1. Shadow mềm
+            gc.setStroke(Color.rgb(0, 0, 0, 0.30));
+            gc.setLineWidth(88);
+            strokePath(gc, pts, 3, 4);
+
+            // 2. Mặt đường asphalt
             gc.setStroke(ASPHALT);
             gc.setLineWidth(80);
-            gc.setLineCap(StrokeLineCap.ROUND);
-            gc.setLineJoin(StrokeLineJoin.ROUND);
-            for (int i = 0; i < pts.size() - 1; i++) {
-                gc.strokeLine(
-                    pts.get(i).getX(), pts.get(i).getY(),
-                    pts.get(i + 1).getX(), pts.get(i + 1).getY()
-                );
-            }
+            strokePath(gc, pts, 0, 0);
 
-            // Highlight nhẹ ở giữa mặt đường (ánh đèn phản chiếu)
-            gc.setStroke(Color.rgb(255, 255, 255, 8.0 / 255));
-            gc.setLineWidth(30);
-            gc.setLineCap(StrokeLineCap.ROUND);
-            gc.setLineJoin(StrokeLineJoin.ROUND);
-            for (int i = 0; i < pts.size() - 1; i++) {
-                gc.strokeLine(
-                    pts.get(i).getX(), pts.get(i).getY(),
-                    pts.get(i + 1).getX(), pts.get(i + 1).getY()
-                );
-            }
+            // 3. Highlight ánh sáng giữa đường
+            gc.setStroke(Color.rgb(255, 255, 255, 0.04));
+            gc.setLineWidth(22);
+            strokePath(gc, pts, 0, 0);
 
-            // Vạch mép đường vàng (2 bên, offset=40)
-            gc.setStroke(EDGE_MARK);
-            gc.setLineDashes(18, 8);
-            gc.setLineWidth(1.5);
+            // 4. Vạch mép vàng LIỀN — rõ nét 2 bên
             gc.setLineCap(StrokeLineCap.BUTT);
-            gc.setLineJoin(StrokeLineJoin.BEVEL);
+            gc.setLineJoin(StrokeLineJoin.MITER);
+            gc.setStroke(LANE_EDGE);
+            gc.setLineWidth(2.5);
+            gc.setLineDashes();
             for (int side : new int[]{-1, 1}) {
-                for (int i = 0; i < pts.size() - 1; i++) {
-                    double[] off  = perp(pts.get(i), pts.get(i + 1), 40.0 * side);
-                    double[] off2 = perp(pts.get(i + 1), pts.get(i), -40.0 * side);
-                    gc.strokeLine(
-                        pts.get(i).getX()     + off[0],  pts.get(i).getY()     + off[1],
-                        pts.get(i + 1).getX() + off2[0], pts.get(i + 1).getY() + off2[1]
-                    );
-                }
+                strokePathOffset(gc, pts, 38.0 * side);
             }
-            // Reset dashes
+
+            // 5. Vạch giữa TRẮNG ĐỨT ĐOẠN
+            gc.setLineCap(StrokeLineCap.BUTT);
+            gc.setStroke(LANE_CENTER);
+            gc.setLineWidth(1.8);
+            gc.setLineDashes(14, 10);
+            strokePath(gc, pts, 0, 0);
             gc.setLineDashes((double[]) null);
+        }
+    }
+
+    private void strokePath(GraphicsContext gc, List<Vector2D> pts, double dx, double dy) {
+        for (int i = 0; i < pts.size() - 1; i++) {
+            gc.strokeLine(
+                pts.get(i).getX() + dx, pts.get(i).getY() + dy,
+                pts.get(i + 1).getX() + dx, pts.get(i + 1).getY() + dy);
+        }
+    }
+
+    private void strokePathOffset(GraphicsContext gc, List<Vector2D> pts, double offset) {
+        for (int i = 0; i < pts.size() - 1; i++) {
+            double[] o1 = perp(pts.get(i), pts.get(i + 1), offset);
+            double[] o2 = perp(pts.get(i + 1), pts.get(i), -offset);
+            gc.strokeLine(
+                pts.get(i).getX() + o1[0], pts.get(i).getY() + o1[1],
+                pts.get(i + 1).getX() + o2[0], pts.get(i + 1).getY() + o2[1]);
         }
     }
 
@@ -188,44 +193,45 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
     }
 
     private void drawTrafficLight(GraphicsContext gc, double cx, double cy, TrafficLight light) {
-        // Kích thước nhỏ gọn: 14×38
-        int bw = 14, bh = 38;
-        double bx = cx - bw / 2.0, by = cy - bh / 2.0;
+        // Pill tối giản: 8×24px
+        double pw = 8, ph = 24;
+        double px = cx - pw / 2, py = cy - ph / 2;
 
-        // Khung đèn — pill shape tối
-        gc.setFill(Color.rgb(20, 22, 26));
-        gc.fillRoundRect(bx - 1, by - 1, bw + 2, bh + 2, 8, 8);
-        gc.setStroke(Color.rgb(50, 54, 62));
-        gc.setLineWidth(1);
-        gc.strokeRoundRect(bx, by, bw, bh, 8, 8);
+        // Nền pill rất tối
+        gc.setFill(Color.rgb(14, 14, 18));
+        gc.fillRoundRect(px, py, pw, ph, pw, pw);
+
+        // Viền mờ
+        gc.setStroke(Color.rgb(255, 255, 255, 0.10));
+        gc.setLineWidth(0.8);
+        gc.setLineDashes();
+        gc.strokeRoundRect(px, py, pw, ph, pw, pw);
+
+        // Manual mode — viền vàng mỏng
+        if (light.isManualMode()) {
+            gc.setStroke(Color.rgb(255, 200, 0, 0.70));
+            gc.setLineWidth(1.2);
+            gc.strokeRoundRect(px - 2, py - 2, pw + 4, ph + 4, pw + 2, pw + 2);
+        }
 
         String color = light.getColor();
 
-        // Vẽ 3 bóng đèn — glow lớn hơn BasicRenderer (r+5 thay vì r+3)
-        drawBulb(gc, cx, by + 6,  "RED",    color, 9);
-        drawBulb(gc, cx, by + 20, "YELLOW", color, 9);
-        drawBulb(gc, cx, by + 34, "GREEN",  color, 9);
+        // 3 chấm nhỏ r=3
+        drawBulb(gc, cx, py + 4,  "RED",    color, 3);
+        drawBulb(gc, cx, py + 12, "YELLOW", color, 3);
+        drawBulb(gc, cx, py + 20, "GREEN",  color, 3);
 
-        // Số đếm ngược nhỏ bên cạnh
+        // Số đếm — nhỏ, bên phải
         String display = light.getDisplay();
         if (!display.isEmpty()) {
-            gc.setFont(Font.font("SansSerif", FontWeight.BOLD, 10));
-            Color textColor = switch (color) {
-                case "GREEN"  -> Color.rgb(80, 220, 80);
-                case "YELLOW" -> Color.rgb(255, 220, 50);
-                default       -> Color.rgb(255, 90, 90);
+            Color tc = switch (color) {
+                case "GREEN"  -> Color.rgb(72, 220, 100);
+                case "YELLOW" -> Color.rgb(255, 210, 50);
+                default       -> Color.rgb(240, 80, 80);
             };
-            gc.setFill(Color.rgb(0, 0, 0, 130.0 / 255));
-            gc.fillRoundRect(cx + bw / 2.0 + 3, cy - 8, 20, 14, 4, 4);
-            gc.setFill(textColor);
-            gc.fillText(display, cx + bw / 2.0 + 5, cy + 3);
-        }
-
-        // Huy hiệu vàng nếu ở chế độ thủ công
-        if (light.isManualMode()) {
-            gc.setStroke(Color.rgb(255, 200, 0));
-            gc.setLineWidth(1.5);
-            gc.strokeRoundRect(bx - 3, by - 3, bw + 6, bh + 6, 10, 10);
+            gc.setFont(Font.font("SansSerif", FontWeight.BOLD, 8));
+            gc.setFill(tc);
+            gc.fillText(display, cx + pw / 2 + 2, cy + 3);
         }
     }
 
@@ -234,36 +240,28 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
         boolean on = bulbColor.equals(activeColor);
 
         Color onColor = switch (bulbColor) {
-            case "RED"    -> Color.rgb(255, 60, 60);
-            case "YELLOW" -> Color.rgb(255, 215, 0);
-            default       -> Color.rgb(60, 220, 60);
+            case "RED"    -> Color.rgb(255, 65, 65);
+            case "YELLOW" -> Color.rgb(255, 210, 40);
+            default       -> Color.rgb(60, 220, 80);
         };
         Color offColor = switch (bulbColor) {
-            case "RED"    -> Color.rgb(80, 20, 20);
-            case "YELLOW" -> Color.rgb(80, 70, 0);
-            default       -> Color.rgb(10, 65, 10);
+            case "RED"    -> Color.rgb(55, 18, 18);
+            case "YELLOW" -> Color.rgb(55, 48, 10);
+            default       -> Color.rgb(10, 55, 18);
         };
 
         if (on) {
-            // Quầng sáng lớn hơn BasicRenderer (r+5 thay vì r+3)
-            Color glow = Color.rgb(
-                (int) (onColor.getRed() * 255),
-                (int) (onColor.getGreen() * 255),
-                (int) (onColor.getBlue() * 255),
-                50.0 / 255
-            );
-            gc.setFill(glow);
-            gc.fillOval(cx - r - 5, cy - r - 5, (r + 5) * 2, (r + 5) * 2);
+            // Glow tối giản — nhỏ vừa đủ
+            gc.setFill(Color.color(onColor.getRed(), onColor.getGreen(), onColor.getBlue(), 0.22));
+            gc.fillOval(cx - r - 3, cy - r - 3, (r + 3) * 2, (r + 3) * 2);
         }
 
-        // Bóng đèn
         gc.setFill(on ? onColor : offColor);
         gc.fillOval(cx - r, cy - r, r * 2, r * 2);
 
         if (on) {
-            // Highlight nhỏ ở góc trái trên
-            gc.setFill(Color.rgb(255, 255, 255, 80.0 / 255));
-            gc.fillOval(cx - r + 2, cy - r + 2, r - 2, r - 2);
+            gc.setFill(Color.rgb(255, 255, 255, 0.28));
+            gc.fillOval(cx - r + 1, cy - r + 1, r - 1, r - 1);
         }
     }
 
