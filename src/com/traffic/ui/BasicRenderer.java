@@ -260,11 +260,23 @@ public class BasicRenderer extends AbstractBaseRenderer {
 
         // Yield warning
         if (v.getYieldMode() == Vehicle.YieldMode.STOP_BEFORE_CONFLICT
-                || v.getYieldMode() == Vehicle.YieldMode.CLEAR_CONFLICT) {
+                || v.getYieldMode() == Vehicle.YieldMode.STOP
+                || v.getYieldMode() == Vehicle.YieldMode.CLEAR_CONFLICT
+                || v.getYieldMode() == Vehicle.YieldMode.CLEAR_INTERSECTION
+                || v.getYieldMode() == Vehicle.YieldMode.CLEAR_PATH
+                || v.getYieldMode() == Vehicle.YieldMode.URGENT_CLEAR_PATH) {
             gc.setStroke(Color.rgb(255, 140, 0, 0.8));
             gc.setLineWidth(2.5);
             gc.setLineDashes();
             gc.strokeRect(-w/2 - 3, -h/2 - 3, w + 6, h + 6);
+        }
+
+        if (isUrgentYield(v)) {
+            gc.setStroke(Color.rgb(255, 230, 70, 0.95));
+            gc.setLineWidth(1.4);
+            gc.setLineDashes(4, 4);
+            gc.strokeRect(-w/2 - 6, -h/2 - 6, w + 12, h + 12);
+            gc.setLineDashes();
         }
 
         // Body
@@ -335,4 +347,10 @@ public class BasicRenderer extends AbstractBaseRenderer {
         gc.setFont(Font.font("SansSerif", 11));
         gc.fillText(vehicles.size() + " vehicles", 22, 48);
     }
+    private boolean isUrgentYield(Vehicle v) {
+        return v != null && (v.getYieldMode() == Vehicle.YieldMode.URGENT_CLEAR_PATH
+                || v.getYieldMode() == Vehicle.YieldMode.CLEAR_PATH
+                || v.getManeuverState() == Vehicle.ManeuverState.URGENT_CLEARING);
+    }
+
 }

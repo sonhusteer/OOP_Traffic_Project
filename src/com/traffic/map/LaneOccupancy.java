@@ -21,6 +21,8 @@ public final class LaneOccupancy {
     private static final double SIDE_MARGIN = 4.0;
     private static final double LONGITUDINAL_MARGIN = 4.0;
     private static final int OFFSET_SEARCH_STEPS = 9;
+    private static final double PASS_CORRIDOR_FORWARD_FACTOR = 0.85;
+    private static final double PASS_CORRIDOR_REAR_FACTOR = 0.55;
 
     private final Lane lane;
 
@@ -141,47 +143,230 @@ public final class LaneOccupancy {
     /**
      * Tim offset de vuot xe obstacle trong cung lane.
      * passLeft = true -> offset am; passLeft = false -> offset duong.
+     *
+     * Wrapper cu: chi dam bao khong chong ngang voi obstacle.
+     * Driver nen goi overload co frontGap/rearGap de kiem tra hanh lang vuot.
      */
     public Double findPassingOffset(
             Vehicle passingVehicle,
             Vehicle obstacle,
             boolean passLeft
     ) {
+        return findPassingOffset(passingVehicle, obstacle, passLeft, 0.0, 0.0);
+    }
+
+    /**
+     * Tim offset vuot on dinh hon: khong chi lech khoi obstacle, ma con phai
+     * co hanh lang an toan phia truoc/sau de xe khong do du giua chung.
+     */
+    public Double findPassingOffset(
+            Vehicle passingVehicle,
+            Vehicle obstacle,
+            boolean passLeft,
+            double frontGap,
+            double rearGap
+    ) {
         if (passingVehicle == null || obstacle == null) {
             return null;
         }
 
         double direction = passLeft ? -1.0 : 1.0;
-        double required = requiredLateralSeparation(passingVehicle, obstacle) + 2.0;
+        double required = requiredLateralSeparation(passingVehicle, obstacle) + 3.0;
+        double current = offsetOf(passingVehicle);
+        double obstacleOffset = offsetOf(obstacle);
 
         List<Double> candidates = new ArrayList<>();
-        candidates.add(offsetOf(obstacle) + direction * required);
-        candidates.add(offsetOf(passingVehicle) + direction * required);
+        candidates.add(obstacleOffset + direction * required);
+        candidates.add(current + direction * required);
         candidates.add(passLeft
                 ? lane.getLeftmostOffset(passingVehicle)
                 : lane.getRightmostOffset(passingVehicle));
 
-        double left = lane.getLeftmostOffset(passingVehicle);
-        double right = lane.getRightmostOffset(passingVehicle);
-        for (int i = 0; i <= OFFSET_SEARCH_STEPS; i++) {
+        double edge = passLeft
+                ? lane.getLeftmostOffset(passingVehicle)
+                : lane.getRightmostOffset(passingVehicle);
+        for (int i = 1; i <= OFFSET_SEARCH_STEPS; i++) {
             double t = (double) i / OFFSET_SEARCH_STEPS;
-            candidates.add(passLeft
-                    ? MathUtils.lerp(offsetOf(passingVehicle), left, t)
-                    : MathUtils.lerp(offsetOf(passingVehicle), right, t));
+            candidates.add(MathUtils.lerp(current, edge, t));
         }
 
+        Double best = null;
+        double bestScore = Double.MAX_VALUE;
         for (double candidate : candidates) {
             double clamped = lane.clampOffset(passingVehicle, candidate);
-            if (!hasLateralConflict(
-                    passingVehicle,
-                    clamped,
-                    obstacle,
-                    offsetOf(obstacle)
-            )) {
-                return clamped;
+
+            if (Math.abs(clamped - current) < 3.0) {
+                continue;
+            }
+            if (hasLateralConflict(passingVehicle, clamped, obstacle, obstacleOffset)) {
+                continue;
+            }
+            if (frontGap > 0.0 || rearGap > 0.0) {
+                if (!isPassCorridorFree(passingVehicle, obstacle, clamped, frontGap, rearGap)) {
+                    continue;
+                }
+            }
+
+            double score = Math.abs(clamped - current)
+                    + Math.abs(clamped - obstacleOffset) * 0.15
+                    + (passLeft ? 0.0 : 8.0); // uu tien trai neu hai ben deu tot
+            if (score < bestScore) {
+                bestScore = score;
+                best = clamped;
             }
         }
-        return null;
+        return best;
+    }
+
+    /**
+     * Kiem tra hanh lang vuot. Ham nay chat hon isSideSpaceFree vi no probe
+     * them mot diem phia truoc; nhờ vậy xe it bi nhap nhang/doi y giua chung.
+     */
+    public boolean isPassCorridorFree(
+            Vehicle vehicle,
+            Vehicle obstacle,
+            double targetOffset,
+            double frontGap,
+            double rearGap
+    ) {
+        if (vehicle == null) {
+            return false;
+        }
+        targetOffset = lane.clampOffset(vehicle, targetOffset);
+        double progress = progressOf(vehicle);
+
+        if (!isSpaceFreeAt(progress, targetOffset, vehicle, frontGap, rearGap)) {
+            return false;
+        }
+
+        double probeForward = Math.max(24.0, frontGap * PASS_CORRIDOR_FORWARD_FACTOR);
+        double probeRear = Math.max(18.0, rearGap * PASS_CORRIDOR_REAR_FACTOR);
+        if (!isSpaceFreeAt(progress + probeForward, targetOffset, vehicle, frontGap * 0.55, probeRear)) {
+            return false;
+        }
+
+        // Nếu obstacle vẫn chồng ngang ở offset đích thì không phải là vượt hợp lệ.
+        if (obstacle != null && obstacle.getLane() == lane
+                && hasLateralConflict(vehicle, targetOffset, obstacle, offsetOf(obstacle))) {
+            return false;
+        }
+        return true;
+    }
+
+    /** Offset hanh lang uu tien sat vach vang ben trai cua lane. */
+    public double findEmergencyCorridorOffset(Vehicle priorityVehicle) {
+        if (priorityVehicle == null) {
+            return lane.getLeftmostOffset(null);
+        }
+        Vehicle.ManeuverState oldState = priorityVehicle.getManeuverState();
+        priorityVehicle.setManeuverState(Vehicle.ManeuverState.EMERGENCY_CORRIDOR);
+        double offset = lane.getLeftmostOffset(priorityVehicle);
+        priorityVehicle.setManeuverState(oldState);
+        return offset;
+    }
+
+    /**
+     * Kiem tra hanh lang uu tien sat vach vang co du an toan khong.
+     * Ham nay kiem tra lane hien tai va lane doi dien/gan ben trai neu co,
+     * de tranh xe uu tien lấn vach vang khi co xe nguoc chieu dang toi.
+     */
+    public boolean isEmergencyCorridorFree(
+            Vehicle priorityVehicle,
+            Vehicle obstacle,
+            double frontGap,
+            double rearGap
+    ) {
+        if (priorityVehicle == null || !priorityVehicle.isPriority()) {
+            return false;
+        }
+
+        double corridorOffset = findEmergencyCorridorOffset(priorityVehicle);
+        double progress = progressOf(priorityVehicle);
+
+        if (!isSpaceFreeAt(progress, corridorOffset, priorityVehicle, frontGap, rearGap)) {
+            return false;
+        }
+        if (!isSpaceFreeAt(progress + Math.max(45.0, frontGap * 0.75),
+                corridorOffset, priorityVehicle, frontGap * 0.65, rearGap * 0.65)) {
+            return false;
+        }
+
+        Lane opposite = lane.getLeftNeighbor();
+        if (opposite != null) {
+            Vector2D p0 = lane.getPositionAt(progress, corridorOffset);
+            Vector2D p1 = lane.getPositionAt(progress + Math.max(80.0, frontGap), corridorOffset);
+            for (Vehicle other : opposite.getVehicles()) {
+                if (other == null || other == priorityVehicle) {
+                    continue;
+                }
+                double d0 = MathUtils.distance(other.getPosition(), p0);
+                double d1 = MathUtils.distance(other.getPosition(), p1);
+                if (Math.min(d0, d1) < Math.max(62.0, priorityVehicle.getWidth() + other.getWidth())) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+
+    /**
+     * Tim offset vuot o khoang giua lane/thoa hiep giua cac slot.
+     * Dung cho aggressive driver va priority driver truoc khi priority duoc phep
+     * dung emergency corridor. Khac voi vuot trai/phai co dinh, ham nay quet
+     * lien tuc trong bien an toan cua lane va uu tien offset gan center.
+     */
+    public Double findMiddlePassingOffset(
+            Vehicle passingVehicle,
+            Vehicle obstacle,
+            double frontGap,
+            double rearGap
+    ) {
+        if (passingVehicle == null || obstacle == null) {
+            return null;
+        }
+
+        double left = lane.getLeftmostOffset(passingVehicle);
+        double right = lane.getRightmostOffset(passingVehicle);
+        double current = offsetOf(passingVehicle);
+        double obstacleOffset = offsetOf(obstacle);
+
+        List<Double> candidates = new ArrayList<>();
+        candidates.add(Vehicle.CENTER_OFFSET);
+        candidates.add((current + obstacleOffset) / 2.0);
+        candidates.add(current * 0.65);
+        candidates.add(obstacleOffset * 0.35);
+
+        int steps = 14;
+        for (int i = 0; i <= steps; i++) {
+            double t = (double) i / steps;
+            candidates.add(MathUtils.lerp(left, right, t));
+        }
+
+        Double best = null;
+        double bestScore = Double.MAX_VALUE;
+        for (double candidate : candidates) {
+            double clamped = lane.clampOffset(passingVehicle, candidate);
+            if (Math.abs(clamped - current) < 2.5) {
+                continue;
+            }
+            if (hasLateralConflict(passingVehicle, clamped, obstacle, obstacleOffset)) {
+                continue;
+            }
+            if (!isPassCorridorFree(passingVehicle, obstacle, clamped, frontGap, rearGap)) {
+                continue;
+            }
+
+            double score = Math.abs(clamped) * 0.55
+                    + Math.abs(clamped - current) * 0.32
+                    + Math.abs(clamped - obstacleOffset) * 0.08;
+            if (score < bestScore) {
+                bestScore = score;
+                best = clamped;
+            }
+        }
+        return best;
     }
 
     /** Tim offset phai nhat de xe thuong nhuong xe uu tien trong cung lane. */
@@ -190,6 +375,80 @@ public final class LaneOccupancy {
             return 0.0;
         }
         return lane.getRightmostOffset(normal);
+    }
+
+
+    /**
+     * Tim offset gan nhat de xe chen vao khoang trong trong hang cho.
+     * Khac voi overtake: gap-fill khong nham vuot qua xe truoc, chi doi sang
+     * mot slot trong hon va sau do slot moi tro thanh preferred offset.
+     */
+    public Double findGapFillOffset(Vehicle vehicle) {
+        if (vehicle == null) {
+            return null;
+        }
+
+        double current = offsetOf(vehicle);
+        double preferred = vehicle.getPreferredLateralOffset();
+        double[] candidates = new double[] {
+                preferred,
+                Vehicle.CENTER_OFFSET,
+                Vehicle.RIGHT_OFFSET,
+                Vehicle.LEFT_OFFSET,
+                lane.getRightmostOffset(vehicle),
+                lane.getLeftmostOffset(vehicle)
+        };
+
+        Double best = null;
+        double bestScore = Double.MAX_VALUE;
+        for (double candidate : candidates) {
+            double clamped = lane.clampOffset(vehicle, candidate);
+            if (Math.abs(clamped - current) < 3.0) {
+                continue;
+            }
+            if (!isGapFillSpaceFree(vehicle, clamped)) {
+                continue;
+            }
+            double score = Math.abs(clamped - current) + Math.abs(clamped - preferred) * 0.25;
+            if (score < bestScore) {
+                bestScore = score;
+                best = clamped;
+            }
+        }
+        return best;
+    }
+
+    /** Kiem tra khoang trong cho thao tac gap-fill: can ca ngang lan phia truoc. */
+    public boolean isGapFillSpaceFree(Vehicle vehicle, double targetOffset) {
+        if (vehicle == null) {
+            return false;
+        }
+        double progress = progressOf(vehicle);
+        double frontGap = Math.max(42.0, vehicle.getWidth() + 24.0);
+        double rearGap = Math.max(26.0, vehicle.getWidth() * 0.55);
+        if (!isSideSpaceFree(vehicle, targetOffset, frontGap, rearGap)) {
+            return false;
+        }
+
+        // Kiem tra them mot diem hoi tien len de tranh chen ngang vao dau xe khac.
+        double probeProgress = progress + Math.max(16.0, vehicle.getWidth() * 0.4);
+        return isSpaceFreeAt(probeProgress, targetOffset, vehicle, frontGap * 0.65, rearGap);
+    }
+
+    /**
+     * Pull-right cho xe uu tien can khe nhap that su. Ham nay chat hon
+     * isSideSpaceFree de tranh xe thuong co chen phai khi ben phai dang co hang xe.
+     */
+    public boolean hasYieldRightMergeGap(Vehicle normal, Vehicle priority) {
+        if (normal == null) {
+            return false;
+        }
+        double rightOffset = findYieldRightOffset(normal, priority);
+        double frontGap = Math.max(70.0, normal.getWidth() + 40.0);
+        double rearGap = Math.max(95.0, normal.getWidth() + 60.0);
+        return isSideSpaceFree(normal, rightOffset, frontGap, rearGap)
+                && isSpaceFreeAt(progressOf(normal) + normal.getWidth() * 0.35,
+                        rightOffset, normal, frontGap * 0.75, rearGap);
     }
 
     /** Kiem tra hai xe co chong vung ngang neu nam o hai offset nay khong. */

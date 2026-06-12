@@ -13,5 +13,7 @@ public class EmergencyDriver extends AbstractBaseDriver {
     
     @Override protected boolean canOvertake()     { return true;  }
     @Override protected boolean obeyTrafficLight(){ return false; } // Không tuân thủ đèn đỏ
+    @Override protected boolean canUseMiddleGap() { return true;  }
+    @Override protected boolean canUseEmergencyCorridor() { return true; }
 
 }

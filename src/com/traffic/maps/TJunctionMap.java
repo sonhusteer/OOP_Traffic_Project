@@ -47,7 +47,10 @@ public class TJunctionMap implements MapConfig {
 
         // Dọc: Dưới → Trên (Nửa phải X=440, Từ ngã tư đi ra)
         Lane road4 = new Lane(440, 340, 440, -50, null);
-        // Không add waypoint -> Không hiện stop line trong ngã tư
+        // Không add waypoint -> Không hiện stop line trong ngã tư.
+        // Đây là lane đi ra khỏi ngã ba, điểm start nằm ngay trong giao lộ,
+        // nên không dùng làm lane spawn để tránh xe sinh sai vị trí.
+        road4.setSpawnAllowed(false);
         lanes.add(road4);
 
         // Thiết lập láng giềng

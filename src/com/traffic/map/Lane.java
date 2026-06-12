@@ -12,16 +12,21 @@ import java.util.Set;
 public class Lane {
 
     private static final double EPS = 1e-6;
+    private static final double ROAD_HALF_WIDTH = 40.0;
+    private static final double NORMAL_EDGE_MARGIN = 5.0;
+    private static final double PRIORITY_CORRIDOR_MARGIN = 0.0;
 
     private final List<Vector2D> waypoints = new ArrayList<>();
     private final TrafficLight light;
     private final List<Vehicle> vehicles = new ArrayList<>();
     private final Set<Vehicle> reservedBy = new HashSet<>();
+    private final LaneOccupancy occupancy = new LaneOccupancy(this);
 
     private Lane leftNeighbor;
     private Lane rightNeighbor;
     private boolean formalLaneChangeAllowed = false;
     private boolean inLaneOvertakeAllowed = true;
+    private boolean spawnAllowed = true;
 
     public Lane(double startX, double startY,
                 double endX, double endY,
@@ -33,6 +38,11 @@ public class Lane {
 
     public void addwaypoint(double x, double y) {
         waypoints.add(waypoints.size() - 1, new Vector2D(x, y));
+    }
+
+    /** Compatibility alias; older map files use camel-case addWaypoint. */
+    public void addWaypoint(double x, double y) {
+        addwaypoint(x, y);
     }
 
     public List<Vector2D> getwaypoints() { return waypoints; }
@@ -47,7 +57,9 @@ public class Lane {
         return total;
     }
 
-    public boolean isUsableForSpawn() { return getLength() > 5.0; }
+    public boolean isUsableForSpawn() { return spawnAllowed && getLength() > 5.0; }
+    public boolean isSpawnAllowed() { return spawnAllowed; }
+    public void setSpawnAllowed(boolean allowed) { this.spawnAllowed = allowed; }
     public boolean isDummy() { return !isUsableForSpawn(); }
 
     public Vector2D getPointAt(double progress) {
@@ -123,6 +135,12 @@ public class Lane {
                             center.getY() + normal.getY() * lateralOffset);
     }
 
+    /** Compatibility alias for older LaneOccupancy code. */
+    public Vector2D getPointAtProgress(double progress) { return getPointAt(progress); }
+
+    /** Compatibility alias for older LaneOccupancy code. */
+    public double getAngleAtProgress(double progress) { return getAngleAt(progress); }
+
     public double getProgressOf(Vector2D pos) {
         if (pos == null || waypoints.size() < 2) return 0.0;
         double bestProgress = 0.0;
@@ -151,6 +169,9 @@ public class Lane {
         }
         return bestProgress;
     }
+
+    /** Compatibility alias for older LaneOccupancy code. */
+    public double getProgress(Vector2D pos) { return getProgressOf(pos); }
 
     public double getSignedLateralOffset(Vector2D pos) {
         double progress = getProgressOf(pos);
@@ -252,6 +273,41 @@ public class Lane {
         for (Vehicle v : vehicles) if (MathUtils.distance(v.getPosition(), pos) < safeGap) return false;
         for (Vehicle v : reservedBy) if (MathUtils.distance(v.getPosition(), pos) < safeGap) return false;
         return true;
+    }
+
+    public LaneOccupancy occupancy() { return occupancy; }
+
+    public Set<Vehicle> getReservedVehicles() { return reservedBy; }
+
+    public double getLeftmostOffset(Vehicle vehicle) {
+        double halfVehicle = vehicle != null ? vehicle.getHeight() / 2.0 : 10.0;
+        double margin = NORMAL_EDGE_MARGIN;
+        if (vehicle != null && vehicle.isUsingEmergencyCorridor()) {
+            // Emergency corridor: xe uu tien duoc ap sat vach vang ben trai
+            // de vuot vat can, nhung khong duoc vuot hẳn ra khoi mat duong.
+            margin = PRIORITY_CORRIDOR_MARGIN;
+        }
+        return -ROAD_HALF_WIDTH + halfVehicle + margin;
+    }
+
+    public double getRightmostOffset(Vehicle vehicle) {
+        double halfVehicle = vehicle != null ? vehicle.getHeight() / 2.0 : 10.0;
+        return ROAD_HALF_WIDTH - halfVehicle - NORMAL_EDGE_MARGIN;
+    }
+
+    public double clampOffset(Vehicle vehicle, double offset) {
+        return MathUtils.clamp(offset, getLeftmostOffset(vehicle), getRightmostOffset(vehicle));
+    }
+
+    /** Three virtual tracks inside one wide lane: left, center, right. */
+    public int getTrackCount() { return 3; }
+
+    public double getOffsetForTrack(int trackIndex) {
+        return switch (trackIndex) {
+            case 0 -> Vehicle.LEFT_OFFSET;
+            case 2 -> Vehicle.RIGHT_OFFSET;
+            default -> Vehicle.CENTER_OFFSET;
+        };
     }
 
     public TrafficLight getLight() { return light; }

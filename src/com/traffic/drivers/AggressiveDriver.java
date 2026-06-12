@@ -9,5 +9,6 @@ public class AggressiveDriver extends AbstractBaseDriver {
     @Override protected double getSafeDistance()  { return 25.0;  }
     @Override protected double getOvertakeGap()   { return 30.0;  } // Dễ dàng vượt hơn
     @Override protected boolean canOvertake()     { return true;  }
+    @Override protected boolean canUseMiddleGap() { return true;  }
 
 }

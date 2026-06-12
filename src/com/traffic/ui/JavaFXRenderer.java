@@ -300,10 +300,22 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
 
         // Viền cảnh báo STOP (cam)
         if (v.getYieldMode() == Vehicle.YieldMode.STOP_BEFORE_CONFLICT
-                || v.getYieldMode() == Vehicle.YieldMode.CLEAR_CONFLICT) {
+                || v.getYieldMode() == Vehicle.YieldMode.STOP
+                || v.getYieldMode() == Vehicle.YieldMode.CLEAR_CONFLICT
+                || v.getYieldMode() == Vehicle.YieldMode.CLEAR_INTERSECTION
+                || v.getYieldMode() == Vehicle.YieldMode.CLEAR_PATH
+                || v.getYieldMode() == Vehicle.YieldMode.URGENT_CLEAR_PATH) {
             gc.setStroke(Color.rgb(255, 140, 0, 160.0 / 255));
             gc.setLineWidth(2.5);
             gc.strokeRoundRect(-w / 2 - 4, -h / 2 - 4, w + 8, h + 8, 5, 5);
+        }
+
+        if (isUrgentYield(v)) {
+            gc.setStroke(Color.rgb(255, 230, 70, 220.0 / 255));
+            gc.setLineWidth(1.4);
+            gc.setLineDashes(4, 4);
+            gc.strokeRoundRect(-w / 2 - 6, -h / 2 - 6, w + 12, h + 12, 6, 6);
+            gc.setLineDashes();
         }
 
         // Kiểm tra sprite
@@ -433,4 +445,10 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
             gc.fillRoundRect(px + 26, ry + 11, Math.max(barW, 2), 3, 2, 2);
         }
     }
+    private boolean isUrgentYield(Vehicle v) {
+        return v != null && (v.getYieldMode() == Vehicle.YieldMode.URGENT_CLEAR_PATH
+                || v.getYieldMode() == Vehicle.YieldMode.CLEAR_PATH
+                || v.getManeuverState() == Vehicle.ManeuverState.URGENT_CLEARING);
+    }
+
 }

@@ -2,6 +2,7 @@ package com.traffic.core;
 
 import com.traffic.map.Intersection;
 import com.traffic.map.Lane;
+import com.traffic.core.Vector2D;
 import java.util.List;
 
 /**
@@ -78,21 +79,31 @@ public final class EmergencyVehicleCoordinator {
                 continue;
             }
 
-            // Coordinator chi kiem tra co kha nang nhich phai hay khong.
-            // Viec that su nhich phai do SideShiftPlanner/Driver thuc hien.
+            // Coordinator chi danh dau xe co the nhuong phai hay khong.
+            // Viec thuc su dich lateralOffset do SideShiftPlanner/Driver thuc hien.
+            // Phai kiem tra ca offset phai hien tai va merge-gap thuc su,
+            // neu khong xe se co tinh chen phai khi ben phai dang co xe.
             double rightOffset = priorityLane.occupancy().findYieldRightOffset(normal, priority);
-            boolean canPullRight = priorityLane.occupancy().isSideSpaceFree(
+
+            boolean sideSpaceFree = priorityLane.occupancy().isSideSpaceFree(
                     normal,
                     rightOffset,
                     YIELD_FRONT_GAP,
                     YIELD_REAR_GAP
             );
 
+            boolean mergeGapFree = priorityLane.occupancy().hasYieldRightMergeGap(
+                    normal,
+                    priority
+            );
+
+            boolean canPullRight = sideSpaceFree && mergeGapFree;
+
             applyMode(
                     normal,
                     canPullRight
                             ? Vehicle.YieldMode.PULL_RIGHT
-                            : Vehicle.YieldMode.CLEAR_PATH
+                            : Vehicle.YieldMode.URGENT_CLEAR_PATH
             );
         }
     }
@@ -136,6 +147,9 @@ public final class EmergencyVehicleCoordinator {
                 if (!intersection.getLanes().contains(normal.getLane())) {
                     continue;
                 }
+                if (!lanesCanConflict(priorityLane, normal.getLane(), intersection)) {
+                    continue;
+                }
 
                 double normalDistance = MathUtils.distance(
                         normal.getPosition(),
@@ -155,6 +169,18 @@ public final class EmergencyVehicleCoordinator {
         }
     }
 
+    private boolean lanesCanConflict(Lane priorityLane, Lane normalLane, Intersection intersection) {
+        if (priorityLane == null || normalLane == null || priorityLane == normalLane) {
+            return false;
+        }
+        double priorityProgress = priorityLane.getProgressOf(intersection.getCenter());
+        double normalProgress = normalLane.getProgressOf(intersection.getCenter());
+        Vector2D pDir = priorityLane.getDirectionAt(priorityProgress);
+        Vector2D nDir = normalLane.getDirectionAt(normalProgress);
+        double dot = Math.abs(pDir.getX() * nDir.getX() + pDir.getY() * nDir.getY());
+        return dot < 0.70;
+    }
+
     private void applyMode(Vehicle vehicle, Vehicle.YieldMode candidate) {
         if (vehicle == null || candidate == null) {
             return;
@@ -170,10 +196,11 @@ public final class EmergencyVehicleCoordinator {
         }
         return switch (mode) {
             case NONE -> 0;
-            case CLEAR_PATH -> 1;
-            case PULL_RIGHT -> 2;
-            case STOP -> 3;
-            case CLEAR_INTERSECTION -> 4;
+            case YIELD_RIGHT, PULL_RIGHT -> 1;
+            case HOLD_POSITION, BLOCKED_YIELD -> 2;
+            case CLEAR_PATH, URGENT_CLEAR_PATH -> 3;
+            case STOP_BEFORE_CONFLICT, STOP -> 4;
+            case CLEAR_CONFLICT, CLEAR_INTERSECTION -> 5;
         };
     }
 }

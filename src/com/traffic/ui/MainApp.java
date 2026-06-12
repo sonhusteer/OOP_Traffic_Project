@@ -21,6 +21,7 @@ import javafx.scene.text.FontWeight;
 import javafx.stage.Stage;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 /**
  * Entry‑point JavaFX — thay thế hoàn toàn Swing.
@@ -44,6 +45,11 @@ public class MainApp extends Application {
     private boolean isBasicMode = true;
     private boolean paused = false;
     private double simSpeed = 1.0;
+
+    private final Random random = new Random();
+    private boolean autoSpawnEnabled = false;
+    private long lastAutoSpawnNanos = 0L;
+    private double autoSpawnIntervalSeconds = 0.75;
 
     private Canvas canvas;
     private Label lblVehicles;
@@ -113,6 +119,7 @@ public class MainApp extends Application {
             public void handle(long now) {
                 if (!paused) {
                     double dt = 0.03 * simSpeed;
+                    updateAutoSpawn(now);
                     engine.tick(dt);
                     engine.render();
 
@@ -199,6 +206,30 @@ public class MainApp extends Application {
         Spinner<Integer> spinner = new Spinner<>(1, 10, 1);
         spinner.setMaxWidth(Double.MAX_VALUE);
 
+        // Auto spawn controls
+        Label lblAuto = makeLabel("Tự động:");
+        ToggleButton btnAutoSpawn = new ToggleButton(autoSpawnEnabled ? "⏸ Auto Spawn: ON" : "▶ Auto Spawn: OFF");
+        btnAutoSpawn.getStyleClass().add("btn-action");
+        btnAutoSpawn.setMaxWidth(Double.MAX_VALUE);
+        btnAutoSpawn.setSelected(autoSpawnEnabled);
+        btnAutoSpawn.setOnAction(e -> {
+            autoSpawnEnabled = btnAutoSpawn.isSelected();
+            lastAutoSpawnNanos = 0L;
+            btnAutoSpawn.setText(autoSpawnEnabled ? "⏸ Auto Spawn: ON" : "▶ Auto Spawn: OFF");
+            appendSpawnLog(autoSpawnEnabled
+                    ? "[A] Auto spawn bật: sinh xe ngẫu nhiên trái/phải\n"
+                    : "[A] Auto spawn tắt\n");
+        });
+
+        Slider autoRateSlider = new Slider(0.15, 2.0, autoSpawnIntervalSeconds);
+        autoRateSlider.setShowTickMarks(true);
+        autoRateSlider.setMajorTickUnit(0.5);
+        Label lblAutoRate = makeLabel(String.format("Nhịp: %.2fs", autoSpawnIntervalSeconds));
+        autoRateSlider.valueProperty().addListener((obs, oldV, newV) -> {
+            autoSpawnIntervalSeconds = newV.doubleValue();
+            lblAutoRate.setText(String.format("Nhịp: %.2fs", autoSpawnIntervalSeconds));
+        });
+
         // Spawn button
         Button btnSpawn = new Button("✦ Spawn");
         btnSpawn.getStyleClass().add("btn-spawn");
@@ -219,7 +250,7 @@ public class MainApp extends Application {
             int spawned = vehicleSpawner.spawn(
                 type, lane, spawnPosition, lateralMode, count);
 
-            spawnLog.appendText(String.format("[+] %d/%d %s → %s (%s)\n",
+            appendSpawnLog(String.format("[+] %d/%d %s → %s (%s)\n",
                 spawned, count, type, laneNames[laneIdx],
                 cmbLateral.getSelectionModel().getSelectedItem()));
         });
@@ -231,7 +262,7 @@ public class MainApp extends Application {
         btnClear.setOnAction(e -> {
             engine.clearVehicles();
             vehicleSpawner.clearState();
-            spawnLog.appendText("[!] Đã xóa tất cả xe\n");
+            appendSpawnLog("[!] Đã xóa tất cả xe\n");
         });
 
         // Separator
@@ -257,6 +288,7 @@ public class MainApp extends Application {
             lblOffset, cmbOffset,
             lblLateral, cmbLateral,
             lblCount, spinner,
+            lblAuto, btnAutoSpawn, lblAutoRate, autoRateSlider,
             btnSpawn, btnClear,
             sep, lblLog, spawnLog
         );
@@ -387,7 +419,7 @@ public class MainApp extends Application {
         spawnContainer = buildSidebar(newMap);
         root.setRight(spawnContainer);
 
-        spawnLog.appendText("[✓] Map: " + newMap.getName() + "\n");
+        appendSpawnLog("[✓] Map: " + newMap.getName() + "\n");
     }
 
     private static void registerMap(TrafficEngine engine, MapConfig map) {
@@ -438,6 +470,104 @@ public class MainApp extends Application {
             fallback[i] = "lane " + (i + 1);
         }
         return fallback;
+    }
+
+    private void updateAutoSpawn(long now) {
+        if (!autoSpawnEnabled || vehicleSpawner == null || currentMap == null) {
+            return;
+        }
+        SpawnProfile profile = getSpawnProfile(currentMap);
+        if (engine.getVehicles().size() >= profile.maxTotalVehicles()) {
+            return;
+        }
+        if (lastAutoSpawnNanos != 0L) {
+            double elapsed = (now - lastAutoSpawnNanos) / 1_000_000_000.0;
+            if (elapsed < autoSpawnIntervalSeconds) {
+                return;
+            }
+        }
+
+        List<Lane> lanes = getSpawnableLanes(currentMap);
+        if (lanes.isEmpty()) {
+            return;
+        }
+
+        String type = randomAutoType(profile);
+        int attempts = Math.min(lanes.size(), 8);
+        int start = random.nextInt(lanes.size());
+        for (int i = 0; i < attempts; i++) {
+            Lane lane = lanes.get((start + i) % lanes.size());
+            if (countVehiclesOnLane(lane) >= profile.maxVehiclesPerLane()) {
+                continue;
+            }
+            int spawned = vehicleSpawner.spawn(
+                    type,
+                    lane,
+                    VehicleSpawner.SpawnPosition.START,
+                    VehicleSpawner.SpawnLateralMode.AUTO,
+                    1
+            );
+            if (spawned > 0) {
+                lastAutoSpawnNanos = now;
+                appendSpawnLog(String.format("[A] 1x %s → lane %d\n",
+                        type, lanes.indexOf(lane) + 1));
+                return;
+            }
+        }
+
+        // Tat ca dau lane dang kin: cho nhip sau thu lai, khong spam log.
+        lastAutoSpawnNanos = now;
+    }
+
+    private record SpawnProfile(
+            int maxTotalVehicles,
+            int maxVehiclesPerLane,
+            int emergencyRatePercent
+    ) {}
+
+    private SpawnProfile getSpawnProfile(MapConfig map) {
+        String name = map != null ? map.getName() : "";
+        return switch (name) {
+            case "Ngã Tư" -> new SpawnProfile(26, 7, 9);
+            case "Ngã Ba" -> new SpawnProfile(18, 5, 8);
+            case "Mạng Lưới" -> new SpawnProfile(36, 7, 9);
+            case "Đại Lộ Cao Tốc" -> new SpawnProfile(70, 18, 6);
+            default -> new SpawnProfile(28, 7, 8);
+        };
+    }
+
+    private int countVehiclesOnLane(Lane lane) {
+        int count = 0;
+        for (Vehicle vehicle : engine.getVehicles()) {
+            if (vehicle.getLane() == lane) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private String randomAutoType(SpawnProfile profile) {
+        // Uu tien xe thuong de quan sat dong giao thong; xe uu tien xuat hien it hon.
+        int r = random.nextInt(100);
+        int emergencyRate = profile != null ? profile.emergencyRatePercent() : 8;
+        if (r >= 100 - emergencyRate) {
+            return random.nextBoolean() ? "ambulance" : "firetruck";
+        }
+        if (r < 36) return "car";
+        if (r < 64) return "motorcycle";
+        return "bicycle";
+    }
+
+    private void appendSpawnLog(String text) {
+        if (spawnLog == null || text == null) {
+            return;
+        }
+        spawnLog.appendText(text);
+        int maxChars = 5000;
+        int overflow = spawnLog.getLength() - maxChars;
+        if (overflow > 0) {
+            spawnLog.deleteText(0, overflow);
+        }
     }
 
     private Label makeLabel(String text) {

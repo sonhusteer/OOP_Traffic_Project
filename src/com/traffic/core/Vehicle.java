@@ -10,7 +10,16 @@ public abstract class Vehicle {
         NONE,
         YIELD_RIGHT,
         STOP_BEFORE_CONFLICT,
-        CLEAR_CONFLICT
+        CLEAR_CONFLICT,
+        HOLD_POSITION,
+        URGENT_CLEAR_PATH,
+
+        // Legacy names kept so older modules can compile.
+        PULL_RIGHT,
+        CLEAR_PATH,
+        STOP,
+        CLEAR_INTERSECTION,
+        BLOCKED_YIELD
     }
 
     public enum ManeuverState {
@@ -19,8 +28,12 @@ public abstract class Vehicle {
         OVERTAKE_PASSING,
         OVERTAKE_RETURNING,
         YIELDING_RIGHT,
+        GAP_FILLING,
+        URGENT_CLEARING,
+        HOLDING_POSITION,
         STOPPED_FOR_CONFLICT,
-        CLEARING_CONFLICT
+        CLEARING_CONFLICT,
+        EMERGENCY_CORRIDOR
     }
 
     public static final double LEFT_OFFSET = -18.0;
@@ -65,6 +78,11 @@ public abstract class Vehicle {
     protected Vehicle overtakingTarget = null;
     protected double maneuverCooldown = 0.0;
 
+    // Priority vehicles should give normal vehicles a short chance to yield
+    // before committing to aggressive passing or emergency corridor.
+    protected Vehicle priorityWaitTarget = null;
+    protected double priorityWaitSeconds = 0.0;
+
     public Vehicle(double x, double y, double speed, IDriver driver) {
         this.position = new Vector2D(x, y);
         this.speed = speed;
@@ -77,6 +95,18 @@ public abstract class Vehicle {
         setLanePosition(lane, 0.0, CENTER_OFFSET);
     }
 
+    /** Compatibility overload for older SpawnPlanner code. */
+    public void setLane(Lane lane, double progress, int trackIndex) {
+        double offset = lane != null ? lane.getOffsetForTrack(trackIndex) : CENTER_OFFSET;
+        setLanePosition(lane, progress, offset);
+    }
+
+    /** Compatibility overload: third argument is a track index, not raw pixels. */
+    public void setLanePosition(Lane lane, double progress, int trackIndex) {
+        double offset = lane != null ? lane.getOffsetForTrack(trackIndex) : CENTER_OFFSET;
+        setLanePosition(lane, progress, offset);
+    }
+
     public void setLanePosition(Lane lane, double progress, double lateralOffset) {
         if (this.lane != null && this.lane != lane) {
             this.lane.removeVehicle(this);
@@ -86,7 +116,7 @@ public abstract class Vehicle {
         this.isChangingLane = false;
         this.targetPosition = null;
         this.laneProgress = progress;
-        this.lateralOffset = clampLateral(lateralOffset);
+        this.lateralOffset = clampLateralForLane(lateralOffset);
         this.targetLateralOffset = this.lateralOffset;
         this.preferredLateralOffset = this.lateralOffset;
         if (lane != null) {
@@ -101,7 +131,7 @@ public abstract class Vehicle {
         position.setY(position.getY() + offsetY);
         if (lane != null) {
             laneProgress = lane.getProgressOf(position);
-            lateralOffset = clampLateral(lane.getSignedLateralOffset(position));
+            lateralOffset = clampLateralForLane(lane.getSignedLateralOffset(position));
             targetLateralOffset = lateralOffset;
             preferredLateralOffset = lateralOffset;
             syncPositionFromLane();
@@ -133,18 +163,34 @@ public abstract class Vehicle {
         double diff = targetLateralOffset - lateralOffset;
         if (Math.abs(diff) <= 0.25) {
             lateralOffset = targetLateralOffset;
+            if (maneuverState == ManeuverState.GAP_FILLING) {
+                preferredLateralOffset = isPriority ? CENTER_OFFSET : targetLateralOffset;
+                maneuverState = ManeuverState.NORMAL;
+                maneuverCooldown = Math.max(maneuverCooldown, 0.8);
+            }
             return;
         }
         double smoothness = switch (maneuverState) {
             case OVERTAKE_SHIFT_LEFT, YIELDING_RIGHT -> 7.0;
+            case GAP_FILLING -> 5.2;
+            case URGENT_CLEARING -> 4.4;
             case OVERTAKE_RETURNING -> 3.4;
-            case CLEARING_CONFLICT -> 4.0;
+            case EMERGENCY_CORRIDOR -> 6.2;
+            case CLEARING_CONFLICT, HOLDING_POSITION -> 4.0;
             default -> 4.8;
         };
         double alpha = 1.0 - Math.exp(-smoothness * Math.max(0.0, deltaTime));
         lateralOffset += diff * alpha;
         if (Math.abs(targetLateralOffset - lateralOffset) < 0.35) {
             lateralOffset = targetLateralOffset;
+        }
+
+        if (maneuverState == ManeuverState.GAP_FILLING && isNearTargetLateralOffset(1.2)) {
+            // Gap filling is not an overtake. The new slot becomes the temporary
+            // natural slot so the car does not immediately drift back.
+            preferredLateralOffset = isPriority ? CENTER_OFFSET : targetLateralOffset;
+            maneuverState = ManeuverState.NORMAL;
+            maneuverCooldown = Math.max(maneuverCooldown, 0.8);
         }
     }
 
@@ -232,6 +278,46 @@ public abstract class Vehicle {
         setTargetLateralOffset(LEFT_OFFSET);
     }
 
+    /** Compatibility entry point for SideShiftPlanner/LateralManeuver. */
+    public boolean requestManeuver(LateralManeuver maneuver) {
+        if (maneuver == null || maneuverCooldown > 0.0) {
+            return false;
+        }
+        switch (maneuver.getType()) {
+            case OVERTAKE -> {
+                overtakingTarget = maneuver.getTarget();
+                maneuverState = ManeuverState.OVERTAKE_SHIFT_LEFT;
+                setTargetLateralOffset(maneuver.getTargetOffset());
+                return true;
+            }
+            case YIELD_RIGHT -> {
+                overtakingTarget = null;
+                maneuverState = ManeuverState.YIELDING_RIGHT;
+                setTargetLateralOffset(maneuver.getTargetOffset());
+                return true;
+            }
+            case RETURN_TO_PREFERRED -> {
+                return returnToPreferredOffset();
+            }
+            case GAP_FILL -> {
+                overtakingTarget = null;
+                maneuverState = ManeuverState.GAP_FILLING;
+                setTargetLateralOffset(maneuver.getTargetOffset());
+                return true;
+            }
+            case EMERGENCY_CORRIDOR -> {
+                if (!isPriority) return false;
+                overtakingTarget = maneuver.getTarget();
+                maneuverState = ManeuverState.EMERGENCY_CORRIDOR;
+                setTargetLateralOffset(maneuver.getTargetOffset());
+                return true;
+            }
+            default -> {
+                return false;
+            }
+        }
+    }
+
     public void cancelOvertake() {
         if (isOvertaking()) {
             overtakingTarget = null;
@@ -244,13 +330,26 @@ public abstract class Vehicle {
     public boolean isOvertaking() {
         return maneuverState == ManeuverState.OVERTAKE_SHIFT_LEFT
             || maneuverState == ManeuverState.OVERTAKE_PASSING
-            || maneuverState == ManeuverState.OVERTAKE_RETURNING;
+            || maneuverState == ManeuverState.OVERTAKE_RETURNING
+            || maneuverState == ManeuverState.EMERGENCY_CORRIDOR;
     }
 
     public boolean isOvertakingInLane() { return isOvertaking(); }
 
     public void returnToPreferredSlot() {
         setTargetLateralOffset(preferredLateralOffset);
+    }
+
+    /** Compatibility wrapper for older SideShiftPlanner code. */
+    public boolean returnToPreferredOffset() {
+        returnToPreferredSlot();
+        maneuverState = ManeuverState.OVERTAKE_RETURNING;
+        return true;
+    }
+
+    /** True when the vehicle is not already close to its preferred lateral slot. */
+    public boolean isAwayFromPreferredOffset() {
+        return !isNearPreferredLateralOffset(1.5);
     }
 
     public double getFrontProgress() { return laneProgress + getLongitudinalLength() / 2.0; }
@@ -269,6 +368,25 @@ public abstract class Vehicle {
         return MathUtils.clamp(offset, -MAX_LATERAL_OFFSET, MAX_LATERAL_OFFSET);
     }
 
+    private double clampLateralForLane(double offset) {
+        return lane != null ? lane.clampOffset(this, offset) : clampLateral(offset);
+    }
+
+    public boolean isUsingEmergencyCorridor() {
+        return isPriority && maneuverState == ManeuverState.EMERGENCY_CORRIDOR;
+    }
+
+    public void returnPriorityToCenterIfIdle() {
+        if (isPriority && !isOvertaking()
+                && maneuverState != ManeuverState.YIELDING_RIGHT
+                && maneuverState != ManeuverState.CLEARING_CONFLICT
+                && maneuverState != ManeuverState.HOLDING_POSITION
+                && maneuverState != ManeuverState.STOPPED_FOR_CONFLICT) {
+            preferredLateralOffset = CENTER_OFFSET;
+            setTargetLateralOffset(CENTER_OFFSET);
+        }
+    }
+
     public Vector2D getPosition() { return position; }
     public double getSpeed() { return speed; }
     public void setSpeed(double s) { speed = Math.max(0.0, s); }
@@ -285,9 +403,11 @@ public abstract class Vehicle {
         yieldMode = m == null ? YieldMode.NONE : m;
         if (!isOvertaking()) {
             maneuverState = switch (yieldMode) {
-                case YIELD_RIGHT -> ManeuverState.YIELDING_RIGHT;
-                case STOP_BEFORE_CONFLICT -> ManeuverState.STOPPED_FOR_CONFLICT;
-                case CLEAR_CONFLICT -> ManeuverState.CLEARING_CONFLICT;
+                case YIELD_RIGHT, PULL_RIGHT -> ManeuverState.YIELDING_RIGHT;
+                case HOLD_POSITION, BLOCKED_YIELD -> ManeuverState.HOLDING_POSITION;
+                case STOP_BEFORE_CONFLICT, STOP -> ManeuverState.STOPPED_FOR_CONFLICT;
+                case CLEAR_CONFLICT, CLEAR_INTERSECTION -> ManeuverState.CLEARING_CONFLICT;
+                case CLEAR_PATH, URGENT_CLEAR_PATH -> ManeuverState.URGENT_CLEARING;
                 default -> ManeuverState.NORMAL;
             };
         }
@@ -296,19 +416,43 @@ public abstract class Vehicle {
     public double getLaneChangeCooldown() { return laneChangeCooldown; }
     public boolean hasOvertaken() { return hasOvertaken; }
     public double getLaneProgress() { return laneProgress; }
+    /** Compatibility alias for older occupancy/coordinator code. */
+    public double getProgress() { return getLaneProgress(); }
     public void setLaneProgress(double p) { laneProgress = p; }
 
     public double getLateralOffset() { return lateralOffset; }
-    public void setLateralOffset(double o) { lateralOffset = clampLateral(o); }
+    public void setLateralOffset(double o) { lateralOffset = clampLateralForLane(o); }
     public double getTargetLateralOffset() { return targetLateralOffset; }
-    public void setTargetLateralOffset(double o) { targetLateralOffset = clampLateral(o); }
+    public void setTargetLateralOffset(double o) { targetLateralOffset = clampLateralForLane(o); }
     public double getPreferredLateralOffset() { return preferredLateralOffset; }
-    public void setPreferredLateralOffset(double o) { preferredLateralOffset = clampLateral(o); }
+    public void setPreferredLateralOffset(double o) { preferredLateralOffset = clampLateralForLane(o); }
 
     public ManeuverState getManeuverState() { return maneuverState; }
     public void setManeuverState(ManeuverState state) { maneuverState = state == null ? ManeuverState.NORMAL : state; }
     public Vehicle getOvertakingTarget() { return overtakingTarget; }
     public void setOvertakingTarget(Vehicle target) { overtakingTarget = target; }
+
+    public double addPriorityWaitFor(Vehicle target, double seconds) {
+        if (!isPriority || target == null) {
+            resetPriorityWait();
+            return 0.0;
+        }
+        if (priorityWaitTarget != target) {
+            priorityWaitTarget = target;
+            priorityWaitSeconds = 0.0;
+        }
+        priorityWaitSeconds = Math.min(3.0, priorityWaitSeconds + Math.max(0.0, seconds));
+        return priorityWaitSeconds;
+    }
+
+    public void resetPriorityWait() {
+        priorityWaitTarget = null;
+        priorityWaitSeconds = 0.0;
+    }
+
+    public double getPriorityWaitSeconds() { return priorityWaitSeconds; }
+    public Vehicle getPriorityWaitTarget() { return priorityWaitTarget; }
+
     public double getManeuverCooldown() { return maneuverCooldown; }
     public void setManeuverCooldown(double seconds) { maneuverCooldown = Math.max(0.0, seconds); }
 

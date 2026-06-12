@@ -9,9 +9,6 @@ import com.traffic.core.Vector2D;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.paint.*;
 import javafx.scene.shape.StrokeLineCap;
-import javafx.scene.shape.StrokeLineJoin;
-import javafx.scene.text.Font;
-import javafx.scene.text.FontWeight;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -20,9 +17,9 @@ import java.util.List;
  */
 public abstract class AbstractBaseRenderer implements IRenderer {
 
-    protected List<Lane>               lanes         = new ArrayList<>();
-    protected final List<Vehicle>      vehicles      = new ArrayList<>();
-    protected final List<TrafficLight> lights        = new ArrayList<>();
+    protected List<Lane> lanes = new ArrayList<>();
+    protected final List<Vehicle> vehicles = new ArrayList<>();
+    protected final List<TrafficLight> lights = new ArrayList<>();
     protected final List<Intersection> intersections = new ArrayList<>();
 
     // ── Hiệu ứng Mưa (Rain Overlay) ──────────────────────────────────────
@@ -49,9 +46,11 @@ public abstract class AbstractBaseRenderer implements IRenderer {
     }
 
     protected void drawRain(GraphicsContext gc, double w, double h) {
-        if (!isRaining) return; // Không vẽ mưa nếu đang tắt
+        if (!isRaining)
+            return; // Không vẽ mưa nếu đang tắt
 
-        if (!rainInitialized) initRain(w, h);
+        if (!rainInitialized)
+            initRain(w, h);
 
         // Phủ lớp xanh đen mờ để tạo không khí ẩm ướt, trơn trượt
         gc.setFill(Color.rgb(10, 20, 30, 0.25));
@@ -61,12 +60,12 @@ public abstract class AbstractBaseRenderer implements IRenderer {
         gc.setStroke(Color.rgb(180, 200, 240, 0.5));
         for (int i = 0; i < NUM_DROPS; i++) {
             gc.setLineWidth(Math.max(0.5, rainLength[i] / 15.0));
-            gc.strokeLine(rainX[i], rainY[i], rainX[i] + rainLength[i]/4, rainY[i] + rainLength[i]);
-            
+            gc.strokeLine(rainX[i], rainY[i], rainX[i] + rainLength[i] / 4, rainY[i] + rainLength[i]);
+
             // Cập nhật tọa độ hạt mưa (mưa bay chéo xuống)
             rainX[i] += rainSpeed[i] / 4;
             rainY[i] += rainSpeed[i];
-            
+
             // Nếu rơi quá màn hình thì reset lên trên
             if (rainY[i] > h) {
                 rainY[i] = -rainLength[i];
@@ -76,46 +75,72 @@ public abstract class AbstractBaseRenderer implements IRenderer {
     }
 
     protected static final double ROAD_HALF = 40.0;
-    private   static final int   LIGHT_HIT  = 45;
+    private static final int LIGHT_HIT = 45;
 
-    public AbstractBaseRenderer(List<Lane> lanes) { this.lanes = lanes; }
+    public AbstractBaseRenderer(List<Lane> lanes) {
+        this.lanes = lanes;
+    }
 
-    public void setLanes(List<Lane> newLanes) { this.lanes = newLanes; }
+    public void setLanes(List<Lane> newLanes) {
+        this.lanes = newLanes;
+    }
 
     public void handleClick(double x, double y, boolean leftButton) {
         for (TrafficLight light : lights) {
-            if (light == null) continue;
+            if (light == null)
+                continue;
             double dist = Math.hypot(x - light.getPosition().getX(),
-                                     y - light.getPosition().getY());
+                    y - light.getPosition().getY());
             if (dist <= LIGHT_HIT) {
-                if (leftButton) { light.setManualMode(true);  light.manualSwitch(); }
-                else            { light.setManualMode(false); }
+                if (leftButton) {
+                    light.setManualMode(true);
+                    light.manualSwitch();
+                } else {
+                    light.setManualMode(false);
+                }
                 break;
             }
         }
     }
 
-    @Override public void clear() { vehicles.clear(); lights.clear(); intersections.clear(); }
-    @Override public void renderVehicles(List<Vehicle> list)           { vehicles.addAll(list); }
-    @Override public void renderLights(List<TrafficLight> list)        { lights.addAll(list); }
-    @Override public void renderIntersections(List<Intersection> list) { intersections.addAll(list); }
+    @Override
+    public void clear() {
+        vehicles.clear();
+        lights.clear();
+        intersections.clear();
+    }
+
+    @Override
+    public void renderVehicles(List<Vehicle> list) {
+        vehicles.addAll(list);
+    }
+
+    @Override
+    public void renderLights(List<TrafficLight> list) {
+        lights.addAll(list);
+    }
+
+    @Override
+    public void renderIntersections(List<Intersection> list) {
+        intersections.addAll(list);
+    }
 
     // =========================================================================
-    //  NHÀ DÂN CƯ — vẽ TRƯỚC đường, DƯỚI mọi thứ khác
+    // NHÀ DÂN CƯ — vẽ TRƯỚC đường, DƯỚI mọi thứ khác
     // =========================================================================
 
     /** Palette mái nhà (top-down view) */
     private static final Color[] ROOF_COLORS = {
-        Color.rgb(112, 88, 76),   // nâu gỗ
-        Color.rgb(88, 88, 92),    // xám nguội
-        Color.rgb(128, 96, 84),   // gạch terra
-        Color.rgb(76, 90, 96),    // xanh đá
-        Color.rgb(104, 82, 76),   // đỏ gỉ
-        Color.rgb(92, 90, 76),    // ô liu
-        Color.rgb(82, 82, 88),    // than
-        Color.rgb(118, 100, 92),  // cát
-        Color.rgb(96, 76, 72),    // nâu đỏ
-        Color.rgb(72, 96, 80),    // xanh rêu (nhà vườn)
+            Color.rgb(112, 88, 76), // nâu gỗ
+            Color.rgb(88, 88, 92), // xám nguội
+            Color.rgb(128, 96, 84), // gạch terra
+            Color.rgb(76, 90, 96), // xanh đá
+            Color.rgb(104, 82, 76), // đỏ gỉ
+            Color.rgb(92, 90, 76), // ô liu
+            Color.rgb(82, 82, 88), // than
+            Color.rgb(118, 100, 92), // cát
+            Color.rgb(96, 76, 72), // nâu đỏ
+            Color.rgb(72, 96, 80), // xanh rêu (nhà vườn)
     };
 
     protected void drawBuildings(GraphicsContext gc, double canvasW, double canvasH) {
@@ -128,17 +153,19 @@ public abstract class AbstractBaseRenderer implements IRenderer {
                 double cy = gy * step + step / 2.0;
 
                 // Bỏ qua ô quá gần đường hoặc ngã giao
-                if (isTooCloseToRoad(cx, cy, 54)) continue;
+                if (isTooCloseToRoad(cx, cy, 54))
+                    continue;
 
                 // Hash tất định theo ô — đảm bảo ổn định giữa các frame
                 long h = hash2(gx, gy);
 
                 // ~30% ô trống (vườn / không gian)
-                if (Math.abs(h % 10) < 3) continue;
+                if (Math.abs(h % 10) < 3)
+                    continue;
 
                 double bw = 18 + Math.abs(h % 24);
                 double bh = 18 + Math.abs((h >> 8) % 24);
-                int   ci  = (int) Math.abs(h % ROOF_COLORS.length);
+                int ci = (int) Math.abs(h % ROOF_COLORS.length);
 
                 double bx = cx - bw / 2 + clamp((h % 7) - 3, -6, 6);
                 double by = cy - bh / 2 + clamp(((h >> 4) % 7) - 3, -6, 6);
@@ -164,7 +191,7 @@ public abstract class AbstractBaseRenderer implements IRenderer {
                     // Mái bằng: thiết bị hoặc cửa trời
                     gc.setFill(Color.rgb(180, 185, 190, 0.38));
                     gc.fillRoundRect(bx + bw * 0.3, by + bh * 0.3,
-                                     bw * 0.4, bh * 0.4, 2, 2);
+                            bw * 0.4, bh * 0.4, 2, 2);
                 } else {
                     // Mái dốc: gờ giữa
                     Color ridge = wall.deriveColor(0, 1, 0.55, 1);
@@ -181,10 +208,10 @@ public abstract class AbstractBaseRenderer implements IRenderer {
                 // Cửa sổ
                 if (bw > 26 && bh > 26 && Math.abs(h % 2) == 0) {
                     gc.setFill(Color.rgb(200, 235, 255, 0.55));
-                    gc.fillRect(bx + 4,       by + 4,       4, 3);
-                    gc.fillRect(bx + bw - 9,  by + 4,       4, 3);
+                    gc.fillRect(bx + 4, by + 4, 4, 3);
+                    gc.fillRect(bx + bw - 9, by + 4, 4, 3);
                     if (bh > 32) {
-                        gc.fillRect(bx + 4,      by + bh - 8, 4, 3);
+                        gc.fillRect(bx + 4, by + bh - 8, 4, 3);
                         gc.fillRect(bx + bw - 9, by + bh - 8, 4, 3);
                     }
                 }
@@ -203,13 +230,14 @@ public abstract class AbstractBaseRenderer implements IRenderer {
     }
 
     private boolean isTooCloseToRoad(double px, double py, double thr) {
-        if (lanes == null) return false;
+        if (lanes == null)
+            return false;
         for (Lane lane : lanes) {
             List<Vector2D> pts = lane.getwaypoints();
             for (int i = 0; i < pts.size() - 1; i++) {
                 if (distSeg(px, py,
                         pts.get(i).getX(), pts.get(i).getY(),
-                        pts.get(i+1).getX(), pts.get(i+1).getY()) < thr)
+                        pts.get(i + 1).getX(), pts.get(i + 1).getY()) < thr)
                     return true;
             }
         }
@@ -217,23 +245,27 @@ public abstract class AbstractBaseRenderer implements IRenderer {
         for (Intersection inter : intersections) {
             double[] box = calcIntersectionBox(inter);
             if (px > box[0] - 10 && px < box[2] + 10 &&
-                py > box[1] - 10 && py < box[3] + 10) return true;
+                    py > box[1] - 10 && py < box[3] + 10)
+                return true;
         }
         return false;
     }
 
     private double distSeg(double px, double py,
-                            double ax, double ay, double bx, double by) {
+            double ax, double ay, double bx, double by) {
         double dx = bx - ax, dy = by - ay;
-        if (dx == 0 && dy == 0) return Math.hypot(px - ax, py - ay);
+        if (dx == 0 && dy == 0)
+            return Math.hypot(px - ax, py - ay);
         double t = Math.max(0, Math.min(1,
-            ((px-ax)*dx + (py-ay)*dy) / (dx*dx + dy*dy)));
-        return Math.hypot(px - (ax + t*dx), py - (ay + t*dy));
+                ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)));
+        return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
     }
 
     private long hash2(int x, int y) {
-        long h = (long)x * 73856093L ^ (long)y * 19349663L;
-        h ^= (h >>> 16); h *= 0x45d9f3bL; h ^= (h >>> 16);
+        long h = (long) x * 73856093L ^ (long) y * 19349663L;
+        h ^= (h >>> 16);
+        h *= 0x45d9f3bL;
+        h ^= (h >>> 16);
         return h;
     }
 
@@ -242,7 +274,7 @@ public abstract class AbstractBaseRenderer implements IRenderer {
     }
 
     // =========================================================================
-    //  NGÃ GIAO — vẽ SAU buildings, TRƯỚC đường
+    // NGÃ GIAO — vẽ SAU buildings, TRƯỚC đường
     // =========================================================================
 
     protected void drawIntersections(GraphicsContext gc) {
@@ -257,39 +289,39 @@ public abstract class AbstractBaseRenderer implements IRenderer {
 
             // Highlight ánh sáng giữa ngã tư
             gc.setFill(Color.rgb(255, 255, 255, 0.04));
-            gc.fillOval(x1 + bw*0.1, y1 + bh*0.1, bw*0.8, bh*0.8);
+            gc.fillOval(x1 + bw * 0.1, y1 + bh * 0.1, bw * 0.8, bh * 0.8);
 
             // ── 2. Vẽ vạch kẻ theo TỪNG LÀN (Realistic Markings) ──────────
             for (Lane lane : inter.getLanes()) {
                 Vector2D start = lane.getStart();
                 Vector2D end = lane.getEnd();
                 Vector2D stop = lane.getStopLine();
-                
+
                 double dx = end.getX() - start.getX();
                 double dy = end.getY() - start.getY();
                 double len = Math.hypot(dx, dy);
-                if (len == 0) continue;
+                if (len == 0)
+                    continue;
                 double nx = dx / len;
                 double ny = dy / len;
                 double px = -ny; // Vector vuông góc
                 double py = nx;
-                
+
                 double hw = ROAD_HALF; // 40px
-                
+
                 // --- Stop Line (Vạch dừng) ---
                 gc.setStroke(Color.rgb(240, 240, 240, 0.85));
                 gc.setLineWidth(4.0);
                 gc.setLineCap(StrokeLineCap.BUTT);
                 gc.strokeLine(
-                    stop.getX() + px * hw, stop.getY() + py * hw,
-                    stop.getX() - px * hw, stop.getY() - py * hw
-                );
-                
+                        stop.getX() + px * hw, stop.getY() + py * hw,
+                        stop.getX() - px * hw, stop.getY() - py * hw);
+
                 // --- Zebra Crossing (Vạch người đi bộ) ---
                 double zebraDist = 18; // lùi về sau vạch dừng
                 double zcx = stop.getX() - nx * zebraDist;
                 double zcy = stop.getY() - ny * zebraDist;
-                
+
                 double zebraLen = 16;
                 gc.setStroke(Color.rgb(220, 220, 220, 0.45));
                 gc.setLineWidth(5.0);
@@ -298,11 +330,10 @@ public abstract class AbstractBaseRenderer implements IRenderer {
                     double cx = zcx + px * offset;
                     double cy = zcy + py * offset;
                     gc.strokeLine(
-                        cx - nx * (zebraLen/2), cy - ny * (zebraLen/2),
-                        cx + nx * (zebraLen/2), cy + ny * (zebraLen/2)
-                    );
+                            cx - nx * (zebraLen / 2), cy - ny * (zebraLen / 2),
+                            cx + nx * (zebraLen / 2), cy + ny * (zebraLen / 2));
                 }
-                
+
                 // --- Mũi tên chỉ hướng (Road Arrow) ---
                 double arrowDist = 55; // lùi xa hơn zebra
                 double ax = stop.getX() - nx * arrowDist;
@@ -316,18 +347,18 @@ public abstract class AbstractBaseRenderer implements IRenderer {
         gc.save();
         gc.translate(x, y);
         gc.rotate(Math.toDegrees(Math.atan2(ny, nx)));
-        
+
         gc.setFill(Color.rgb(255, 255, 255, 0.45));
         // Thân mũi tên
         gc.fillRect(-12, -2, 20, 4);
         // Đầu mũi tên (tam giác)
-        gc.fillPolygon(new double[]{8, 8, 18}, new double[]{-7, 7, 0}, 3);
-        
+        gc.fillPolygon(new double[] { 8, 8, 18 }, new double[] { -7, 7, 0 }, 3);
+
         gc.restore();
     }
 
     // =========================================================================
-    //  Tính bounding box ngã giao từ các làn liên quan
+    // Tính bounding box ngã giao từ các làn liên quan
     // =========================================================================
 
     protected double[] calcIntersectionBox(Intersection inter) {
@@ -359,7 +390,7 @@ public abstract class AbstractBaseRenderer implements IRenderer {
                 maxY = Math.max(maxY, cy + ROAD_HALF);
             }
         }
-        return new double[]{minX, minY, maxX, maxY};
+        return new double[] { minX, minY, maxX, maxY };
     }
 
     public abstract void draw(GraphicsContext gc, double width, double height);

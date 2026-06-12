@@ -24,20 +24,65 @@ public final class SideShiftPlanner {
         }
 
         Lane lane = vehicle.getLane();
-        Double passOffset = lane.occupancy().findPassingOffset(vehicle, front, preferLeft);
-        if (passOffset == null) {
-            passOffset = lane.occupancy().findPassingOffset(vehicle, front, !preferLeft);
-        }
+
+        Double passOffset = lane.occupancy().findPassingOffset(
+                vehicle, front, preferLeft, frontGap, rearGap
+        );
         if (passOffset == null) {
             return false;
         }
 
-        boolean safe = lane.occupancy().isSideSpaceFree(vehicle, passOffset, frontGap, rearGap);
+        boolean safe = lane.occupancy().isPassCorridorFree(
+                vehicle, front, passOffset, frontGap, rearGap
+        );
         if (!safe) {
             return false;
         }
 
         return vehicle.requestManeuver(LateralManeuver.overtake(passOffset, front));
+    }
+
+
+    public boolean tryMiddleGapOvertake(
+            Vehicle vehicle,
+            Vehicle front,
+            double frontGap,
+            double rearGap
+    ) {
+        if (vehicle == null || front == null || vehicle.getLane() == null) {
+            return false;
+        }
+
+        Lane lane = vehicle.getLane();
+        Double passOffset = lane.occupancy().findMiddlePassingOffset(
+                vehicle, front, frontGap, rearGap
+        );
+        if (passOffset == null) {
+            return false;
+        }
+        if (!lane.occupancy().isPassCorridorFree(vehicle, front, passOffset, frontGap, rearGap)) {
+            return false;
+        }
+        return vehicle.requestManeuver(LateralManeuver.overtake(passOffset, front));
+    }
+
+    public boolean tryEmergencyCorridor(
+            Vehicle vehicle,
+            Vehicle front,
+            double frontGap,
+            double rearGap
+    ) {
+        if (vehicle == null || front == null || vehicle.getLane() == null || !vehicle.isPriority()) {
+            return false;
+        }
+
+        Lane lane = vehicle.getLane();
+        if (!lane.occupancy().isEmergencyCorridorFree(vehicle, front, frontGap, rearGap)) {
+            return false;
+        }
+
+        double offset = lane.occupancy().findEmergencyCorridorOffset(vehicle);
+        return vehicle.requestManeuver(LateralManeuver.emergencyCorridor(offset, front));
     }
 
     public boolean tryYieldRight(
@@ -52,12 +97,36 @@ public final class SideShiftPlanner {
 
         Lane lane = vehicle.getLane();
         double rightOffset = lane.occupancy().findYieldRightOffset(vehicle, priorityVehicle);
-        boolean safe = lane.occupancy().isSideSpaceFree(vehicle, rightOffset, frontGap, rearGap);
+        boolean safe = lane.occupancy().isSideSpaceFree(vehicle, rightOffset, frontGap, rearGap)
+                && lane.occupancy().hasYieldRightMergeGap(vehicle, priorityVehicle);
         if (!safe) {
             return false;
         }
 
         return vehicle.requestManeuver(LateralManeuver.yieldRight(rightOffset, priorityVehicle));
+    }
+
+    public boolean tryGapFill(
+            Vehicle vehicle,
+            double frontGap,
+            double rearGap
+    ) {
+        if (vehicle == null || vehicle.getLane() == null) {
+            return false;
+        }
+        if (vehicle.getManeuverCooldown() > 0.0) {
+            return false;
+        }
+
+        Lane lane = vehicle.getLane();
+        Double offset = lane.occupancy().findGapFillOffset(vehicle);
+        if (offset == null) {
+            return false;
+        }
+        if (!lane.occupancy().isGapFillSpaceFree(vehicle, offset)) {
+            return false;
+        }
+        return vehicle.requestManeuver(LateralManeuver.gapFill(offset));
     }
 
     public boolean tryReturnToPreferredOffset(

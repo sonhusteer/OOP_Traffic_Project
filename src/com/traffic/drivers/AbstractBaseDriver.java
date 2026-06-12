@@ -6,12 +6,38 @@ import com.traffic.core.Vehicle;
 import com.traffic.map.Lane;
 import com.traffic.map.TrafficLight;
 
-/** Shared driver brain with a small in-lane overtaking state machine. */
+/**
+ * Shared driver brain.
+ *
+ * New behavior order:
+ * 1. emergency / conflict modes
+ * 2. active lateral maneuver
+ * 3. traffic light speed rule
+ * 4. low-speed gap filling near queues/intersections
+ * 5. in-lane overtake/avoidance only; no formal lane jump
+ * 6. follow front vehicle and return to preferred slot
+ */
 public abstract class AbstractBaseDriver implements IDriver {
 
     private static final double RETURN_FRONT_GAP = 75.0;
     private static final double RETURN_BACK_GAP = 45.0;
-    private static final double PASS_CLEAR_GAP = 28.0;
+    private static final double PASS_CLEAR_GAP = 36.0;
+
+    private static final double GAP_FILL_FRONT_GAP = 48.0;
+    private static final double GAP_FILL_REAR_GAP = 34.0;
+    private static final double GAP_FILL_QUEUE_GAP = 78.0;
+
+    private static final double URGENT_FRONT_GAP = 76.0;
+    private static final double URGENT_REAR_GAP = 40.0;
+    private static final double URGENT_SPEED_FACTOR = 1.18;
+    private static final double URGENT_MIN_FACTOR = 0.72;
+
+    private static final double PRIORITY_PATIENCE_SECONDS = 0.75;
+    private static final double PRIORITY_PATIENCE_TICK = 0.035;
+    private static final double PRIORITY_WAIT_LOOKAHEAD = 95.0;
+    private static final double PRIORITY_CRITICAL_GAP = 22.0;
+
+    private final SideShiftPlanner sideShiftPlanner = new SideShiftPlanner();
 
     protected abstract double getBrakeDistance();
     protected abstract double getStopDistance();
@@ -22,12 +48,18 @@ public abstract class AbstractBaseDriver implements IDriver {
     protected abstract boolean canOvertake();
     protected boolean obeyTrafficLight() { return true; }
 
+    /** Aggressive and emergency drivers may use a center/middle gap before edge passing. */
+    protected boolean canUseMiddleGap() { return false; }
+
+    /** Only emergency drivers may use the yellow-line emergency corridor. */
+    protected boolean canUseEmergencyCorridor() { return false; }
+
     @Override
     public void makeDecision(Vehicle vehicle, TrafficLight nextLight) {
-        if (vehicle.isChangingLane()) return;
+        if (vehicle == null || vehicle.isChangingLane()) return;
 
         Vehicle.YieldMode mode = vehicle.getYieldMode();
-        if (mode == Vehicle.YieldMode.STOP_BEFORE_CONFLICT) {
+        if (mode == Vehicle.YieldMode.STOP_BEFORE_CONFLICT || mode == Vehicle.YieldMode.STOP) {
             vehicle.cancelOvertake();
             vehicle.setManeuverState(Vehicle.ManeuverState.STOPPED_FOR_CONFLICT);
             vehicle.returnToPreferredSlot();
@@ -35,61 +67,124 @@ public abstract class AbstractBaseDriver implements IDriver {
             return;
         }
 
-        if (mode == Vehicle.YieldMode.CLEAR_CONFLICT) {
+        if (mode == Vehicle.YieldMode.HOLD_POSITION || mode == Vehicle.YieldMode.BLOCKED_YIELD) {
+            vehicle.cancelOvertake();
+            vehicle.setManeuverState(Vehicle.ManeuverState.HOLDING_POSITION);
+            vehicle.setTargetLateralOffset(vehicle.getLateralOffset());
+            vehicle.setSpeed(Math.min(vehicle.getSpeed(), getMaxSpeed() * 0.35));
+            return;
+        }
+
+        if (mode == Vehicle.YieldMode.CLEAR_CONFLICT
+                || mode == Vehicle.YieldMode.CLEAR_INTERSECTION) {
             vehicle.cancelOvertake();
             vehicle.setManeuverState(Vehicle.ManeuverState.CLEARING_CONFLICT);
             vehicle.returnToPreferredSlot();
+            // CLEAR_CONFLICT chi ap dung khi xe da nam trong vung xung dot.
+            // Khi do xe can thoat khoi giao lo, nhung van khong lien quan den
+            // CLEAR_PATH do xe uu tien thuc tu phia sau.
             vehicle.setSpeed(Math.max(vehicle.getSpeed(), getMaxSpeed() * 0.75));
             return;
         }
 
-        if (mode == Vehicle.YieldMode.YIELD_RIGHT) {
+        if (mode == Vehicle.YieldMode.CLEAR_PATH
+                || mode == Vehicle.YieldMode.URGENT_CLEAR_PATH) {
+            handleUrgentClearPath(vehicle, nextLight);
+            return;
+        }
+
+        if (mode == Vehicle.YieldMode.YIELD_RIGHT || mode == Vehicle.YieldMode.PULL_RIGHT) {
             vehicle.cancelOvertake();
-            vehicle.setManeuverState(Vehicle.ManeuverState.YIELDING_RIGHT);
-            vehicle.setTargetLateralOffset(Vehicle.RIGHT_OFFSET);
-            vehicle.setSpeed(Math.min(getMaxSpeed() * 0.55,
-                    vehicle.getSpeed() > 0.0 ? vehicle.getSpeed() : getMaxSpeed() * 0.45));
+            Lane lane = vehicle.getLane();
+            boolean canReallyPullRight = lane != null
+                    && lane.occupancy().hasYieldRightMergeGap(vehicle, null);
+            if (canReallyPullRight) {
+                vehicle.setManeuverState(Vehicle.ManeuverState.YIELDING_RIGHT);
+                vehicle.setTargetLateralOffset(lane.getRightmostOffset(vehicle));
+                vehicle.setSpeed(Math.min(getMaxSpeed() * 0.55,
+                        vehicle.getSpeed() > 0.0 ? vehicle.getSpeed() : getMaxSpeed() * 0.45));
+            } else {
+                // Ben phai da kin. Xe khong duoc ep chen phai, ma chuyen sang
+                // trang thai "bi voi" de tu tien len tim khoang trong. Trang thai
+                // nay van ton trong den do/vach dung, khong duoc thuc xe qua den.
+                handleUrgentClearPath(vehicle, nextLight);
+            }
             return;
         }
 
         if (vehicle.getManeuverState() == Vehicle.ManeuverState.YIELDING_RIGHT
                 || vehicle.getManeuverState() == Vehicle.ManeuverState.STOPPED_FOR_CONFLICT
-                || vehicle.getManeuverState() == Vehicle.ManeuverState.CLEARING_CONFLICT) {
+                || vehicle.getManeuverState() == Vehicle.ManeuverState.CLEARING_CONFLICT
+                || vehicle.getManeuverState() == Vehicle.ManeuverState.URGENT_CLEARING
+                || vehicle.getManeuverState() == Vehicle.ManeuverState.HOLDING_POSITION) {
             vehicle.setManeuverState(Vehicle.ManeuverState.NORMAL);
             vehicle.returnToPreferredSlot();
         }
 
-        if (handleActiveOvertake(vehicle)) {
-            vehicle.setSpeed(getMaxSpeed());
+        if (handleActiveLateralManeuver(vehicle)) {
+            if (vehicle.isOvertaking()) {
+                vehicle.setSpeed(getMaxSpeed());
+            } else {
+                vehicle.setSpeed(Math.max(vehicle.getSpeed(), getMaxSpeed() * 0.45));
+            }
             return;
         }
 
         SpeedDecision speedDecision = applyTrafficLightRule(vehicle, nextLight);
-        double targetSpeed = speedDecision.targetSpeed;
-        boolean stoppingForLight = speedDecision.stoppingForLight;
+        double targetSpeed = speedDecision.targetSpeed();
+        boolean stoppingForLight = speedDecision.stoppingForLight();
 
         Lane lane = vehicle.getLane();
         if (lane != null) {
             Vehicle inFront = lane.getVehicleAhead(vehicle);
-            if (inFront != null) {
-                double longitudinalGap = inFront.getRearProgress() - vehicle.getFrontProgress();
-                if (longitudinalGap <= getSafeDistance()) {
-                    if (shouldStartOvertake(vehicle, inFront, stoppingForLight)) {
-                        startOvertake(vehicle, inFront);
-                        vehicle.setSpeed(getMaxSpeed());
-                        return;
-                    }
+            double longitudinalGap = inFront != null
+                    ? inFront.getRearProgress() - vehicle.getFrontProgress()
+                    : Double.MAX_VALUE;
 
-                    targetSpeed = Math.min(targetSpeed, inFront.getSpeed());
-                    if (longitudinalGap <= getSafeDistance() * 0.35) {
-                        targetSpeed = getMinSpeed();
-                    }
+            if (vehicle.isPriority() && inFront != null
+                    && longitudinalGap > 0.0
+                    && longitudinalGap < PRIORITY_WAIT_LOOKAHEAD
+                    && shouldPriorityWaitForYield(vehicle, inFront, longitudinalGap)) {
+                double waitSpeed = Math.min(targetSpeed, Math.max(inFront.getSpeed(), getMaxSpeed() * 0.58));
+                if (longitudinalGap < getSafeDistance() * 1.7) {
+                    waitSpeed = Math.min(waitSpeed, Math.max(getMinSpeed(), inFront.getSpeed() * 0.75));
                 }
+                rampSpeed(vehicle, waitSpeed);
+                return;
+            }
+
+            if (inFront != null && longitudinalGap <= getSafeDistance()) {
+                if (shouldTryGapFill(vehicle, inFront, longitudinalGap, stoppingForLight)
+                        && sideShiftPlanner.tryGapFill(vehicle, GAP_FILL_FRONT_GAP, GAP_FILL_REAR_GAP)) {
+                    vehicle.setSpeed(Math.min(targetSpeed, Math.max(getMinSpeed(), getMaxSpeed() * 0.45)));
+                    return;
+                }
+
+                if (shouldStartOvertake(vehicle, inFront, stoppingForLight)) {
+                    startOvertake(vehicle, inFront);
+                    vehicle.setSpeed(getMaxSpeed());
+                    return;
+                }
+
+                targetSpeed = Math.min(targetSpeed, inFront.getSpeed());
+                if (longitudinalGap <= getSafeDistance() * 0.35) {
+                    targetSpeed = getMinSpeed();
+                }
+            } else if (shouldTryGapFill(vehicle, null, longitudinalGap, stoppingForLight)
+                    && sideShiftPlanner.tryGapFill(vehicle, GAP_FILL_FRONT_GAP, GAP_FILL_REAR_GAP)) {
+                vehicle.setSpeed(Math.min(targetSpeed, Math.max(getMinSpeed(), getMaxSpeed() * 0.45)));
+                return;
             }
 
             if (!vehicle.isOvertaking()
+                    && vehicle.getManeuverState() != Vehicle.ManeuverState.GAP_FILLING
                     && Math.abs(vehicle.getLateralOffset() - vehicle.getPreferredLateralOffset()) > 0.5) {
-                vehicle.returnToPreferredSlot();
+                sideShiftPlanner.tryReturnToPreferredOffset(vehicle, RETURN_FRONT_GAP, RETURN_BACK_GAP);
+            }
+
+            if (vehicle.isPriority() && inFront == null && !vehicle.isOvertaking()) {
+                vehicle.resetPriorityWait();
+                vehicle.returnPriorityToCenterIfIdle();
             }
 
             if (tryKeepRightAfterFormalOvertake(vehicle, targetSpeed)) return;
@@ -98,11 +193,20 @@ public abstract class AbstractBaseDriver implements IDriver {
         vehicle.setSpeed(targetSpeed);
     }
 
-    private record SpeedDecision(double targetSpeed, boolean stoppingForLight) {}
+    private record SpeedDecision(
+            double targetSpeed,
+            boolean stoppingForLight,
+            boolean redLightAhead,
+            boolean pastStopLine,
+            double distanceToStopLine
+    ) {}
 
     private SpeedDecision applyTrafficLightRule(Vehicle vehicle, TrafficLight nextLight) {
         double targetSpeed = getMaxSpeed();
         boolean stoppingForLight = false;
+        boolean redLightAhead = false;
+        boolean pastStopLine = false;
+        double distanceToStopLine = Double.POSITIVE_INFINITY;
 
         Lane logicalLane = vehicle.getOriginalLane() != null ? vehicle.getOriginalLane() : vehicle.getLane();
         TrafficLight logicalLight = logicalLane != null ? logicalLane.getLight() : nextLight;
@@ -113,13 +217,16 @@ public abstract class AbstractBaseDriver implements IDriver {
                     ? vehicle.getFrontProgress()
                     : logicalLane.getProgressOf(vehicle.getPosition()) + vehicle.getLongitudinalLength() / 2.0;
             double distToStop = stopProgress - frontProgress;
+            distanceToStopLine = distToStop;
             boolean isPastStop = distToStop < -3.0;
+            pastStopLine = isPastStop;
 
             if (!isPastStop) {
                 if (logicalLight.isRed()) {
+                    redLightAhead = true;
                     stoppingForLight = true;
                     if (distToStop <= getStopDistance()) {
-                        targetSpeed = getMinSpeed();
+                        targetSpeed = 0.0;
                     } else if (distToStop <= getBrakeDistance()) {
                         double ratio = (distToStop - getStopDistance())
                                 / Math.max(1.0, getBrakeDistance() - getStopDistance());
@@ -130,7 +237,92 @@ public abstract class AbstractBaseDriver implements IDriver {
                 }
             }
         }
-        return new SpeedDecision(targetSpeed, stoppingForLight);
+        return new SpeedDecision(targetSpeed, stoppingForLight, redLightAhead,
+                pastStopLine, distanceToStopLine);
+    }
+
+    /**
+     * Xe bi xe uu tien thuc tu phia sau co trang thai "bi voi".
+     * Hanh vi moi:
+     * - neu ben phai mo ra thi uu tien nhich phai;
+     * - neu chua nhich duoc thi tang toc mem de tim khoang trong;
+     * - van ton trong den do/vach dung, khong duoc bi thuc qua den.
+     */
+    private void handleUrgentClearPath(Vehicle vehicle, TrafficLight nextLight) {
+        vehicle.cancelOvertake();
+        vehicle.setManeuverState(Vehicle.ManeuverState.URGENT_CLEARING);
+
+        Lane lane = vehicle.getLane();
+        if (lane != null) {
+            boolean canPullRight = lane.occupancy().hasYieldRightMergeGap(vehicle, null)
+                    && lane.occupancy().isSideSpaceFree(
+                            vehicle,
+                            lane.getRightmostOffset(vehicle),
+                            URGENT_FRONT_GAP,
+                            URGENT_REAR_GAP
+                    );
+            if (canPullRight) {
+                vehicle.setTargetLateralOffset(lane.getRightmostOffset(vehicle));
+            } else if (!vehicle.isOvertaking()) {
+                // Khong ep ve preferred ngay lap tuc; giu chuyen dong ngang mem,
+                // tranh cam giac xe bi giat trai/phai khi ambulance o sau.
+                if (Math.abs(vehicle.getTargetLateralOffset() - vehicle.getPreferredLateralOffset()) < 2.0) {
+                    vehicle.returnToPreferredSlot();
+                }
+            }
+        }
+
+        SpeedDecision lightRule = applyTrafficLightRule(vehicle, nextLight);
+        double desired;
+        if (lightRule.redLightAhead() && !lightRule.pastStopLine()) {
+            if (lightRule.distanceToStopLine() <= getStopDistance() + 4.0) {
+                rampSpeed(vehicle, 0.0);
+                return;
+            }
+            // Con xa vach dung thi co the "voi" hon, nhung toc do bi gioi han
+            // boi lightRule nen khong lao qua den do.
+            desired = Math.min(getMaxSpeed() * 1.05, lightRule.targetSpeed());
+        } else {
+            desired = Math.max(lightRule.targetSpeed(), getMaxSpeed() * URGENT_SPEED_FACTOR);
+        }
+
+        if (lane != null) {
+            Vehicle inFront = lane.getVehicleAhead(vehicle);
+            if (inFront != null) {
+                double gap = inFront.getRearProgress() - vehicle.getFrontProgress();
+                if (gap < getSafeDistance() * 0.45) {
+                    desired = Math.min(desired, getMinSpeed());
+                } else if (gap < getSafeDistance()) {
+                    desired = Math.min(desired, Math.max(inFront.getSpeed(), getMaxSpeed() * URGENT_MIN_FACTOR));
+                }
+            }
+        }
+
+        rampSpeed(vehicle, desired);
+    }
+
+    private void rampSpeed(Vehicle vehicle, double desiredSpeed) {
+        double current = vehicle.getSpeed();
+        double step = Math.max(2.0, getMaxSpeed() * 0.07);
+        double next;
+        if (desiredSpeed > current) {
+            next = Math.min(desiredSpeed, current + step);
+        } else {
+            next = Math.max(desiredSpeed, current - step * 1.35);
+        }
+        vehicle.setSpeed(next);
+    }
+
+    private boolean handleActiveLateralManeuver(Vehicle vehicle) {
+        if (vehicle.getManeuverState() == Vehicle.ManeuverState.GAP_FILLING) {
+            if (vehicle.isNearTargetLateralOffset(1.5)) {
+                vehicle.setPreferredLateralOffset(vehicle.getTargetLateralOffset());
+                vehicle.setManeuverState(Vehicle.ManeuverState.NORMAL);
+                vehicle.setManeuverCooldown(0.8);
+            }
+            return true;
+        }
+        return handleActiveOvertake(vehicle);
     }
 
     private boolean handleActiveOvertake(Vehicle vehicle) {
@@ -144,15 +336,15 @@ public abstract class AbstractBaseDriver implements IDriver {
         }
 
         switch (vehicle.getManeuverState()) {
-            case OVERTAKE_SHIFT_LEFT -> {
-                vehicle.setTargetLateralOffset(Vehicle.LEFT_OFFSET);
-                if (Math.abs(vehicle.getLateralOffset() - Vehicle.LEFT_OFFSET) <= 3.0) {
+            case OVERTAKE_SHIFT_LEFT, EMERGENCY_CORRIDOR -> {
+                // Khoảng trống đã được kiểm tra trước khi commit vượt.
+                // Không kiểm tra/hủy lại từng frame vì sẽ tạo cảm giác xe do dự/lắc.
+                if (vehicle.isNearTargetLateralOffset(3.0)) {
                     vehicle.setManeuverState(Vehicle.ManeuverState.OVERTAKE_PASSING);
                 }
                 return true;
             }
             case OVERTAKE_PASSING -> {
-                vehicle.setTargetLateralOffset(Vehicle.LEFT_OFFSET);
                 target = vehicle.getOvertakingTarget();
                 if (target == null || hasPassedTarget(vehicle, target)) {
                     if (lane == null || lane.isLateralSpaceFree(vehicle,
@@ -167,7 +359,6 @@ public abstract class AbstractBaseDriver implements IDriver {
                 if (lane != null && !vehicle.isNearPreferredLateralOffset(5.0)
                         && !lane.isLateralSpaceFree(vehicle,
                             vehicle.getPreferredLateralOffset(), RETURN_FRONT_GAP, RETURN_BACK_GAP)) {
-                    vehicle.setTargetLateralOffset(Vehicle.LEFT_OFFSET);
                     vehicle.setManeuverState(Vehicle.ManeuverState.OVERTAKE_PASSING);
                     return true;
                 }
@@ -186,36 +377,173 @@ public abstract class AbstractBaseDriver implements IDriver {
         }
     }
 
-    private boolean shouldStartOvertake(Vehicle vehicle, Vehicle inFront, boolean stoppingForLight) {
-        if (!canOvertake() || stoppingForLight) return false;
-        if (vehicle.getManeuverCooldown() > 0.0 || vehicle.getLaneChangeCooldown() > 0.0) return false;
-        if (vehicle.getLane() == null || inFront == null || inFront.isPriority()) return false;
+    private boolean shouldPriorityWaitForYield(Vehicle priority, Vehicle inFront, double longitudinalGap) {
+        if (priority == null || inFront == null || !priority.isPriority()) {
+            return false;
+        }
+        if (!isMeaningfulYieldMode(inFront.getYieldMode())) {
+            priority.resetPriorityWait();
+            return false;
+        }
+        if (!isBlockingCurrentPath(priority, inFront)) {
+            priority.resetPriorityWait();
+            return false;
+        }
+        if (longitudinalGap <= PRIORITY_CRITICAL_GAP) {
+            return false;
+        }
+        double waited = priority.addPriorityWaitFor(inFront, PRIORITY_PATIENCE_TICK);
+        return waited < PRIORITY_PATIENCE_SECONDS;
+    }
 
+    private boolean hasPriorityWaitExpiredOrCritical(Vehicle priority, Vehicle inFront, double longitudinalGap) {
+        if (priority == null || !priority.isPriority()) {
+            return true;
+        }
+        if (longitudinalGap <= PRIORITY_CRITICAL_GAP) {
+            return true;
+        }
+        if (!isMeaningfulYieldMode(inFront != null ? inFront.getYieldMode() : Vehicle.YieldMode.NONE)) {
+            return true;
+        }
+        return priority.getPriorityWaitTarget() == inFront
+                && priority.getPriorityWaitSeconds() >= PRIORITY_PATIENCE_SECONDS;
+    }
+
+    private boolean isMeaningfulYieldMode(Vehicle.YieldMode mode) {
+        return mode != null && mode != Vehicle.YieldMode.NONE;
+    }
+
+    private boolean isBlockingCurrentPath(Vehicle vehicle, Vehicle inFront) {
+        if (vehicle == null || inFront == null || vehicle.getLane() == null) {
+            return false;
+        }
         Lane lane = vehicle.getLane();
-        if (lane.isFormalLaneChangeAllowed()) {
-            Lane left = lane.getLeftNeighbor();
-            if (left != null && vehicle.isSameDirection(left)
-                    && left.isSafeToEnter(vehicle.getPosition(), getOvertakeGap())) {
-                return true;
-            }
+        return inFront.getLane() == lane
+                && lane.occupancy().hasLateralConflict(
+                        vehicle,
+                        vehicle.getTargetLateralOffset(),
+                        inFront,
+                        inFront.getLateralOffset()
+                );
+    }
+
+    private boolean shouldTryGapFill(Vehicle vehicle, Vehicle inFront,
+                                     double longitudinalGap, boolean stoppingForLight) {
+        if (vehicle.getLane() == null) return false;
+        if (vehicle.getManeuverCooldown() > 0.0) return false;
+        if (vehicle.isOvertaking()) return false;
+
+        // Gap-fill chi duoc kich hoat khi that su co xe/vat can phia truoc.
+        // Khong dung "chay cham", "gan stop line" hoac "dang dung den do" lam ly do rieng,
+        // vi nhu vay xe se tu dich vao giua lane/slot khac du khong co vat can.
+        if (inFront == null) return false;
+
+        boolean blockedByFront = longitudinalGap > 0.0 && longitudinalGap < GAP_FILL_QUEUE_GAP;
+        if (!blockedByFront) return false;
+
+        boolean frontIsSlow = inFront.getSpeed() < getMaxSpeed() * 0.72;
+        boolean movingSlowly = vehicle.getSpeed() < getMaxSpeed() * 0.55;
+
+        boolean nearStopLine = false;
+        Lane lane = vehicle.getLane();
+        if (lane != null) {
+            double distToStop = lane.getStopProgress() - vehicle.getFrontProgress();
+            nearStopLine = distToStop > -8.0 && distToStop < 145.0;
         }
 
-        return lane.isInLaneOvertakeAllowed()
-                && Math.abs(vehicle.getLateralOffset() - Vehicle.LEFT_OFFSET) > 3.0
-                && lane.isLateralSpaceFree(vehicle, Vehicle.LEFT_OFFSET, getOvertakeGap() + 45.0, 35.0);
+        return frontIsSlow || movingSlowly || nearStopLine || stoppingForLight;
+    }
+
+    private boolean shouldStartOvertake(Vehicle vehicle, Vehicle inFront, boolean stoppingForLight) {
+        if (!canOvertake() || stoppingForLight) return false;
+        if (vehicle.getManeuverCooldown() > 0.0) return false;
+        if (vehicle.getLane() == null || inFront == null) return false;
+
+        // Xe thường không cố vượt xe ưu tiên. Xe ưu tiên vẫn phải có khả năng
+        // tránh/vượt cả xe thường lẫn xe ưu tiên khác nếu bị kẹt phía trước.
+        if (inFront.isPriority() && !vehicle.isPriority()) return false;
+
+        Lane lane = vehicle.getLane();
+        if (!lane.isInLaneOvertakeAllowed()) return false;
+
+        double actualGap = inFront.getRearProgress() - vehicle.getFrontProgress();
+        if (actualGap <= 0.0 || actualGap > getOvertakeGap() + 38.0) {
+            return false;
+        }
+
+        // Xe thuong chi vuot khi xe truoc thuc su cham hon. Neu xe truoc dang di binh thuong,
+        // khong nen "do du" dich ngang roi quay lai.
+        if (!vehicle.isPriority() && inFront.getSpeed() >= getMaxSpeed() * 0.82) {
+            return false;
+        }
+
+        double frontGap = getOvertakeGap() + 62.0;
+        double rearGap = Math.max(38.0, getOvertakeGap() * 0.65);
+
+        Double passOffset = lane.occupancy().findPassingOffset(
+                vehicle, inFront, true, frontGap, rearGap
+        );
+
+        if (passOffset == null && canUseMiddleGap()) {
+            passOffset = lane.occupancy().findMiddlePassingOffset(vehicle, inFront, frontGap, rearGap);
+        }
+
+        // Xe thuong khong mac dinh vuot phai. Priority co the fallback sang khe phai,
+        // nhung van truoc emergency corridor.
+        if (passOffset == null && vehicle.isPriority()) {
+            passOffset = lane.occupancy().findPassingOffset(
+                    vehicle, inFront, false, frontGap, rearGap
+            );
+        }
+
+        if (passOffset != null) {
+            return lane.occupancy().isPassCorridorFree(vehicle, inFront, passOffset, frontGap, rearGap);
+        }
+
+        // Emergency corridor la phuong an cuoi: chi sau khi xe truoc da co thoi gian
+        // nhich phai/clear path, hoac khi khoang cach da qua nguy cap.
+        return vehicle.isPriority()
+                && canUseEmergencyCorridor()
+                && hasPriorityWaitExpiredOrCritical(vehicle, inFront, actualGap)
+                && lane.occupancy().isEmergencyCorridorFree(vehicle, inFront, frontGap + 20.0, rearGap);
     }
 
     private void startOvertake(Vehicle vehicle, Vehicle inFront) {
-        Lane lane = vehicle.getLane();
-        if (lane != null && lane.isFormalLaneChangeAllowed()) {
-            Lane left = lane.getLeftNeighbor();
-            if (left != null && vehicle.isSameDirection(left)
-                    && left.isSafeToEnter(vehicle.getPosition(), getOvertakeGap())) {
-                vehicle.startLaneChange(left);
+        if (vehicle == null || inFront == null || vehicle.getLane() == null) {
+            return;
+        }
+
+        // Tuyệt đối không startLaneChange ở đây. Dù Highway có 2 lane cùng chiều,
+        // project này mô phỏng lane rộng 2 slot nên vượt/né đều phải nằm trong lane hiện tại.
+        double frontGap = getOvertakeGap() + 62.0;
+        double rearGap = Math.max(38.0, getOvertakeGap() * 0.65);
+
+        if (sideShiftPlanner.tryOvertakeInsideLane(vehicle, inFront, frontGap, rearGap, true)) {
+            vehicle.resetPriorityWait();
+            return;
+        }
+
+        if (canUseMiddleGap() && sideShiftPlanner.tryMiddleGapOvertake(vehicle, inFront, frontGap, rearGap)) {
+            vehicle.resetPriorityWait();
+            return;
+        }
+
+        // Fallback phải chỉ dành cho xe ưu tiên để tránh bị kẹt sau xe khác/xe ưu tiên khác.
+        if (vehicle.isPriority()) {
+            if (sideShiftPlanner.tryOvertakeInsideLane(vehicle, inFront, frontGap, rearGap, false)) {
+                vehicle.resetPriorityWait();
                 return;
             }
+
+            double actualGap = inFront.getRearProgress() - vehicle.getFrontProgress();
+            if (canUseEmergencyCorridor()
+                    && hasPriorityWaitExpiredOrCritical(vehicle, inFront, actualGap)) {
+                if (sideShiftPlanner.tryEmergencyCorridor(vehicle, inFront, frontGap + 20.0, rearGap)) {
+                    vehicle.resetPriorityWait();
+                }
+            }
         }
-        vehicle.beginInLaneOvertake(inFront);
     }
 
     private boolean hasPassedTarget(Vehicle vehicle, Vehicle target) {
@@ -224,29 +552,8 @@ public abstract class AbstractBaseDriver implements IDriver {
     }
 
     private boolean tryKeepRightAfterFormalOvertake(Vehicle vehicle, double targetSpeed) {
-        Lane lane = vehicle.getLane();
-        if (!vehicle.hasOvertaken()
-                || vehicle.getLaneChangeCooldown() > 0.0
-                || lane == null
-                || !lane.isFormalLaneChangeAllowed()
-                || lane.getRightNeighbor() == null) {
-            return false;
-        }
-
-        Lane right = lane.getRightNeighbor();
-        if (!vehicle.isSameDirection(right)) return false;
-
-        Vehicle frontRight = right.getVehicleAhead(vehicle);
-        double gapRight = frontRight != null
-                ? frontRight.getRearProgress() - vehicle.getFrontProgress()
-                : Double.MAX_VALUE;
-
-        if (right.isSafeToEnter(vehicle.getPosition(), getSafeDistance())
-                && gapRight > getSafeDistance() * 2.0) {
-            vehicle.startLaneChange(right);
-            vehicle.setSpeed(targetSpeed);
-            return true;
-        }
+        // Formal lane-change đã bị tắt theo thiết kế mới. Giữ method để tránh
+        // đụng nhiều code cũ, nhưng không bao giờ cho xe bay sang lane khác.
         return false;
     }
 }

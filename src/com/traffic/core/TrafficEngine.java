@@ -29,6 +29,10 @@ public class TrafficEngine {
         if (i != null && !intersections.contains(i)) intersections.add(i);
     }
 
+    public void clearTrafficLights() { lights.clear(); }
+
+    public void clearIntersections() { intersections.clear(); }
+
     public void removeVehicle(Vehicle v) {
         if (v == null) return;
         vehicles.remove(v);

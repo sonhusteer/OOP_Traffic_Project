@@ -37,10 +37,12 @@ public class HighwayMap implements MapConfig {
         lanes.add(road2);
 
         // Thiết lập láng giềng chiều Trái → Phải
-        road1.setLeftNeighbor(road2);  // Muốn vượt thì sang trái (road2)
-        road2.setRightNeighbor(road1); // Vượt xong thì tạt phải về (road1)
-        road1.setFormalLaneChangeAllowed(true);
-        road2.setFormalLaneChangeAllowed(true);
+        // Chỉ giữ neighbor để tham chiếu/hỗ trợ UI.
+        // Không cho xe bay sang hẳn lane khác; vượt/né vẫn nằm trong cùng Lane.
+        road1.setLeftNeighbor(road2);
+        road2.setRightNeighbor(road1);
+        road1.setFormalLaneChangeAllowed(false);
+        road2.setFormalLaneChangeAllowed(false);
 
 
         // ── Chiều Phải → Trái ─────────────────────────────────────────────
@@ -58,12 +60,14 @@ public class HighwayMap implements MapConfig {
         road3.setLeftNeighbor(road4);  // Muốn vượt thì sang trái (road4)
         road4.setRightNeighbor(road3); // Vượt xong thì tạt phải về (road3)
 
-        // Highway mới cho phép chuyển làn chính thức.
+        // Highway vẫn có 2 lane cùng chiều, nhưng xe chỉ vượt/né trong chính Lane của nó.
+        // Việc chuyển hẳn sang lane khác nhìn không tự nhiên với mô hình lane rộng 2 slot.
         for (Lane lane : lanes) {
-            lane.setAllowFormalLaneChange(true);
+            lane.setAllowFormalLaneChange(false);
+            lane.setInLaneOvertakeAllowed(true);
         }
-        road3.setFormalLaneChangeAllowed(true);
-        road4.setFormalLaneChangeAllowed(true);
+        road3.setFormalLaneChangeAllowed(false);
+        road4.setFormalLaneChangeAllowed(false);
     }
 
     @Override public String getName() { return "Đại Lộ Cao Tốc"; }
