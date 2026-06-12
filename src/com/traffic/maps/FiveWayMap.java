@@ -63,10 +63,10 @@ public class FiveWayMap implements MapConfig {
         lanes.add(road5);
 
         // Thiết lập láng giềng
-        road1.setLeftNeighbor(road2);
-        road2.setLeftNeighbor(road1);
-        road3.setLeftNeighbor(road4);
-        road4.setLeftNeighbor(road3);
+        // road1.setLeftNeighbor(road2);
+        // road2.setLeftNeighbor(road1);
+        // road3.setLeftNeighbor(road4);
+        // road4.setLeftNeighbor(road3);
 
         // ── Ngã năm ─────────────────────────────────────────────────────
         Intersection ngaNam = new Intersection(Intersection.Type.FIVE_WAY, 400, 300);

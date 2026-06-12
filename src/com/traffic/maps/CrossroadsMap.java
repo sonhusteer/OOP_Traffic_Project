@@ -51,10 +51,10 @@ public class CrossroadsMap implements MapConfig {
         lanes.add(road4);
 
         // Thiết lập láng giềng (để lấn làn / nhường đường)
-        road1.setLeftNeighbor(road2);
-        road2.setLeftNeighbor(road1);
-        road3.setLeftNeighbor(road4);
-        road4.setLeftNeighbor(road3);
+        // road1.setLeftNeighbor(road2);
+        // road2.setLeftNeighbor(road1);
+        // road3.setLeftNeighbor(road4);
+        // road4.setLeftNeighbor(road3);
 
         // ── Ngã tư ──────────────────────────────────────────────────────
         Intersection ngaTu = new Intersection(Intersection.Type.CROSSROADS, 400, 300);

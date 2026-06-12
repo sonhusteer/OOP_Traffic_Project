@@ -92,14 +92,14 @@ public class NetworkMap implements MapConfig {
         lanes.add(road8);
 
         // Thiết lập láng giềng
-        road1.setLeftNeighbor(road2);
-        road2.setLeftNeighbor(road1);
-        
-        road5.setLeftNeighbor(road6);
-        road6.setLeftNeighbor(road5);
-        
-        road7.setLeftNeighbor(road8);
-        road8.setLeftNeighbor(road7);
+        // road1.setLeftNeighbor(road2);
+        // road2.setLeftNeighbor(road1);
+        // 
+        // road5.setLeftNeighbor(road6);
+        // road6.setLeftNeighbor(road5);
+        // 
+        // road7.setLeftNeighbor(road8);
+        // road8.setLeftNeighbor(road7);
 
         // ═══════════════════════════════════════════════════════════════════
         //  NGÃ RẼ (Intersection)

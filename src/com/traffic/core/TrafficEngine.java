@@ -105,21 +105,20 @@ public class TrafficEngine {
 
             // ── Tình huống 1: Cùng làn ───────────────────────────────────
             if (priority.getLane() != null) {
-                double prioFromStart = MathUtils.distance(
-                        priority.getLane().getStart(), priority.getPosition());
+                double prioProgress = priority.getLane()
+                        .getProgress(priority.getPosition());
 
                 for (Vehicle normal : vehicles) {
                     if (normal.isPriority()) continue;
                     if (normal.getLane() != priority.getLane()) continue;
 
-                    double normalFromStart = MathUtils.distance(
-                            normal.getLane().getStart(), normal.getPosition());
+                    double normalProgress = normal.getLane()
+                            .getProgress(normal.getPosition());
                     double distBetween = MathUtils.distance(
                             priority.getPosition(), normal.getPosition());
 
-                    // Xe ưu tiên ở phía sau (gần start hơn) và đủ gần
-                    // → RUSH: tăng tốc tạo hiệu ứng căng thẳng
-                    if (prioFromStart < normalFromStart
+                    // Xe ưu tiên ở phía sau (progress nhỏ hơn) và đủ gần
+                    if (prioProgress < normalProgress
                             && distBetween < SAME_LANE_YIELD_DIST) {
                         normal.setYieldMode(Vehicle.YieldMode.RUSH);
                     }

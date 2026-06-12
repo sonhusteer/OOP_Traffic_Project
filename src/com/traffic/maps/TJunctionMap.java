@@ -48,8 +48,8 @@ public class TJunctionMap implements MapConfig {
         lanes.add(road3);
 
         // Thiết lập láng giềng
-        road1.setLeftNeighbor(road2);
-        road2.setLeftNeighbor(road1);
+        // road1.setLeftNeighbor(road2);
+        // road2.setLeftNeighbor(road1);
 
         // ── Ngã ba ──────────────────────────────────────────────────────
         Intersection ngaBa = new Intersection(Intersection.Type.T_JUNCTION, 400, 300);
