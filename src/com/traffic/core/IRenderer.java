@@ -1,5 +1,6 @@
 package com.traffic.core;
 
+import com.traffic.map.Intersection;
 import com.traffic.map.TrafficLight;
 import java.util.List;
 
@@ -24,4 +25,7 @@ public interface IRenderer {
 
     /** Vẽ toàn bộ đèn giao thông */
     void renderLights(List<TrafficLight> lights);
+
+    /** Vẽ ngã giao — hộp asphalt, vạch dừng, zebra */
+    void renderIntersections(List<Intersection> intersections);
 }
