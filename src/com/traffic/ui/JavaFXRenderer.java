@@ -116,13 +116,29 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
             gc.setLineJoin(StrokeLineJoin.ROUND);
             gc.setLineDashes();
 
+            // Hover effect
+            if (lane == hoveredLane) {
+                gc.setStroke(Color.rgb(255, 255, 0, 0.8));
+                gc.setLineWidth(96);
+                strokePath(gc, pts, 0, 0);
+            }
+
+            gc.setLineCap(StrokeLineCap.ROUND);
+            gc.setLineJoin(StrokeLineJoin.ROUND);
+            gc.setLineDashes();
+
             // 1. Shadow mềm
             gc.setStroke(Color.rgb(0, 0, 0, 0.30));
             gc.setLineWidth(88);
             strokePath(gc, pts, 3, 4);
 
-            // 2. Mặt đường asphalt
-            gc.setStroke(ASPHALT);
+            // 2. Mặt đường asphalt hoặc heatmap
+            if (showHeatmap) {
+                double density = Math.min(1.0, lane.getVehicles().size() / 15.0);
+                gc.setStroke(Color.color(density, 1.0 - density, 0, 0.6));
+            } else {
+                gc.setStroke(ASPHALT);
+            }
             gc.setLineWidth(80);
             strokePath(gc, pts, 0, 0);
 
@@ -148,7 +164,37 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
             gc.setLineDashes(14, 10);
             strokePath(gc, pts, 0, 0);
             gc.setLineDashes((double[]) null);
+
+            // 6. Mũi tên định hướng (Transparent Arrows)
+            gc.setStroke(Color.rgb(255, 255, 255, 0.2));
+            gc.setLineWidth(2.5);
+            for (int i = 0; i < pts.size() - 1; i++) {
+                drawArrow(gc, pts.get(i), pts.get(i + 1));
+            }
         }
+    }
+
+    private void drawArrow(GraphicsContext gc, Vector2D p1, Vector2D p2) {
+        double dx = p2.getX() - p1.getX();
+        double dy = p2.getY() - p1.getY();
+        double len = Math.hypot(dx, dy);
+        if (len < 10) return;
+        
+        // Vẽ mũi tên ở giữa đoạn thẳng
+        double mx = p1.getX() + dx / 2;
+        double my = p1.getY() + dy / 2;
+        double angle = Math.atan2(dy, dx);
+        
+        double arrowLen = 12;
+        double arrowAngle = Math.PI / 6;
+        
+        double x1 = mx - arrowLen * Math.cos(angle - arrowAngle);
+        double y1 = my - arrowLen * Math.sin(angle - arrowAngle);
+        double x2 = mx - arrowLen * Math.cos(angle + arrowAngle);
+        double y2 = my - arrowLen * Math.sin(angle + arrowAngle);
+        
+        gc.strokeLine(mx, my, x1, y1);
+        gc.strokeLine(mx, my, x2, y2);
     }
 
     private void strokePath(GraphicsContext gc, List<Vector2D> pts, double dx, double dy) {
@@ -380,7 +426,33 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
     // =====================================================================
     //  5. HUD ĐÈN GIAO THÔNG — góc trái trên
     // =====================================================================
-    private void drawHUD(GraphicsContext gc, double canvasW) {
+    private void drawHUD(GraphicsContext gc, double w) {
+        // Có thể thêm minimap, la bàn, v.v. nếu cần
+        if (selectedVehicle != null) {
+            double vx = selectedVehicle.getPosition().getX();
+            double vy = selectedVehicle.getPosition().getY();
+            
+            gc.setFill(Color.rgb(20, 20, 30, 0.85));
+            gc.fillRoundRect(vx + 15, vy - 40, 110, 45, 5, 5);
+            gc.setStroke(Color.rgb(100, 150, 255, 0.5));
+            gc.setLineWidth(1);
+            gc.strokeRoundRect(vx + 15, vy - 40, 110, 45, 5, 5);
+            
+            gc.setFill(Color.WHITE);
+            gc.setFont(Font.font("Consolas", FontWeight.NORMAL, 11));
+            String type = selectedVehicle.getClass().getSimpleName();
+            String speedStr = String.format("Speed: %.1f", selectedVehicle.getSpeed());
+            gc.fillText(type, vx + 22, vy - 23);
+            gc.fillText(speedStr, vx + 22, vy - 8);
+            
+            // Draw highlight circle around selected vehicle
+            gc.setStroke(Color.WHITE);
+            gc.setLineWidth(1.5);
+            gc.setLineDashes(4, 4);
+            gc.strokeOval(vx - 12, vy - 12, 24, 24);
+            gc.setLineDashes((double[]) null);
+        }
+
         if (lights.isEmpty()) return;
 
         int panelW = 180, rowH = 22;

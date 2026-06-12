@@ -24,6 +24,7 @@ import javafx.scene.control.Slider;
 import javafx.scene.control.Spinner;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.ToggleButton;
+import javafx.scene.control.ToggleGroup;
 import javafx.scene.input.MouseButton;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
@@ -81,6 +82,10 @@ public class MainApp extends Application {
     private VBox spawnContainer;
     private TextArea spawnLog;
 
+    private String selectedSpawnType = "car";
+    private boolean isSimulationMode = false;
+    private BorderPane mainRoot;
+
     public static void main(String[] args) {
         launch(args);
     }
@@ -96,6 +101,7 @@ public class MainApp extends Application {
         MapLoader.registerMap(engine, currentMap);
 
         BorderPane root = new BorderPane();
+        this.mainRoot = root;
         root.setStyle("-fx-background-color: #1a1a2e;");
 
         canvas = new Canvas(800, 600);
@@ -103,9 +109,42 @@ public class MainApp extends Application {
         canvasHolder.setStyle("-fx-background-color: #1a1a2e;");
         root.setCenter(canvasHolder);
 
+        canvas.setOnMouseMoved(e -> {
+            Lane closest = null;
+            double minDist = 30.0;
+            for (Lane lane : currentMap.getLanes()) {
+                java.util.List<com.traffic.core.Vector2D> pts = lane.getwaypoints();
+                for (int i = 0; i < pts.size() - 1; i++) {
+                    double ax = pts.get(i).getX(), ay = pts.get(i).getY();
+                    double bx = pts.get(i+1).getX(), by = pts.get(i+1).getY();
+                    double px = e.getX(), py = e.getY();
+                    double dx = bx - ax, dy = by - ay;
+                    double t = 0;
+                    if (dx != 0 || dy != 0) {
+                        t = Math.max(0, Math.min(1, ((px-ax)*dx + (py-ay)*dy) / (dx*dx + dy*dy)));
+                    }
+                    double d = Math.hypot(px - (ax + t*dx), py - (ay + t*dy));
+                    if (d < minDist) {
+                        minDist = d;
+                        closest = lane;
+                    }
+                }
+            }
+            basicRenderer.setHoveredLane(closest);
+            graphicRenderer.setHoveredLane(closest);
+        });
+
         canvas.setOnMouseClicked(e -> {
             boolean left = e.getButton() == MouseButton.PRIMARY;
             activeRenderer.handleClick(e.getX(), e.getY(), left);
+            
+            Lane hovered = activeRenderer.getHoveredLane();
+            if (hovered != null && left && !isSimulationMode) {
+                Vehicle v = VehicleFactory.create(selectedSpawnType, 0, 0);
+                SpawnPlanner.place(v, hovered, 1, 0);
+                engine.addVehicle(v);
+                if (spawnLog != null) spawnLog.appendText("[+] " + selectedSpawnType + " (click)\n");
+            }
         });
 
         spawnContainer = buildSidebar(currentMap);
@@ -184,72 +223,73 @@ public class MainApp extends Application {
     }
 
     private VBox buildSidebar(MapConfig map) {
-        // FIX: mỗi lần rebuild sidebar phải tạo TextArea mới, không reuse Node cũ
-        // vì JavaFX không cho một Node thuộc hai parent khác nhau.
         spawnLog = new TextArea();
+        VBox sidebar = new VBox(15);
+        sidebar.setPadding(new Insets(20, 16, 20, 16));
+        sidebar.setPrefWidth(260);
+        sidebar.setStyle("-fx-background-color: linear-gradient(to bottom, #1e1e30, #16162a);-fx-border-color: #333355; -fx-border-width: 0 0 0 1;");
 
-        VBox sidebar = new VBox(10);
-        sidebar.setPadding(new Insets(16, 12, 16, 12));
-        sidebar.setPrefWidth(230);
-        sidebar.setStyle(
-            "-fx-background-color: linear-gradient(to bottom, #1e1e30, #16162a);"
-          + "-fx-border-color: #333355; -fx-border-width: 0 0 0 1;"
-        );
-
-        Label title = new Label("🚘 Spawn Vehicle");
-        title.setFont(Font.font("SansSerif", FontWeight.BOLD, 15));
+        Label title = new Label("🚘 Cấu hình Spawn");
+        title.setFont(Font.font("SansSerif", FontWeight.BOLD, 16));
         title.setTextFill(Color.rgb(180, 200, 255));
 
         Label lblType = makeLabel("Loại xe:");
-        String[] types = {"car", "motorcycle", "bicycle", "ambulance", "firetruck"};
-        String[] typeLabels = {"Car", "Motorcycle", "Bicycle", "Ambulance", "Firetruck"};
-        ComboBox<String> cmbType = new ComboBox<>();
-        cmbType.getItems().addAll(typeLabels);
-        cmbType.getSelectionModel().selectFirst();
-        cmbType.setMaxWidth(Double.MAX_VALUE);
-        cmbType.getStyleClass().add("dark-combo");
+        HBox typeBox = new HBox(5);
+        ToggleGroup typeGroup = new ToggleGroup();
+        String[] factoryTypes = {"car", "motorcycle", "bicycle", "ambulance", "firetruck"};
+        String[] icons = {"🚗", "🏍️", "🚲", "🚑", "🚒"};
+        for (int i = 0; i < factoryTypes.length; i++) {
+            ToggleButton btn = new ToggleButton(icons[i]);
+            btn.getStyleClass().add("btn-action");
+            btn.setToggleGroup(typeGroup);
+            btn.setUserData(factoryTypes[i]);
+            if (i == 0) btn.setSelected(true);
+            btn.setOnAction(e -> {
+                if (btn.isSelected()) selectedSpawnType = (String) btn.getUserData();
+            });
+            typeBox.getChildren().add(btn);
+        }
 
         Label lblLane = makeLabel("Làn đường:");
-        String[] laneNames = map.getLaneNames();
         ComboBox<String> cmbLane = new ComboBox<>();
-        cmbLane.getItems().addAll(laneNames);
+        cmbLane.getItems().addAll(map.getLaneNames());
         cmbLane.getSelectionModel().selectFirst();
         cmbLane.setMaxWidth(Double.MAX_VALUE);
         cmbLane.getStyleClass().add("dark-combo");
 
         Label lblOffset = makeLabel("Vị trí:");
-        ComboBox<String> cmbOffset = new ComboBox<>();
-        cmbOffset.getItems().addAll("Đầu làn", "Giữa làn", "Cuối làn");
-        cmbOffset.getSelectionModel().selectFirst();
-        cmbOffset.setMaxWidth(Double.MAX_VALUE);
-        cmbOffset.getStyleClass().add("dark-combo");
+        HBox offsetBox = new HBox(5);
+        ToggleGroup offsetGroup = new ToggleGroup();
+        String[] offNames = {"Đầu", "Giữa", "Cuối"};
+        for (int i = 0; i < 3; i++) {
+            ToggleButton btn = new ToggleButton(offNames[i]);
+            btn.getStyleClass().add("btn-action");
+            btn.setToggleGroup(offsetGroup);
+            btn.setUserData(i);
+            if (i == 0) btn.setSelected(true);
+            offsetBox.getChildren().add(btn);
+        }
 
         Label lblCount = makeLabel("Số lượng:");
         Spinner<Integer> spinner = new Spinner<>(1, 10, 1);
         spinner.setMaxWidth(Double.MAX_VALUE);
 
-        Button btnSpawn = new Button("✦ Spawn");
+        Button btnSpawn = new Button("✦ Đặt Xe");
         btnSpawn.getStyleClass().add("btn-spawn");
         btnSpawn.setMaxWidth(Double.MAX_VALUE);
-
         Lane[] laneArray = map.getSpawnLanes().toArray(new Lane[0]);
         btnSpawn.setOnAction(e -> {
             int laneIdx = cmbLane.getSelectionModel().getSelectedIndex();
             if (laneIdx < 0 || laneIdx >= laneArray.length) return;
-
-            String type = types[cmbType.getSelectionModel().getSelectedIndex()];
             Lane lane = laneArray[laneIdx];
+            int offIdx = (int) offsetGroup.getSelectedToggle().getUserData();
             int count = spinner.getValue();
-            int offIdx = cmbOffset.getSelectionModel().getSelectedIndex();
-
-            for (int i = 0; i < count; i++) {
-                Vehicle v = VehicleFactory.create(type, 0, 0);
-                SpawnPlanner.place(v, lane, offIdx, i);
+            for(int c=0; c<count; c++) {
+                Vehicle v = VehicleFactory.create(selectedSpawnType, 0, 0);
+                SpawnPlanner.place(v, lane, offIdx, c);
                 engine.addVehicle(v);
             }
-
-            spawnLog.appendText(String.format("[+] %dx %s → %s%n",
-                count, type, laneNames[laneIdx]));
+            spawnLog.appendText(String.format("[+] %dx %s -> %s\n", count, selectedSpawnType, map.getLaneNames()[laneIdx]));
         });
 
         Button btnClear = new Button("✕ Clear All");
@@ -262,23 +302,17 @@ public class MainApp extends Application {
 
         Separator sep = new Separator();
         sep.setStyle("-fx-background-color: #444466;");
-
-        Label lblLog = makeLabel("📋 Lịch sử:");
+        Label lblLog = makeLabel("📋 Log:");
         spawnLog.setEditable(false);
-        spawnLog.setPrefRowCount(5);
+        spawnLog.setPrefRowCount(8);
         spawnLog.setWrapText(true);
-        spawnLog.setStyle(
-            "-fx-control-inner-background: #111120;"
-          + "-fx-text-fill: #88cc88;"
-          + "-fx-font-family: 'Consolas';"
-          + "-fx-font-size: 11px;"
-        );
+        spawnLog.setStyle("-fx-control-inner-background: #111120;-fx-text-fill: #88cc88;-fx-font-family: 'Consolas';-fx-font-size: 11px;");
 
         sidebar.getChildren().addAll(
-            title,
-            lblType, cmbType,
-            lblLane, cmbLane,
-            lblOffset, cmbOffset,
+            title, 
+            lblType, typeBox, 
+            lblLane, cmbLane, 
+            lblOffset, offsetBox, 
             lblCount, spinner,
             btnSpawn, btnClear,
             sep, lblLog, spawnLog
@@ -288,13 +322,10 @@ public class MainApp extends Application {
     }
 
     private HBox buildToolbar() {
-        HBox toolbar = new HBox(14);
+        HBox toolbar = new HBox(12);
         toolbar.setPadding(new Insets(8, 16, 8, 16));
         toolbar.setAlignment(Pos.CENTER_LEFT);
-        toolbar.setStyle(
-            "-fx-background-color: linear-gradient(to right, #1a1a2e, #16213e);"
-          + "-fx-border-color: #333355; -fx-border-width: 1 0 0 0;"
-        );
+        toolbar.setStyle("-fx-background-color: linear-gradient(to right, #1a1a2e, #16213e);-fx-border-color: #333355; -fx-border-width: 1 0 0 0;");
 
         Label lblMap = new Label("🗺");
         lblMap.setFont(Font.font(16));
@@ -311,14 +342,20 @@ public class MainApp extends Application {
             loadMap(createMap(idx));
         });
 
+        Button btnReset = new Button("↺ Reset");
+        btnReset.getStyleClass().add("btn-clear");
+        btnReset.setOnAction(e -> {
+            engine.clearVehicles();
+            int idx = cmbMap.getSelectionModel().getSelectedIndex();
+            if (idx >= 0) loadMap(createMap(idx));
+        });
+
         Slider speedSlider = new Slider(0.1, 3.0, 1.0);
-        speedSlider.setPrefWidth(160);
-        speedSlider.setShowTickLabels(true);
-        speedSlider.setMajorTickUnit(1.0);
+        speedSlider.setPrefWidth(120);
         lblSpeed = new Label("1.0×");
         lblSpeed.setFont(Font.font("SansSerif", FontWeight.BOLD, 12));
         lblSpeed.setTextFill(Color.rgb(180, 200, 255));
-        lblSpeed.setPrefWidth(50);
+        lblSpeed.setPrefWidth(40);
         speedSlider.valueProperty().addListener((obs, oldV, newV) -> {
             simSpeed = newV.doubleValue();
             lblSpeed.setText(String.format("%.1f×", simSpeed));
@@ -332,61 +369,63 @@ public class MainApp extends Application {
             if (paused) SoundManager.getInstance().stop("siren.wav");
         });
 
+        Button btnStep = new Button("⏭ Step");
+        btnStep.getStyleClass().add("btn-action");
+        btnStep.setOnAction(e -> {
+            if (paused) {
+                engine.tick(0.03 * simSpeed);
+                engine.render();
+                drawCurrentFrame();
+            }
+        });
+
         Button btnMode = new Button("🎨 Graphic");
         btnMode.getStyleClass().add("btn-action");
         btnMode.setOnAction(e -> {
-            if (isBasicMode) {
+            isBasicMode = !isBasicMode;
+            if (!isBasicMode) {
                 activeRenderer = graphicRenderer;
                 engine.setRenderer(graphicRenderer);
                 btnMode.setText("📐 Basic");
-                isBasicMode = false;
             } else {
                 activeRenderer = basicRenderer;
                 engine.setRenderer(basicRenderer);
                 btnMode.setText("🎨 Graphic");
-                isBasicMode = true;
             }
+            drawCurrentFrame();
         });
 
-        Button btnMute = new Button("🔊 Mute");
-        btnMute.getStyleClass().add("btn-action");
-        btnMute.setOnAction(e -> {
-            SoundManager sm = SoundManager.getInstance();
-            sm.setMuted(!sm.isMuted());
-            btnMute.setText(sm.isMuted() ? "🔇 Unmute" : "🔊 Mute");
+        ToggleButton btnHeatmap = new ToggleButton("🔥 Heatmap");
+        btnHeatmap.getStyleClass().add("btn-action");
+        btnHeatmap.setOnAction(e -> {
+            boolean show = btnHeatmap.isSelected();
+            basicRenderer.setShowHeatmap(show);
+            graphicRenderer.setShowHeatmap(show);
+            drawCurrentFrame();
         });
 
-        ToggleButton btnRain = new ToggleButton("🌤 Tạnh");
-        btnRain.getStyleClass().add("btn-action");
-        btnRain.setOnAction(e -> {
-            boolean raining = btnRain.isSelected();
-            basicRenderer.setRaining(raining);
-            graphicRenderer.setRaining(raining);
-            btnRain.setText(raining ? "🌧 Mưa" : "🌤 Tạnh");
+        ToggleButton btnSimMode = new ToggleButton("💻 Fullscreen");
+        btnSimMode.getStyleClass().add("btn-action");
+        btnSimMode.setOnAction(e -> {
+            isSimulationMode = btnSimMode.isSelected();
+            if (isSimulationMode) {
+                mainRoot.setRight(null);
+            } else {
+                mainRoot.setRight(spawnContainer);
+            }
         });
 
         lblVehicles = new Label("🚗 0");
         lblVehicles.setFont(Font.font("SansSerif", FontWeight.BOLD, 12));
         lblVehicles.setTextFill(Color.rgb(180, 220, 180));
 
-        Region sp1 = new Region();
-        HBox.setHgrow(sp1, Priority.SOMETIMES);
-        Region sp2 = new Region();
-        sp2.setPrefWidth(8);
-        Region sp3 = new Region();
-        sp3.setPrefWidth(8);
-
-        Label lblBolt = new Label("⚡");
-        lblBolt.setFont(Font.font(14));
-
+        Region sp1 = new Region(); HBox.setHgrow(sp1, Priority.SOMETIMES);
+        
         toolbar.getChildren().addAll(
-            lblMap, cmbMap, btnLoad,
-            sp2,
-            lblBolt, speedSlider, lblSpeed,
-            sp3,
-            btnPause, btnMode, btnMute, btnRain,
-            sp1,
-            lblVehicles
+            lblMap, cmbMap, btnLoad, btnReset,
+            new Label("  ⚡"), speedSlider, lblSpeed,
+            btnPause, btnStep, btnMode, btnHeatmap, btnSimMode,
+            sp1, lblVehicles
         );
         return toolbar;
     }
