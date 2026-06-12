@@ -16,56 +16,57 @@ import java.util.List;
  */
 public class TJunctionMap implements MapConfig {
 
-    private final List<Lane>         lanes         = new ArrayList<>();
+    private final List<Lane> lanes = new ArrayList<>();
     private final List<Intersection> intersections = new ArrayList<>();
 
     public TJunctionMap() {
-        // ── Đèn giao thông (Góc phải theo chuẩn Right-Hand Traffic) ──────
-        TrafficLight lightH1 = new CountdownLight(10, 8, 305, 395); // Đi phải (Bottom)
-        TrafficLight lightH2 = new NoCountdownLight(10, 8, 495, 205); // Đi trái (Top)
+        TrafficLight lightH1 = new CountdownLight(10, 8, 305, 395);   // road1 →
+        TrafficLight lightH2 = new NoCountdownLight(10, 8, 495, 205); // road2 ←
         lightH1.setInitialState(TrafficLight.State.GREEN, 10);
         lightH2.setInitialState(TrafficLight.State.GREEN, 10);
 
-        TrafficLight lightV1 = new CountdownLight(10, 8, 305, 205); // Đi xuống (Left)
+        TrafficLight lightV1 = new CountdownLight(10, 8, 305, 205);   // road3 ↓
         lightV1.setInitialState(TrafficLight.State.RED, 8);
 
-        // ── Làn đường ──────────────────────────────
-        // Ngang: Trái → Phải (Nửa dưới Y=340)
+        // ── Làn đường ───────────────────────────────────────────────────
         Lane road1 = new Lane(50, 340, 750, 340, lightH1);
-        road1.addwaypoint(320, 340); // Stop line
+        road1.addWaypoint(320, 340);
         lanes.add(road1);
 
-        // Ngang: Phải → Trái (Nửa trên Y=260)
         Lane road2 = new Lane(750, 260, 50, 260, lightH2);
-        road2.addwaypoint(480, 260); // Stop line
+        road2.addWaypoint(480, 260);
         lanes.add(road2);
 
-        // Dọc: Trên → Dưới (Nửa trái X=360, Vào ngã tư)
         Lane road3 = new Lane(360, -50, 360, 340, lightV1);
-        road3.addwaypoint(360, 220); // Stop line
+        road3.addWaypoint(360, 220);
         lanes.add(road3);
 
-        // Dọc: Dưới → Trên (Nửa phải X=440, Từ ngã tư đi ra)
+        // road4 là làn đi ra khỏi nhánh dọc, không cho spawn nên không có trong getLaneNames().
         Lane road4 = new Lane(440, 340, 440, -50, null);
-        // Không add waypoint -> Không hiện stop line trong ngã tư
         lanes.add(road4);
 
-        // Thiết lập láng giềng
         road1.setLeftNeighbor(road2);
+        road1.setRightNeighbor(road2);
         road2.setLeftNeighbor(road1);
+        road2.setRightNeighbor(road1);
         road3.setLeftNeighbor(road4);
+        road3.setRightNeighbor(road4);
         road4.setLeftNeighbor(road3);
+        road4.setRightNeighbor(road3);
 
-        // ── Ngã ba ──────────────────────────────────────────────────────
         Intersection ngaBa = new Intersection(Intersection.Type.T_JUNCTION, 400, 300);
         for (Lane lane : lanes) ngaBa.addLane(lane);
         intersections.add(ngaBa);
     }
 
     @Override public String getName() { return "Ngã Ba"; }
-
     @Override public List<Lane> getLanes() { return lanes; }
 
+    @Override
+    public List<Lane> getSpawnLanes() {
+        // road4 là lane đi ra khỏi ngã ba, không spawn từ UI để tránh xe xuất hiện sai chiều.
+        return lanes.subList(0, 3);
+    }
     @Override public List<Intersection> getIntersections() { return intersections; }
 
     @Override

@@ -24,6 +24,10 @@ public abstract class AbstractBaseRenderer implements IRenderer {
     protected final List<Vehicle>      vehicles      = new ArrayList<>();
     protected final List<TrafficLight> lights        = new ArrayList<>();
     protected final List<Intersection> intersections = new ArrayList<>();
+    
+    protected Lane hoveredLane = null;
+    protected boolean showHeatmap = false;
+    protected Vehicle selectedVehicle = null;
 
     // ── Hiệu ứng Mưa (Rain Overlay) ──────────────────────────────────────
     private static final int NUM_DROPS = 200;
@@ -37,6 +41,14 @@ public abstract class AbstractBaseRenderer implements IRenderer {
     public void setRaining(boolean raining) {
         this.isRaining = raining;
     }
+
+    public void setHoveredLane(Lane lane) { this.hoveredLane = lane; }
+    public Lane getHoveredLane() { return this.hoveredLane; }
+
+    public void setShowHeatmap(boolean show) { this.showHeatmap = show; }
+    public boolean isShowHeatmap() { return this.showHeatmap; }
+    
+    public void setSelectedVehicle(Vehicle v) { this.selectedVehicle = v; }
 
     private void initRain(double w, double h) {
         for (int i = 0; i < NUM_DROPS; i++) {

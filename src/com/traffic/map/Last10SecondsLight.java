@@ -1,5 +1,6 @@
 package com.traffic.map;
 
+/** Chi hien countdown khi con tu 10 giay tro xuong. */
 public class Last10SecondsLight extends TrafficLight {
 
     private static final int SHOW_THRESHOLD = 10;
@@ -10,6 +11,7 @@ public class Last10SecondsLight extends TrafficLight {
 
     @Override
     public String getDisplay() {
-        return (timeLeft <= SHOW_THRESHOLD) ? String.valueOf((int) Math.ceil(timeLeft)) : "";
+        int seconds = getDisplayTimeSeconds();
+        return (seconds <= SHOW_THRESHOLD) ? String.valueOf(seconds) : "";
     }
 }

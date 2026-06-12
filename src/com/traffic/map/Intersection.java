@@ -5,35 +5,40 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Một ngã rẽ — chứa nhiều Lane và đèn tương ứng.
- *
- * Hỗ trợ ngã 3 (3 làn), ngã 4 (4 làn), ngã 5 (5 làn).
- * Dễ mở rộng: thêm loại ngã rẽ mới chỉ cần thêm Lane.
+ * Mot nga re gom nhieu Lane. Lane co the co 1 hoac nhieu den.
  */
 public class Intersection {
 
     public enum Type { T_JUNCTION, CROSSROADS, FIVE_WAY }
 
-    private final Type         type;
-    private final Vector2D     center;
-    private final List<Lane>   lanes = new ArrayList<>();
+    private final Type type;
+    private final Vector2D center;
+    private final List<Lane> lanes = new ArrayList<>();
 
     public Intersection(Type type, double centerX, double centerY) {
-        this.type   = type;
+        this.type = type;
         this.center = new Vector2D(centerX, centerY);
     }
 
-    public void addLane(Lane lane) { lanes.add(lane); }
+    public void addLane(Lane lane) {
+        if (lane != null && !lanes.contains(lane)) {
+            lanes.add(lane);
+        }
+    }
 
-    public Type         getType()   { return type;   }
-    public Vector2D     getCenter() { return center; }
-    public List<Lane>   getLanes()  { return lanes;  }
+    public Type getType() { return type; }
+    public Vector2D getCenter() { return center; }
+    public List<Lane> getLanes() { return lanes; }
 
-    /** Tất cả đèn trong ngã rẽ này */
+    /** Lay tat ca den trong cac lane, chong trung object den. */
     public List<TrafficLight> getAllLights() {
         List<TrafficLight> result = new ArrayList<>();
         for (Lane lane : lanes) {
-            if (lane.getLight() != null) result.add(lane.getLight());
+            for (TrafficLight light : lane.getLights()) {
+                if (light != null && !result.contains(light)) {
+                    result.add(light);
+                }
+            }
         }
         return result;
     }

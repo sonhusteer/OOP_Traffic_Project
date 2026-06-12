@@ -1,19 +1,24 @@
 package com.traffic.drivers;
 
 import com.traffic.core.IDriver;
+import com.traffic.core.LateralManeuver;
 import com.traffic.core.MathUtils;
+import com.traffic.core.Vector2D;
 import com.traffic.core.Vehicle;
 import com.traffic.map.Lane;
 import com.traffic.map.TrafficLight;
 
 /**
- * Bộ não lái xe trừu tượng — logic chung cho Normal, Aggressive, Emergency.
- * 
- * Hỗ trợ 2 kiểu lách:
- *   1. Chuyển làn chính thức: Khi có làn CÙNG CHIỀU bên cạnh (HighwayMap)
- *   2. Dịch ngang trong làn: Lách trái/phải TRONG chính làn rộng 80px (Giao thông VN)
+ * Bo nao lai xe co ban.
+ *
+ * Tang 6 clean-code:
+ * - Driver khong dung leftNeighbor/rightNeighbor de vuot/nhuong nua.
+ * - Vươt/ne/nhuong duoc giao cho SideShiftPlanner trong cung Lane.
+ * - startLaneChange() chi con de tuong thich cho doi lane vat ly that su.
  */
 public abstract class AbstractBaseDriver implements IDriver {
+
+    private final SideShiftPlanner sideShiftPlanner = new SideShiftPlanner();
 
     protected abstract double getBrakeDistance();
     protected abstract double getStopDistance();
@@ -22,144 +27,193 @@ public abstract class AbstractBaseDriver implements IDriver {
     protected abstract double getSafeDistance();
     protected abstract double getOvertakeGap();
     protected abstract boolean canOvertake();
+
     protected boolean obeyTrafficLight() { return true; }
+    protected boolean rushYellowLight()  { return false; }
+
+    protected double getCruiseSpeed(Vehicle vehicle) {
+        return Math.min(getMaxSpeed(), vehicle.getMaxSpeed());
+    }
+
+    protected double getRushSpeed(Vehicle vehicle) {
+        return Math.min(getMaxSpeed() * 1.5, vehicle.getMaxSpeed() * 1.3);
+    }
 
     @Override
     public void makeDecision(Vehicle vehicle, TrafficLight nextLight) {
-        // ── Đang trượt ngang chuyển làn → chờ xong ──────────────────────
-        if (vehicle.isChangingLane()) {
+        if (vehicle.isPhysicalLaneChanging()) {
+            keepSafeSpeedDuringPhysicalLaneChange(vehicle);
             return;
         }
 
         Vehicle.YieldMode mode = vehicle.getYieldMode();
-
-        // ── 1. Dừng hẳn ở ngã tư nếu gặp xe ưu tiên ────────────────────
         if (mode == Vehicle.YieldMode.STOP) {
             vehicle.setSpeed(0);
             return;
         }
 
-        double targetSpeed = getMaxSpeed();
+        Lane currentLane = vehicle.getLane();
+        double targetSpeed = getCruiseSpeed(vehicle);
 
-        // ── 2. Nhường đường: Dạt PHẢI trong làn rộng ─────────────────────
-        if (mode == Vehicle.YieldMode.RUSH) {
-            vehicle.setTargetLateralOffset(18.0);  // Dạt phải 18px
-            targetSpeed = getMaxSpeed() * 0.6;     // Giảm tốc nhường
-        } else if (vehicle.getLateralOffset() > 0.5) {
-            // Hết tình trạng khẩn cấp → về giữa làn
-            vehicle.setTargetLateralOffset(0);
+        TrafficLightContext lightContext = findTrafficLightContext(vehicle, currentLane, nextLight);
+        boolean stoppingForLight = false;
+        if (obeyTrafficLight() && lightContext.isValid()) {
+            LightDecision lightDecision = decideTrafficLightSpeed(vehicle, lightContext, targetSpeed);
+            targetSpeed = lightDecision.targetSpeed;
+            stoppingForLight = lightDecision.stopping;
         }
 
-        // ── 3. Đèn giao thông ────────────────────────────────────────────
-        boolean stoppingForLight = false;
-
-        Lane logicalLane = vehicle.getOriginalLane() != null
-                         ? vehicle.getOriginalLane() : vehicle.getLane();
-        TrafficLight logicalLight = logicalLane != null
-                                  ? logicalLane.getLight() : nextLight;
-
-        if (obeyTrafficLight() && logicalLight != null && logicalLane != null) {
-            var stopLine       = logicalLane.getStopLine();
-            var laneStart      = logicalLane.getStart();
-            double distToStop  = MathUtils.distance(vehicle.getPosition(), stopLine);
-            double myDist      = MathUtils.distance(laneStart, vehicle.getPosition());
-            double stopDist    = MathUtils.distance(laneStart, stopLine);
-            boolean isPastStop = myDist > stopDist;
-
-            if (!isPastStop) {
-                if (logicalLight.isRed()) {
-                    stoppingForLight = true;
-                    if (distToStop <= getStopDistance()) {
-                        targetSpeed = getMinSpeed();
-                    } else if (distToStop <= getBrakeDistance()) {
-                        double ratio = (distToStop - getStopDistance())
-                                     / (getBrakeDistance() - getStopDistance());
-                        targetSpeed = MathUtils.clamp(
-                            getMaxSpeed() * ratio, getMinSpeed(), getMaxSpeed());
-                    }
-                } else if (logicalLight.isYellow() && this instanceof AggressiveDriver) {
-                    targetSpeed = getMaxSpeed() * 1.1;
-                }
+        if (mode == Vehicle.YieldMode.RUSH && currentLane != null) {
+            boolean alreadyPullingRight = vehicle.getCurrentManeuver().getType()
+                    == LateralManeuver.Type.YIELD_RIGHT;
+            boolean pulledRight = alreadyPullingRight || sideShiftPlanner.tryYieldRight(
+                    vehicle,
+                    null,
+                    getSafeDistance(),
+                    getSafeDistance() * 1.5
+            );
+            if (pulledRight) {
+                targetSpeed = Math.min(targetSpeed, getCruiseSpeed(vehicle) * 0.85);
+            } else {
+                targetSpeed = Math.max(targetSpeed, getRushSpeed(vehicle));
             }
         }
 
-        // ── 4. Giữ khoảng cách & Vượt xe ─────────────────────────────────
-        if (vehicle.getLane() != null) {
-            Vehicle inFront = vehicle.getLane().getVehicleAhead(vehicle);
+        if (mode != Vehicle.YieldMode.RUSH && currentLane != null) {
+            sideShiftPlanner.tryReturnToPreferredOffset(
+                    vehicle,
+                    getSafeDistance(),
+                    getSafeDistance() * 1.5
+            );
+        }
 
-            // Nếu xe đang lách trái (offset < -5), bỏ qua xe phía trước vì đang chạy bên cạnh
-            boolean isShiftedLeft = vehicle.getLateralOffset() < -5;
+        currentLane = vehicle.getLane();
+        if (currentLane != null) {
+            Vehicle inFront = currentLane.occupancy().vehicleAheadOf(vehicle);
+            if (inFront != null) {
+                double gap = inFront.getProgress() - vehicle.getProgress();
+                boolean frontIsSlow = inFront.getSpeed() < getCruiseSpeed(vehicle) * 0.85;
+                boolean closeEnough = gap < getSafeDistance() * 2.0;
 
-            if (inFront != null && !isShiftedLeft) {
-                double distToCar = MathUtils.distance(
-                    vehicle.getPosition(), inFront.getPosition());
-
-                if (distToCar <= getSafeDistance()) {
-                    // *** KHÔNG vượt khi đang dừng đèn đỏ ***
-                    if (canOvertake() && !stoppingForLight
-                            && vehicle.getLaneChangeCooldown() <= 0) {
-
-                        Lane left = vehicle.getLane().getLeftNeighbor();
-
-                        // Ưu tiên 1: Chuyển làn chính thức nếu có làn CÙNG CHIỀU
-                        if (left != null && vehicle.isSameDirection(left)
-                                && left.isSafeToEnter(
-                                    vehicle.getPosition(), getOvertakeGap())) {
-                            vehicle.startLaneChange(left);
-                            return;
-                        }
-
-                        // Ưu tiên 2: Lách trái trong làn rộng (Giao thông VN)
-                        vehicle.setTargetLateralOffset(-18.0);
-                        // Giữ tốc độ cao để vượt qua
-                        targetSpeed = getMaxSpeed();
+                if (canOvertake() && !stoppingForLight && frontIsSlow && closeEnough) {
+                    boolean started = sideShiftPlanner.tryOvertakeInsideLane(
+                            vehicle,
+                            inFront,
+                            getOvertakeGap(),
+                            getOvertakeGap() * 1.5,
+                            true
+                    );
+                    if (started) {
                         vehicle.setSpeed(targetSpeed);
                         return;
                     }
+                }
 
-                    // Không vượt được → bám đuôi
+                if (gap <= getSafeDistance()) {
                     targetSpeed = Math.min(targetSpeed, inFront.getSpeed());
-                    if (distToCar <= getSafeDistance() * 0.4) {
+                    if (gap <= getSafeDistance() * 0.5) {
                         targetSpeed = getMinSpeed();
-                    }
-                }
-            }
-
-            // Nếu xe đã lách trái và vượt qua rồi (không còn xe chậm phía trước)
-            // → về giữa làn
-            if (isShiftedLeft && inFront == null
-                    && mode != Vehicle.YieldMode.RUSH) {
-                vehicle.setTargetLateralOffset(0);
-            }
-            // Cũng về giữa nếu xe phía trước đã xa
-            if (isShiftedLeft && inFront != null) {
-                double distAhead = MathUtils.distance(
-                    vehicle.getPosition(), inFront.getPosition());
-                if (distAhead > getSafeDistance() * 2.0) {
-                    vehicle.setTargetLateralOffset(0);
-                }
-            }
-
-            // ── 5. Keep Right: Chỉ cho chuyển làn chính thức (HighwayMap) ─
-            if (vehicle.hasOvertaken()
-                    && vehicle.getLaneChangeCooldown() <= 0
-                    && vehicle.getLane().getRightNeighbor() != null) {
-                Lane right = vehicle.getLane().getRightNeighbor();
-                if (vehicle.isSameDirection(right)) {
-                    Vehicle frontRight = right.getVehicleAhead(vehicle);
-                    double distRight = (frontRight != null)
-                            ? MathUtils.distance(
-                                vehicle.getPosition(), frontRight.getPosition())
-                            : Double.MAX_VALUE;
-                    if (right.isSafeToEnter(vehicle.getPosition(), getSafeDistance())
-                            && distRight > getSafeDistance() * 2.0) {
-                        vehicle.startLaneChange(right);
-                        return;
                     }
                 }
             }
         }
 
         vehicle.setSpeed(targetSpeed);
+    }
+
+    private void keepSafeSpeedDuringPhysicalLaneChange(Vehicle vehicle) {
+        double targetSpeed = getCruiseSpeed(vehicle);
+
+        Lane targetLane = vehicle.getTargetLane();
+        if (targetLane != null) {
+            Vehicle inFrontNew = targetLane.getVehicleAhead(vehicle);
+            if (inFrontNew != null) {
+                double gap = inFrontNew.getProgress() - vehicle.getProgress();
+                if (gap <= getSafeDistance()) {
+                    targetSpeed = Math.min(targetSpeed, inFrontNew.getSpeed());
+                }
+            }
+        }
+
+        Lane originalLane = vehicle.getOriginalLane();
+        if (originalLane != null) {
+            Vehicle inFrontOld = originalLane.getVehicleAhead(vehicle);
+            if (inFrontOld != null) {
+                double gap = inFrontOld.getProgress() - vehicle.getProgress();
+                if (gap <= getSafeDistance() * 0.3) {
+                    targetSpeed = Math.min(targetSpeed, inFrontOld.getSpeed());
+                }
+            }
+        }
+
+        vehicle.setSpeed(targetSpeed);
+    }
+
+    private LightDecision decideTrafficLightSpeed(Vehicle vehicle, TrafficLightContext context, double targetSpeed) {
+        double myProgress = (vehicle.getLane() == context.lane)
+                ? vehicle.getProgress()
+                : context.lane.getProgress(vehicle.getPosition());
+        double stopProgress = context.lane.getProgress(context.stopLine);
+        double distToStop = stopProgress - myProgress;
+        boolean isPastStop = distToStop < -3.0;
+        if (isPastStop) {
+            return new LightDecision(targetSpeed, false);
+        }
+
+        if (context.light.isRed()) {
+            if (distToStop <= getStopDistance()) {
+                return new LightDecision(getMinSpeed(), true);
+            }
+            if (distToStop <= getBrakeDistance()) {
+                double ratio = (distToStop - getStopDistance()) / (getBrakeDistance() - getStopDistance());
+                double speed = MathUtils.clamp(getCruiseSpeed(vehicle) * ratio, getMinSpeed(), getCruiseSpeed(vehicle));
+                return new LightDecision(speed, true);
+            }
+        } else if (context.light.isYellow() && rushYellowLight()) {
+            double speed = Math.min(getRushSpeed(vehicle), getCruiseSpeed(vehicle) * 1.1);
+            return new LightDecision(speed, false);
+        }
+        return new LightDecision(targetSpeed, false);
+    }
+
+    private TrafficLightContext findTrafficLightContext(Vehicle vehicle, Lane currentLane, TrafficLight fallbackLight) {
+        Lane homeLane = vehicle.getHomeLane();
+        Lane lightLane = homeLane != null ? homeLane : currentLane;
+        TrafficLight logicalLight = fallbackLight;
+        Vector2D stopLine = null;
+
+        if (lightLane != null) {
+            Lane.TrafficControlPoint nextControl = lightLane.getNextTrafficControl(vehicle.getPosition());
+            if (nextControl != null) {
+                logicalLight = nextControl.getLight();
+                stopLine = nextControl.getStopLine();
+            } else if (logicalLight != null) {
+                stopLine = lightLane.getStopLine();
+            }
+        }
+        return new TrafficLightContext(lightLane, logicalLight, stopLine);
+    }
+
+    private static final class LightDecision {
+        private final double targetSpeed;
+        private final boolean stopping;
+        private LightDecision(double targetSpeed, boolean stopping) {
+            this.targetSpeed = targetSpeed;
+            this.stopping = stopping;
+        }
+    }
+
+    private static final class TrafficLightContext {
+        private final Lane lane;
+        private final TrafficLight light;
+        private final Vector2D stopLine;
+        private TrafficLightContext(Lane lane, TrafficLight light, Vector2D stopLine) {
+            this.lane = lane;
+            this.light = light;
+            this.stopLine = stopLine;
+        }
+        private boolean isValid() {
+            return lane != null && light != null && stopLine != null;
+        }
     }
 }
