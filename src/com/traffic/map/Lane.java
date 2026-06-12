@@ -8,12 +8,12 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Mot lane gom polyline waypoints, xe dang nam tren lane va cac diem den.
+ * Mot Lane gom polyline waypoints, xe dang nam tren lane va cac diem den.
  *
- * Backward compatibility:
- * - addwaypoint() van duoc giu de cac map cu khong phai sua het.
- * - Neu lane co light va chua khai bao control point ro rang, waypoint dau
- *   tien duoc xem la vach dung cua light cu.
+ * Tang 4 clean-code:
+ * - Lane van giu danh sach xe va thong tin hinh hoc.
+ * - Logic tim xe truoc/sau, kiem tra xung dot ngang duoc chuyen sang
+ *   LaneOccupancy de lam viec theo progress + lateralOffset.
  */
 public class Lane {
 
@@ -36,12 +36,13 @@ public class Lane {
 
     private final List<Vector2D> waypoints = new ArrayList<>();
 
-    // Tang 1 clean-code: tach hinh hoc duong di sang LanePath.
-    // LanePath giu reference toi waypoints, nen khi map add waypoint thi path tu cap nhat.
+    // Tang 1: tach hinh hoc duong di sang LanePath.
     private final LanePath path = new LanePath(waypoints);
 
-    // Lane bay gio duoc xem la mot dai duong rong, khong chi la mot duong tam mong.
-    // Cac field nay se duoc Vehicle/LaneOccupancy dung manh hon o cac tang sau.
+    // Tang 4: gom logic occupancy vao class rieng.
+    private final LaneOccupancy occupancy = new LaneOccupancy(this);
+
+    // Lane la mot dai duong rong, co the chia thanh nhieu vet ngang.
     private double width = 80.0;
     private int trackCount = 2;
 
@@ -54,7 +55,7 @@ public class Lane {
     private Lane leftNeighbor;
     private Lane rightNeighbor;
 
-    // Xe dang dat cho de chuyen vao lane nay.
+    // Xe dang dat cho. Hien tai van dung cho chuyen lane vat ly cu va maneuver ngang.
     private final List<Vehicle> reservedBy = new ArrayList<>();
 
     public Lane(double startX, double startY,
@@ -84,7 +85,6 @@ public class Lane {
         addWaypoint(x, y);
     }
 
-    /** Ten getter moi, ro nghia hon. */
     public List<Vector2D> getWaypoints() {
         return waypoints;
     }
@@ -106,15 +106,15 @@ public class Lane {
     // Lane geometry.
     // ------------------------------------------------------------------
 
-    /**
-     * Duong hinh hoc cua lane. Code moi nen dung lane.path() de tinh
-     * progress, goc, diem trung tam va diem lech ngang.
-     */
     public LanePath path() {
         return path;
     }
 
-    /** Chieu rong vat ly cua lane tinh bang pixel trong simulation. */
+    /** Bo kiem tra chiem dung cua lane theo progress + lateralOffset. */
+    public LaneOccupancy occupancy() {
+        return occupancy;
+    }
+
     public double getWidth() {
         return width;
     }
@@ -126,7 +126,6 @@ public class Lane {
         this.width = width;
     }
 
-    /** So vet ngang co the spawn/chay song song trong cung lane. */
     public int getTrackCount() {
         return trackCount;
     }
@@ -140,10 +139,7 @@ public class Lane {
 
     /**
      * Tinh offset ngang cho trackIndex.
-     *
-     * Voi width = 80 va trackCount = 2, hai track se nam xap xi:
-     * - track 0: -17px, ben trai tim lane.
-     * - track 1: +17px, ben phai tim lane.
+     * Voi width = 80 va trackCount = 2, hai track xap xi -17 va +17.
      */
     public double getTrackOffset(int trackIndex) {
         if (trackCount <= 1) {
@@ -175,14 +171,10 @@ public class Lane {
         return MathUtils.clamp(offset, getLeftmostOffset(v), getRightmostOffset(v));
     }
 
-    /**
-     * Khai bao ro mot den va vach dung tren lane.
-     * Can cho NetworkMap vi road1/road2 di qua 2 nga tu, moi nga tu co 1 den.
-     */
+    /** Khai bao ro mot den va vach dung tren lane. */
     public void addTrafficControlPoint(double x, double y, TrafficLight light) {
         if (light == null) return;
 
-        // Khi dung explicit controls, bo implicit control sinh tu addWaypoint().
         if (!explicitTrafficControls) {
             trafficControls.clear();
             explicitTrafficControls = true;
@@ -213,15 +205,11 @@ public class Lane {
         return result;
     }
 
-    /** Alias ro nghia hon cho Intersection/RoadNetwork khi gom den. */
     public List<TrafficLight> getAllTrafficLights() {
         return getLights();
     }
 
-    /**
-     * API cu: tra ve den dau tien cua lane. Driver moi nen dung
-     * getNextTrafficControl() de chon den sap toi.
-     */
+    /** API cu: tra ve den dau tien cua lane. */
     public TrafficLight getLight() {
         if (!trafficControls.isEmpty()) {
             return trafficControls.get(0).getLight();
@@ -240,11 +228,6 @@ public class Lane {
         return light != null ? light.getPosition() : getEnd();
     }
 
-    /**
-     * Tim vach dung gan mot diem, dung cho renderer khi 1 lane thuoc nhieu
-     * Intersection. Vi du NetworkMap: road1 co vach dung o ca nga tu trai
-     * va nga tu phai.
-     */
     public Vector2D getStopLineNear(Vector2D point) {
         if (point == null || trafficControls.isEmpty()) {
             return getStopLine();
@@ -262,10 +245,7 @@ public class Lane {
         return best != null ? best.getStopLine() : getStopLine();
     }
 
-    /**
-     * Tim den/vach dung tiep theo theo progress hien tai cua xe.
-     * Neu xe da qua den thu nhat tren NetworkMap, method se tra ve den thu hai.
-     */
+    /** Tim den/vach dung tiep theo theo progress hien tai cua xe. */
     public TrafficControlPoint getNextTrafficControl(Vector2D pos) {
         if (trafficControls.isEmpty()) return null;
 
@@ -275,8 +255,6 @@ public class Lane {
 
         for (TrafficControlPoint control : trafficControls) {
             double controlProgress = getProgress(control.getStopLine());
-
-            // Cho dung sai nho de xe dung ngay vach van con nhin thay den hien tai.
             if (controlProgress + PASSED_STOP_TOLERANCE >= myProgress
                     && controlProgress < bestProgress) {
                 bestProgress = controlProgress;
@@ -337,37 +315,35 @@ public class Lane {
         return path.angleAt(progress);
     }
 
+    /** Tinh offset ngang cua mot position so voi tim lane. */
+    public double getLateralOffset(Vector2D pos) {
+        return occupancy.offsetOf(pos);
+    }
+
     // ------------------------------------------------------------------
-    // Tim xe phia truoc.
+    // Tim xe phia truoc/sau.
     // ------------------------------------------------------------------
 
     public Vehicle getVehicleAhead(Vehicle me) {
-        if (me == null) {
-            return null;
-        }
-        double myProgress = (me.getLane() == this)
-            ? me.getProgress()
-            : getProgress(me.getPosition());
-        return getVehicleAheadAt(myProgress, me);
+        return occupancy.vehicleAheadOf(me);
     }
 
     public Vehicle getVehicleAheadAt(double fromProgress, Vehicle exclude) {
-        Vehicle inFront = null;
-        double minDiff = Double.MAX_VALUE;
-
-        for (Vehicle other : vehicles) {
-            if (other == exclude) continue;
-            double otherProgress = (other.getLane() == this)
-                ? other.getProgress()
-                : getProgress(other.getPosition());
-            double diff = otherProgress - fromProgress;
-
-            if (diff > 0 && diff < minDiff) {
-                minDiff = diff;
-                inFront = other;
-            }
+        double lateralOffset = 0.0;
+        if (exclude != null) {
+            lateralOffset = (exclude.getLane() == this)
+                    ? exclude.getLateralOffset()
+                    : getLateralOffset(exclude.getPosition());
         }
-        return inFront;
+        return occupancy.vehicleAheadAt(fromProgress, lateralOffset, exclude);
+    }
+
+    public Vehicle getVehicleAheadAt(double fromProgress, double lateralOffset, Vehicle exclude) {
+        return occupancy.vehicleAheadAt(fromProgress, lateralOffset, exclude);
+    }
+
+    public Vehicle getVehicleBehindAt(double fromProgress, double lateralOffset, Vehicle exclude) {
+        return occupancy.vehicleBehindAt(fromProgress, lateralOffset, exclude);
     }
 
     // ------------------------------------------------------------------
@@ -415,29 +391,24 @@ public class Lane {
         reservedBy.remove(v);
     }
 
-    /**
-     * Kiem tra an toan de nhap lane theo progress, tot hon so voi chi do
-     * khoang cach Euclid tren cac lane gap khuc.
-     */
-    public boolean isSafeToEnter(Vector2D pos, double safeGap) {
-        double posProgress = getProgress(pos);
+    /** Package-private cho LaneOccupancy kiem tra xe dang reserve lane. */
+    List<Vehicle> getReservedVehicles() {
+        return reservedBy;
+    }
 
-        for (Vehicle v : vehicles) {
-            double vehicleProgress = (v.getLane() == this)
-                ? v.getProgress()
-                : getProgress(v.getPosition());
-            if (Math.abs(vehicleProgress - posProgress) < safeGap) {
-                return false;
-            }
+    /** Giu API cu, nhung ben trong da dung progress + lateralOffset. */
+    public boolean isSafeToEnter(Vector2D pos, double safeGap) {
+        if (pos == null) {
+            return false;
         }
-        for (Vehicle v : reservedBy) {
-            double vehicleProgress = (v.getLane() == this)
-                ? v.getProgress()
-                : getProgress(v.getPosition());
-            if (Math.abs(vehicleProgress - posProgress) < safeGap) {
-                return false;
-            }
-        }
-        return true;
+        double posProgress = getProgress(pos);
+        double lateralOffset = getLateralOffset(pos);
+        return occupancy.isSpaceFreeAt(
+                posProgress,
+                lateralOffset,
+                null,
+                safeGap,
+                safeGap
+        );
     }
 }

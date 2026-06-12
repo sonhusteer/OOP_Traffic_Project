@@ -44,6 +44,9 @@ public abstract class Vehicle {
     /** Offset mac dinh khi spawn. Sau khi ne/vuot, xe se quay ve offset nay. */
     protected double preferredLateralOffset = 0.0;
 
+    /** Tang 5: thao tac dich ngang hien tai trong cung Lane. */
+    protected LateralManeuver currentManeuver = LateralManeuver.none();
+
     protected static final double LATERAL_SHIFT_SPEED = 45.0;
 
     // State chuyen lane vat ly. Giu tam de driver cu chua bi vo.
@@ -101,6 +104,7 @@ public abstract class Vehicle {
         this.homeLane = lane;
         this.originalLane = lane;
         this.targetLane = null;
+        this.currentManeuver = LateralManeuver.none();
         this.isChangingLane = false;
         this.laneChangeElapsed = 0.0;
         this.laneChangeCooldown = 0.0;
@@ -120,6 +124,7 @@ public abstract class Vehicle {
         this.homeLane = null;
         this.originalLane = null;
         this.targetLane = null;
+        this.currentManeuver = LateralManeuver.none();
         this.isChangingLane = false;
         this.laneChangeElapsed = 0.0;
         this.laneChangeCooldown = 0.0;
@@ -152,6 +157,7 @@ public abstract class Vehicle {
         homeLane = null;
         originalLane = null;
         targetLane = null;
+        currentManeuver = LateralManeuver.none();
         isChangingLane = false;
         laneChangeElapsed = 0.0;
         laneChangeCooldown = 0.0;
@@ -164,6 +170,7 @@ public abstract class Vehicle {
 
     private void detachFromCurrentLaneReferences() {
         if (lane != null) {
+            lane.release(this);
             lane.removeVehicle(this);
         }
         if (originalLane != null && originalLane != lane) {
@@ -204,7 +211,7 @@ public abstract class Vehicle {
         // Tang 2: xe co lane thi di tien bang progress doc theo LanePath.
         progress += speed * deltaTime;
 
-        // lateralOffset di chuyen mem ve target, chuan bi cho Tang 4 LateralManeuver.
+        // lateralOffset di chuyen mem ve target, chuan bi cho Tang 5 LateralManeuver.
         lateralOffset = MathUtils.moveTowards(
                 lateralOffset,
                 targetLateralOffset,
@@ -212,6 +219,10 @@ public abstract class Vehicle {
         );
         if (Math.abs(lateralOffset - targetLateralOffset) < 0.5) {
             lateralOffset = targetLateralOffset;
+            if (currentManeuver.isActive()) {
+                currentManeuver = LateralManeuver.none();
+                lane.release(this);
+            }
             isChangingLane = false;
         } else {
             isChangingLane = true;
@@ -305,6 +316,7 @@ public abstract class Vehicle {
         lane = completedLane;
         originalLane = lane;
         targetLane = null;
+        currentManeuver = LateralManeuver.none();
         isChangingLane = false;
         laneChangeElapsed = 0.0;
         laneChangeCooldown = LANE_CHANGE_COOLDOWN;
@@ -314,6 +326,7 @@ public abstract class Vehicle {
             lateralOffset = 0.0;
             targetLateralOffset = 0.0;
             preferredLateralOffset = 0.0;
+            currentManeuver = LateralManeuver.none();
             syncPositionFromLane();
         }
     }
@@ -377,7 +390,7 @@ public abstract class Vehicle {
             || Math.abs(targetLateralOffset - preferredLateralOffset) > 2.0;
     }
 
-    /** Dat muc tieu lech ngang trong cung lane. Tang sau SideShiftPlanner se goi method nay. */
+    /** Dat muc tieu lech ngang trong cung lane ma khong gan loai maneuver. */
     public void setTargetLateralOffset(double offset) {
         if (lane == null) {
             targetLateralOffset = offset;
@@ -390,11 +403,65 @@ public abstract class Vehicle {
         }
     }
 
+    /**
+     * Tang 5: xin thuc hien mot thao tac dich ngang trong cung Lane.
+     * Vehicle chi nhan lenh; viec kiem tra an toan thuoc SideShiftPlanner
+     * va LaneOccupancy.
+     */
+    public boolean requestManeuver(LateralManeuver maneuver) {
+        if (lane == null || maneuver == null || !maneuver.isActive()) {
+            return false;
+        }
+        if (currentManeuver.isActive()
+                && currentManeuver.getPriority() > maneuver.getPriority()) {
+            return false;
+        }
+
+        double offset = lane.clampOffset(this, maneuver.getTargetOffset());
+        if (Math.abs(offset - targetLateralOffset) < 0.5
+                && currentManeuver.getType() == maneuver.getType()) {
+            // Da dang thuc hien dung maneuver nay roi; coi nhu request thanh cong
+            // de driver khong hieu nham la khong the ne/vuot.
+            return true;
+        }
+
+        if (Math.abs(offset - targetLateralOffset) < 0.5
+                && Math.abs(offset - lateralOffset) < 0.5) {
+            return false;
+        }
+
+        lane.release(this);
+        currentManeuver = maneuver;
+        targetLateralOffset = offset;
+        isChangingLane = Math.abs(targetLateralOffset - lateralOffset) > 0.5;
+        lane.reserve(this);
+        return true;
+    }
+
+    /** Huy maneuver hien tai va giai phong reservation ngang. */
+    public void clearCurrentManeuver() {
+        if (lane != null) {
+            lane.release(this);
+        }
+        currentManeuver = LateralManeuver.none();
+        if (targetLane == null) {
+            isChangingLane = false;
+        }
+    }
+
     /** Quay ve offset ban dau khi spawn. */
     public boolean returnToPreferredOffset() {
-        if (lane == null) return false;
-        setTargetLateralOffset(preferredLateralOffset);
-        return true;
+        return requestManeuver(
+                LateralManeuver.returnToTrack(preferredLateralOffset)
+        );
+    }
+
+    public boolean isPhysicalLaneChanging() {
+        return isChangingLane && originalLane != null && targetLane != null;
+    }
+
+    public boolean isLateralManeuverActive() {
+        return currentManeuver != null && currentManeuver.isActive();
     }
 
     public void makeDecision(TrafficLight nearestLight) {
@@ -436,6 +503,8 @@ public abstract class Vehicle {
     public double getLateralOffset() { return lateralOffset; }
     public double getTargetLateralOffset() { return targetLateralOffset; }
     public double getPreferredLateralOffset() { return preferredLateralOffset; }
+    public LateralManeuver getCurrentManeuver() { return currentManeuver; }
+    public boolean hasActiveManeuver() { return currentManeuver.isActive(); }
 
     public abstract String getTypeName();
 }
