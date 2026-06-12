@@ -71,35 +71,45 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
     //  MAIN DRAW
     // =====================================================================
     @Override
-    public void draw(GraphicsContext gc, double w, double h) {
-        drawBackground(gc, w, h);
-        drawBuildings(gc, w, h);      // nhà dân cư (dưới cùng)
+    public void draw(GraphicsContext gc, double width, double height) {
+        // Draw Grass background
+        gc.setFill(Color.web("#1b261a")); 
+        gc.fillRect(0, 0, width, height);
+
+        // Draw simple dummy grid / buildings for flavor (like in the screenshot)
+        drawSimpleBuildings(gc, width, height);
+
+        // Grid nhẹ (optional, to match screenshots)
+        gc.setStroke(Color.web("#2c3e2b", 0.5));
+        gc.setLineWidth(1);
+        for(int i = 0; i < width; i += 100) gc.strokeLine(i, 0, i, height);
+        for(int i = 0; i < height; i += 100) gc.strokeLine(0, i, width, i);
         drawLanes(gc);                // đường xe chạy (kẻ vạch qua ngã tư)
         drawIntersections(gc);        // ngã giao (xóa vạch cũ, vẽ chuẩn)
         drawLights(gc);              // đèn giao thông
         drawVehicles(gc);            // xe
-        drawRain(gc, w, h);          // hiệu ứng mưa trơn trượt
-        drawHUD(gc, w);              // HUD
+        drawHUD(gc, width);          // HUD
     }
 
-    // =====================================================================
-    //  1. NỀN CỎ — gradient tối hơn BasicRenderer
-    // =====================================================================
-    private void drawBackground(GraphicsContext gc, double w, double h) {
-        LinearGradient bg = new LinearGradient(
-            0, 0, w, h, false, CycleMethod.NO_CYCLE,
-            new Stop(0, BG_DARK),
-            new Stop(1, BG_GRASS)
-        );
-        gc.setFill(bg);
-        gc.fillRect(0, 0, w, h);
-
-        // Lưới cỏ mờ nhạt
-        gc.setStroke(Color.rgb(0, 0, 0, 0.08));
-        gc.setLineWidth(1);
-        gc.setLineDashes();
-        for (int x = 0; x < (int) w; x += 32) gc.strokeLine(x, 0, x, h);
-        for (int y = 0; y < (int) h; y += 32) gc.strokeLine(0, y, w, y);
+    private void drawSimpleBuildings(GraphicsContext gc, double w, double h) {
+        gc.setFill(Color.web("#314234"));
+        // Random square blocks acting as simple top-down roofs
+        // Since we don't have a stable RNG seed, they will re-roll every frame if we just use random().
+        // For a quick fix without state, we can use a deterministic math function based on grid coords.
+        for (int x = 50; x < w; x += 100) {
+            for (int y = 50; y < h; y += 100) {
+                // Pseudo random
+                int hash = (x * 73856093 ^ y * 19349663);
+                if ((hash % 100) > 40) {
+                    double bw = 20 + Math.abs(hash % 30);
+                    double bh = 20 + Math.abs((hash / 17) % 30);
+                    gc.setFill(Color.web("#354638")); // shadow
+                    gc.fillRect(x + 2, y + 2, bw, bh);
+                    gc.setFill(Color.web(((hash % 2) == 0) ? "#4a5d4e" : "#515e52"));
+                    gc.fillRect(x, y, bw, bh);
+                }
+            }
+        }
     }
 
     // =====================================================================

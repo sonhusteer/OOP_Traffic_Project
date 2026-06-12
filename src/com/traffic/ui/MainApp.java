@@ -84,6 +84,7 @@ public class MainApp extends Application {
 
     private String selectedSpawnType = "car";
     private boolean isSimulationMode = false;
+    private boolean isAutoSpawn = false;
     private BorderPane mainRoot;
 
     public static void main(String[] args) {
@@ -173,6 +174,7 @@ public class MainApp extends Application {
     private void startGameLoop() {
         AnimationTimer timer = new AnimationTimer() {
             private long lastNow = -1L;
+            private double spawnTimer = 0.0;
 
             @Override
             public void handle(long now) {
@@ -188,6 +190,23 @@ public class MainApp extends Application {
                     engine.tick(dt);
                     engine.render();
                     updateSiren();
+                    
+                    if (isAutoSpawn) {
+                        spawnTimer += dt;
+                        if (spawnTimer >= 1.5) { // Spawn every 1.5 real seconds
+                            spawnTimer = 0.0;
+                            java.util.List<Lane> spawnLanes = currentMap.getSpawnLanes();
+                            if (!spawnLanes.isEmpty()) {
+                                Lane randomLane = spawnLanes.get(new java.util.Random().nextInt(spawnLanes.size()));
+                                String[] types = {"car", "car", "motorcycle", "car", "bicycle", "ambulance"};
+                                String randType = types[new java.util.Random().nextInt(types.length)];
+                                Vehicle v = VehicleFactory.create(randType, 0, 0);
+                                SpawnPlanner.place(v, randomLane, 0, 0);
+                                engine.addVehicle(v);
+                                if (spawnLog != null) spawnLog.appendText("[Auto] " + randType + " spawned\n");
+                            }
+                        }
+                    }
                 } else {
                     SoundManager.getInstance().stop("siren.wav");
                 }
@@ -224,31 +243,21 @@ public class MainApp extends Application {
 
     private VBox buildSidebar(MapConfig map) {
         spawnLog = new TextArea();
-        VBox sidebar = new VBox(15);
-        sidebar.setPadding(new Insets(20, 16, 20, 16));
+        VBox sidebar = new VBox(12);
+        sidebar.setPadding(new Insets(16, 16, 16, 16));
         sidebar.setPrefWidth(260);
         sidebar.setStyle("-fx-background-color: linear-gradient(to bottom, #1e1e30, #16162a);-fx-border-color: #333355; -fx-border-width: 0 0 0 1;");
 
-        Label title = new Label("🚘 Cấu hình Spawn");
-        title.setFont(Font.font("SansSerif", FontWeight.BOLD, 16));
+        Label title = new Label("🚘 Spawn Vehicle");
+        title.setFont(Font.font("SansSerif", FontWeight.BOLD, 15));
         title.setTextFill(Color.rgb(180, 200, 255));
 
         Label lblType = makeLabel("Loại xe:");
-        HBox typeBox = new HBox(5);
-        ToggleGroup typeGroup = new ToggleGroup();
-        String[] factoryTypes = {"car", "motorcycle", "bicycle", "ambulance", "firetruck"};
-        String[] icons = {"🚗", "🏍️", "🚲", "🚑", "🚒"};
-        for (int i = 0; i < factoryTypes.length; i++) {
-            ToggleButton btn = new ToggleButton(icons[i]);
-            btn.getStyleClass().add("btn-action");
-            btn.setToggleGroup(typeGroup);
-            btn.setUserData(factoryTypes[i]);
-            if (i == 0) btn.setSelected(true);
-            btn.setOnAction(e -> {
-                if (btn.isSelected()) selectedSpawnType = (String) btn.getUserData();
-            });
-            typeBox.getChildren().add(btn);
-        }
+        ComboBox<String> cmbType = new ComboBox<>();
+        cmbType.getItems().addAll("Car", "Motorcycle", "Bicycle", "Ambulance", "Firetruck");
+        cmbType.getSelectionModel().selectFirst();
+        cmbType.setMaxWidth(Double.MAX_VALUE);
+        cmbType.getStyleClass().add("dark-combo");
 
         Label lblLane = makeLabel("Làn đường:");
         ComboBox<String> cmbLane = new ComboBox<>();
@@ -257,43 +266,67 @@ public class MainApp extends Application {
         cmbLane.setMaxWidth(Double.MAX_VALUE);
         cmbLane.getStyleClass().add("dark-combo");
 
+        Label lblDir = makeLabel("Hướng di chuyển:");
+        ComboBox<String> cmbDir = new ComboBox<>();
+        cmbDir.getItems().addAll("Đi thẳng", "Rẽ trái", "Rẽ phải");
+        cmbDir.getSelectionModel().selectFirst();
+        cmbDir.setMaxWidth(Double.MAX_VALUE);
+        cmbDir.getStyleClass().add("dark-combo");
+
         Label lblOffset = makeLabel("Vị trí:");
-        HBox offsetBox = new HBox(5);
-        ToggleGroup offsetGroup = new ToggleGroup();
-        String[] offNames = {"Đầu", "Giữa", "Cuối"};
-        for (int i = 0; i < 3; i++) {
-            ToggleButton btn = new ToggleButton(offNames[i]);
-            btn.getStyleClass().add("btn-action");
-            btn.setToggleGroup(offsetGroup);
-            btn.setUserData(i);
-            if (i == 0) btn.setSelected(true);
-            offsetBox.getChildren().add(btn);
-        }
+        ComboBox<String> cmbOffset = new ComboBox<>();
+        cmbOffset.getItems().addAll("Đầu làn", "Giữa làn", "Cuối làn");
+        cmbOffset.getSelectionModel().selectFirst();
+        cmbOffset.setMaxWidth(Double.MAX_VALUE);
+        cmbOffset.getStyleClass().add("dark-combo");
 
         Label lblCount = makeLabel("Số lượng:");
         Spinner<Integer> spinner = new Spinner<>(1, 10, 1);
         spinner.setMaxWidth(Double.MAX_VALUE);
 
-        Button btnSpawn = new Button("✦ Đặt Xe");
-        btnSpawn.getStyleClass().add("btn-spawn");
+        Label lblSpeedTitle = makeLabel("Tốc độ xe: 1.0x");
+        Slider speedSlider = new Slider(0.1, 3.0, 1.0);
+        speedSlider.valueProperty().addListener((obs, oldV, newV) -> {
+            simSpeed = newV.doubleValue();
+            lblSpeedTitle.setText(String.format("Tốc độ xe: %.1fx", simSpeed));
+        });
+
+        Button btnSpawn = new Button("✦ Spawn");
+        btnSpawn.setStyle("-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-weight: bold; -fx-background-radius: 5;");
         btnSpawn.setMaxWidth(Double.MAX_VALUE);
         Lane[] laneArray = map.getSpawnLanes().toArray(new Lane[0]);
+        String[] typesRaw = {"car", "motorcycle", "bicycle", "ambulance", "firetruck"};
+        
         btnSpawn.setOnAction(e -> {
             int laneIdx = cmbLane.getSelectionModel().getSelectedIndex();
             if (laneIdx < 0 || laneIdx >= laneArray.length) return;
             Lane lane = laneArray[laneIdx];
-            int offIdx = (int) offsetGroup.getSelectedToggle().getUserData();
+            int offIdx = cmbOffset.getSelectionModel().getSelectedIndex();
             int count = spinner.getValue();
+            String t = typesRaw[cmbType.getSelectionModel().getSelectedIndex()];
             for(int c=0; c<count; c++) {
-                Vehicle v = VehicleFactory.create(selectedSpawnType, 0, 0);
+                Vehicle v = VehicleFactory.create(t, 0, 0);
                 SpawnPlanner.place(v, lane, offIdx, c);
                 engine.addVehicle(v);
             }
-            spawnLog.appendText(String.format("[+] %dx %s -> %s\n", count, selectedSpawnType, map.getLaneNames()[laneIdx]));
+            spawnLog.appendText(String.format("[+] %dx %s -> %s\n", count, t, map.getLaneNames()[laneIdx]));
+        });
+
+        ToggleButton btnAuto = new ToggleButton("Tự động: Tắt");
+        btnAuto.setStyle("-fx-background-color: #555; -fx-text-fill: white; -fx-font-weight: bold; -fx-background-radius: 5;");
+        btnAuto.setMaxWidth(Double.MAX_VALUE);
+        btnAuto.setOnAction(e -> {
+            boolean isOn = btnAuto.isSelected();
+            btnAuto.setText(isOn ? "Tự động: Bật" : "Tự động: Tắt");
+            btnAuto.setStyle(isOn 
+                ? "-fx-background-color: #2ecc71; -fx-text-fill: white; -fx-font-weight: bold; -fx-background-radius: 5;"
+                : "-fx-background-color: #555; -fx-text-fill: white; -fx-font-weight: bold; -fx-background-radius: 5;"
+            );
+            isAutoSpawn = isOn;
         });
 
         Button btnClear = new Button("✕ Clear All");
-        btnClear.getStyleClass().add("btn-clear");
+        btnClear.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold; -fx-background-radius: 5;");
         btnClear.setMaxWidth(Double.MAX_VALUE);
         btnClear.setOnAction(e -> {
             engine.clearVehicles();
@@ -302,7 +335,7 @@ public class MainApp extends Application {
 
         Separator sep = new Separator();
         sep.setStyle("-fx-background-color: #444466;");
-        Label lblLog = makeLabel("📋 Log:");
+        Label lblLog = makeLabel("📋 Lịch sử:");
         spawnLog.setEditable(false);
         spawnLog.setPrefRowCount(8);
         spawnLog.setWrapText(true);
@@ -310,11 +343,13 @@ public class MainApp extends Application {
 
         sidebar.getChildren().addAll(
             title, 
-            lblType, typeBox, 
+            lblType, cmbType, 
             lblLane, cmbLane, 
-            lblOffset, offsetBox, 
+            lblDir, cmbDir,
+            lblOffset, cmbOffset, 
             lblCount, spinner,
-            btnSpawn, btnClear,
+            lblSpeedTitle, speedSlider,
+            btnSpawn, btnAuto, btnClear,
             sep, lblLog, spawnLog
         );
         VBox.setVgrow(spawnLog, Priority.ALWAYS);
@@ -348,17 +383,6 @@ public class MainApp extends Application {
             engine.clearVehicles();
             int idx = cmbMap.getSelectionModel().getSelectedIndex();
             if (idx >= 0) loadMap(createMap(idx));
-        });
-
-        Slider speedSlider = new Slider(0.1, 3.0, 1.0);
-        speedSlider.setPrefWidth(120);
-        lblSpeed = new Label("1.0×");
-        lblSpeed.setFont(Font.font("SansSerif", FontWeight.BOLD, 12));
-        lblSpeed.setTextFill(Color.rgb(180, 200, 255));
-        lblSpeed.setPrefWidth(40);
-        speedSlider.valueProperty().addListener((obs, oldV, newV) -> {
-            simSpeed = newV.doubleValue();
-            lblSpeed.setText(String.format("%.1f×", simSpeed));
         });
 
         Button btnPause = new Button("⏸ Pause");
@@ -423,7 +447,6 @@ public class MainApp extends Application {
         
         toolbar.getChildren().addAll(
             lblMap, cmbMap, btnLoad, btnReset,
-            new Label("  ⚡"), speedSlider, lblSpeed,
             btnPause, btnStep, btnMode, btnHeatmap, btnSimMode,
             sp1, lblVehicles
         );
