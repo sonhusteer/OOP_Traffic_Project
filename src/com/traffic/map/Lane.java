@@ -52,9 +52,6 @@ public class Lane {
 
     private final List<Vehicle> vehicles = new ArrayList<>();
 
-    private Lane leftNeighbor;
-    private Lane rightNeighbor;
-
     // Xe dang dat cho. Hien tai van dung cho chuyen lane vat ly cu va maneuver ngang.
     private final List<Vehicle> reservedBy = new ArrayList<>();
 
@@ -347,7 +344,7 @@ public class Lane {
     }
 
     // ------------------------------------------------------------------
-    // Vehicles, neighbors va safety.
+    // Vehicles, reservation va safety.
     // ------------------------------------------------------------------
 
     public List<Vehicle> getVehicles() {
@@ -365,21 +362,6 @@ public class Lane {
         reservedBy.remove(v);
     }
 
-    public Lane getLeftNeighbor() {
-        return leftNeighbor;
-    }
-
-    public void setLeftNeighbor(Lane left) {
-        this.leftNeighbor = left;
-    }
-
-    public Lane getRightNeighbor() {
-        return rightNeighbor;
-    }
-
-    public void setRightNeighbor(Lane right) {
-        this.rightNeighbor = right;
-    }
 
     public void reserve(Vehicle v) {
         if (v != null && !reservedBy.contains(v)) {

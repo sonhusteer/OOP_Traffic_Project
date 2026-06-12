@@ -36,9 +36,7 @@ public class HighwayMap implements MapConfig {
         road2.addwaypoint(500, 290);
         lanes.add(road2);
 
-        // Thiết lập láng giềng chiều Trái → Phải
-        road1.setLeftNeighbor(road2);  // Muốn vượt thì sang trái (road2)
-        road2.setRightNeighbor(road1); // Vượt xong thì tạt phải về (road1)
+
 
 
         // ── Chiều Phải → Trái ─────────────────────────────────────────────
@@ -52,9 +50,7 @@ public class HighwayMap implements MapConfig {
         road4.addwaypoint(500, 210);
         lanes.add(road4);
 
-        // Thiết lập láng giềng chiều Phải → Trái
-        road3.setLeftNeighbor(road4);  // Muốn vượt thì sang trái (road4)
-        road4.setRightNeighbor(road3); // Vượt xong thì tạt phải về (road3)
+
     }
 
     @Override public String getName() { return "Đại lộ cao tốc"; }
