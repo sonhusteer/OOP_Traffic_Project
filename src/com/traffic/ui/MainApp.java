@@ -247,7 +247,7 @@ public class MainApp extends Application {
 
             for (int i = 0; i < count; i++) {
                 Vehicle v = VehicleFactory.create(type, 0, 0);
-                applySpawnPosition(v, lane, offIdx, i);
+                SpawnPlanner.place(v, lane, offIdx, i);
                 engine.addVehicle(v);
             }
 
@@ -405,30 +405,6 @@ public class MainApp extends Application {
         root.setRight(spawnContainer);
 
         spawnLog.appendText("[✓] Map: " + newMap.getName() + "\n");
-    }
-
-    /**
-     * Tang 2: spawn bang progress cua Vehicle, khong set x/y truc tiep nua.
-     *
-     * Tam thoi giu lateralOffset = 0.0 de xe nam tren tim lane.
-     * Tang sau moi bat dau chia 2 track ngang trong cung lane.
-     */
-    private static void applySpawnPosition(Vehicle v, Lane lane, int offIdx, int i) {
-        final double gap = 55.0;
-        double laneLength = lane.getLength();
-
-        double baseProgress = switch (offIdx) {
-            case 1 -> laneLength * 0.35;
-            case 2 -> laneLength * 0.70;
-            default -> 0.0;
-        };
-
-        double progress = Math.max(
-                0.0,
-                Math.min(baseProgress + i * gap, Math.max(0.0, laneLength - 5.0))
-        );
-
-        v.setLane(lane, progress);
     }
 
     private Label makeLabel(String text) {

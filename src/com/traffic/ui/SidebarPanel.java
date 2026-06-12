@@ -77,7 +77,7 @@ public class SidebarPanel {
 
             for (int i = 0; i < count; i++) {
                 Vehicle v = VehicleFactory.create(type, 0, 0);
-                applyOffset(v, lane, offIdx, i);
+                SpawnPlanner.place(v, lane, offIdx, i);
                 controller.getEngine().addVehicle(v);
             }
 
@@ -121,25 +121,6 @@ public class SidebarPanel {
     }
 
     public TextArea getSpawnLog() { return spawnLog; }
-
-    /**
-     * Tang 2: spawn bang progress cua Vehicle, khong set x/y truc tiep nua.
-     * Tam thoi giu lateralOffset = 0.0; Tang sau moi chia 2 track ngang.
-     */
-    private static void applyOffset(Vehicle v, Lane lane, int offIdx, int i) {
-        final double gap = 55.0;
-        double length = lane.getLength();
-        double baseProgress = switch (offIdx) {
-            case 1 -> length * 0.45;
-            case 2 -> length * 0.75;
-            default -> 0.0;
-        };
-        double progress = (offIdx == 0)
-            ? i * gap
-            : Math.max(0.0, baseProgress - i * gap);
-
-        v.setLane(lane, progress);
-    }
 
     private Label makeLabel(String text) {
         Label lbl = new Label(text);
