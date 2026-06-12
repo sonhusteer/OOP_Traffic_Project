@@ -31,8 +31,6 @@ public class HighwayMap implements MapConfig {
         road2.addWaypoint(500, 290);
         lanes.add(road2);
 
-        road1.setLeftNeighbor(road2);  // vượt sang làn nhanh
-        road2.setRightNeighbor(road1); // về lại làn chậm
 
         // ── Chiều Phải → Trái ───────────────────────────────────────────
         Lane road3 = new Lane(950, 130, 50, 130, null); // làn chậm
@@ -43,8 +41,6 @@ public class HighwayMap implements MapConfig {
         road4.addWaypoint(500, 210);
         lanes.add(road4);
 
-        road3.setLeftNeighbor(road4);  // vượt sang làn nhanh
-        road4.setRightNeighbor(road3); // về lại làn chậm
     }
 
     @Override public String getName() { return "Đại Lộ Cao Tốc"; }

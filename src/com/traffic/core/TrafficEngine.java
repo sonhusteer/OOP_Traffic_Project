@@ -11,11 +11,11 @@ public class TrafficEngine {
     private final List<Vehicle>      vehicles      = new ArrayList<>();
     private final List<TrafficLight> lights        = new ArrayList<>();
     private final List<Intersection> intersections = new ArrayList<>();
-    private IRenderer renderer;
 
-    // Nguong phat hien xe uu tien.
-    private static final double SAME_LANE_YIELD_DIST = 150.0;
-    private static final double INTERSECTION_DANGER  = 200.0;
+    /** Luat uu tien duoc tach khoi engine de engine chi con dieu phoi tick. */
+    private final EmergencyVehicleCoordinator emergencyCoordinator = new EmergencyVehicleCoordinator();
+
+    private IRenderer renderer;
 
     public TrafficEngine(IRenderer renderer) {
         this.renderer = renderer;
@@ -26,15 +26,14 @@ public class TrafficEngine {
     // ---------------------------------------------------------------------
 
     public void addVehicle(Vehicle v) {
-        // Tranh add trung mot xe neu UI bam nham hoac code goi lap.
         if (v != null && !vehicles.contains(v)) {
             vehicles.add(v);
         }
     }
 
     public void addTrafficLight(TrafficLight l) {
-        // Fix loi den bi tick nhanh: cung mot TrafficLight co the nam trong
-        // nhieu Intersection, nen engine chi duoc luu moi object dung 1 lan.
+        // Cung mot TrafficLight co the nam trong nhieu Intersection, nen engine
+        // chi luu moi object dung 1 lan de den khong bi tick nhanh gap doi.
         if (l != null && !lights.contains(l)) {
             lights.add(l);
         }
@@ -53,8 +52,7 @@ public class TrafficEngine {
     }
 
     public void clearVehicles() {
-        // Fix "xe ma": truoc day chi vehicles.clear(), nhung xe van con trong
-        // Lane. Khi spawn xe moi, Lane.getVehicleAhead() van thay xe cu.
+        // Fix "xe ma": xoa xe khoi Lane/reservation truoc khi clear list engine.
         for (Vehicle v : new ArrayList<>(vehicles)) {
             cleanupVehicleFromLanes(v);
         }
@@ -79,23 +77,8 @@ public class TrafficEngine {
     }
 
     private void cleanupVehicleFromLanes(Vehicle v) {
-        Lane lane = v.getLane();
-        Lane originalLane = v.getOriginalLane();
-        Lane targetLane = v.getTargetLane();
-
-        if (lane != null) {
-            lane.removeVehicle(v);
-        }
-        if (originalLane != null && originalLane != lane) {
-            originalLane.removeVehicle(v);
-        }
-        if (targetLane != null) {
-            targetLane.removeVehicle(v);
-            targetLane.release(v);
-        }
-
-        // Xoa tham chieu lane trong Vehicle de object khong con state cu.
-        v.detachFromLane();
+        // Vehicle tu biet go minh khoi lane hien tai, lane goc, target lane va reservation.
+        v.detachFromLanes();
     }
 
     // ---------------------------------------------------------------------
@@ -104,7 +87,7 @@ public class TrafficEngine {
 
     public void tick(double deltaTime) {
         updateLights(deltaTime);
-        detectEmergencyProximity();
+        emergencyCoordinator.apply(vehicles, intersections);
         updateVehicles(deltaTime);
     }
 
@@ -122,22 +105,36 @@ public class TrafficEngine {
         }
     }
 
+    /**
+     * Update xe theo 2 pha:
+     * 1. Tat ca xe doc snapshot vi tri hien tai va ra quyet dinh.
+     * 2. Tat ca xe moi cap nhat vat ly.
+     *
+     * Cach nay tranh viec xe sau doc vi tri moi cua xe truoc trong khi cac xe
+     * khac van chua update xong.
+     */
     private void updateVehicles(double deltaTime) {
-        List<Vehicle> toRemove = new ArrayList<>();
+        List<Vehicle> snapshot = new ArrayList<>(vehicles);
 
-        // Duyet tren ban copy de an toan neu co xe bi remove trong luc update.
-        for (Vehicle vehicle : new ArrayList<>(vehicles)) {
+        // Phase 1: decision.
+        for (Vehicle vehicle : snapshot) {
             if (!vehicles.contains(vehicle)) continue;
 
             TrafficLight targetLight = null;
-            if (vehicle.getLane() != null) {
-                targetLight = vehicle.getLane().getLight();
+            Lane lane = vehicle.getLane();
+            if (lane != null) {
+                targetLight = lane.getLight();
             }
-
             vehicle.makeDecision(targetLight);
+        }
+
+        // Phase 2: physics update + collect out-of-map vehicles.
+        List<Vehicle> toRemove = new ArrayList<>();
+        for (Vehicle vehicle : snapshot) {
+            if (!vehicles.contains(vehicle)) continue;
+
             vehicle.update(deltaTime);
 
-            // Vung ngoai ban do 800x600. Cho lech them de xe di het man hinh.
             double x = vehicle.getPosition().getX();
             double y = vehicle.getPosition().getY();
             if (x < -200 || x > 1000 || y < -200 || y > 800) {
@@ -151,70 +148,7 @@ public class TrafficEngine {
     }
 
     // ---------------------------------------------------------------------
-    // Phat hien xe uu tien va danh dau YieldMode cho xe thuong.
-    // ---------------------------------------------------------------------
-
-    private void detectEmergencyProximity() {
-        // Moi frame tinh lai tu dau. Neu het nguy hiem thi ve NONE.
-        for (Vehicle v : vehicles) {
-            if (!v.isPriority()) {
-                v.setYieldMode(Vehicle.YieldMode.NONE);
-            }
-        }
-
-        for (Vehicle priority : vehicles) {
-            if (!priority.isPriority()) continue;
-
-            Lane priorityLane = priority.getLane();
-
-            // Tinh "phia truoc/phia sau" bang progress tren lane thay vi
-            // khoang cach Euclid tu start. Cach nay dung hon voi lane gap khuc.
-            if (priorityLane != null) {
-                double priorityProgress = priority.getProgress();
-
-                for (Vehicle normal : vehicles) {
-                    if (normal.isPriority()) continue;
-                    if (normal.getLane() != priorityLane) continue;
-
-                    // Tầng 2: xe cùng lane đã có progress là nguồn sự thật,
-                    // không cần project lại từ position x/y mỗi lần.
-                    double normalProgress = normal.getProgress();
-                    double progressGap = normalProgress - priorityProgress;
-
-                    // Xe uu tien dang o sau va sap bat kip xe thuong.
-                    if (progressGap > 0 && progressGap < SAME_LANE_YIELD_DIST) {
-                        normal.setYieldMode(Vehicle.YieldMode.RUSH);
-                    }
-                }
-            }
-
-            // Xu ly xung dot o nga tu: xe thuong trong vung nguy hiem phai dung.
-            for (Intersection intersection : intersections) {
-                double distPrioToCenter = MathUtils.distance(
-                    priority.getPosition(), intersection.getCenter());
-
-                if (distPrioToCenter < INTERSECTION_DANGER) {
-                    for (Vehicle normal : vehicles) {
-                        if (normal.isPriority()) continue;
-                        if (normal.getLane() == null) continue;
-                        if (normal.getLane() == priorityLane) continue;
-                        if (!intersection.getLanes().contains(normal.getLane())) continue;
-
-                        double distNormalToCenter = MathUtils.distance(
-                            normal.getPosition(), intersection.getCenter());
-
-                        if (distNormalToCenter < INTERSECTION_DANGER) {
-                            normal.setYieldMode(Vehicle.YieldMode.STOP);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // ---------------------------------------------------------------------
     // Getters. Van tra ve List goc de giu tuong thich voi UI hien co.
-    // Nen uu tien dung clearLights()/clearIntersections() khi xoa map.
     // ---------------------------------------------------------------------
 
     public List<Vehicle>      getVehicles()      { return vehicles;      }

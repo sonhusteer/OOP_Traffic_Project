@@ -11,9 +11,10 @@ import com.traffic.map.TrafficLight;
 /**
  * Bo nao lai xe co ban.
  *
- * Tang 6 clean-code:
+ * Final clean-code layer:
  * - Driver khong dung leftNeighbor/rightNeighbor de vuot/nhuong nua.
  * - Vươt/ne/nhuong duoc giao cho SideShiftPlanner trong cung Lane.
+ * - YieldMode moi phan biet ro PULL_RIGHT, CLEAR_PATH, STOP, CLEAR_INTERSECTION.
  * - startLaneChange() chi con de tuong thich cho doi lane vat ly that su.
  */
 public abstract class AbstractBaseDriver implements IDriver {
@@ -39,22 +40,39 @@ public abstract class AbstractBaseDriver implements IDriver {
         return Math.min(getMaxSpeed() * 1.5, vehicle.getMaxSpeed() * 1.3);
     }
 
+    protected double getClearPathSpeed(Vehicle vehicle) {
+        return Math.min(getRushSpeed(vehicle), vehicle.getMaxSpeed());
+    }
+
     @Override
     public void makeDecision(Vehicle vehicle, TrafficLight nextLight) {
+        if (vehicle == null) {
+            return;
+        }
+
         if (vehicle.isPhysicalLaneChanging()) {
             keepSafeSpeedDuringPhysicalLaneChange(vehicle);
             return;
         }
 
         Vehicle.YieldMode mode = vehicle.getYieldMode();
+        Lane currentLane = vehicle.getLane();
+
+        // 1. STOP: dung truoc vung xung dot.
         if (mode == Vehicle.YieldMode.STOP) {
             vehicle.setSpeed(0);
             return;
         }
 
-        Lane currentLane = vehicle.getLane();
+        // 2. CLEAR_INTERSECTION: da o trong giao lo thi khong dung giua duong.
+        if (mode == Vehicle.YieldMode.CLEAR_INTERSECTION) {
+            vehicle.setSpeed(getClearPathSpeed(vehicle));
+            return;
+        }
+
         double targetSpeed = getCruiseSpeed(vehicle);
 
+        // 3. Xu ly den do/den vang.
         TrafficLightContext lightContext = findTrafficLightContext(vehicle, currentLane, nextLight);
         boolean stoppingForLight = false;
         if (obeyTrafficLight() && lightContext.isValid()) {
@@ -63,7 +81,8 @@ public abstract class AbstractBaseDriver implements IDriver {
             stoppingForLight = lightDecision.stopping;
         }
 
-        if (mode == Vehicle.YieldMode.RUSH && currentLane != null) {
+        // 4. Xu ly yeu cau nhuong xe uu tien.
+        if (mode == Vehicle.YieldMode.PULL_RIGHT && currentLane != null) {
             boolean alreadyPullingRight = vehicle.getCurrentManeuver().getType()
                     == LateralManeuver.Type.YIELD_RIGHT;
             boolean pulledRight = alreadyPullingRight || sideShiftPlanner.tryYieldRight(
@@ -72,14 +91,20 @@ public abstract class AbstractBaseDriver implements IDriver {
                     getSafeDistance(),
                     getSafeDistance() * 1.5
             );
+
             if (pulledRight) {
-                targetSpeed = Math.min(targetSpeed, getCruiseSpeed(vehicle) * 0.85);
+                targetSpeed = Math.min(targetSpeed, getCruiseSpeed(vehicle) * 0.8);
             } else {
-                targetSpeed = Math.max(targetSpeed, getRushSpeed(vehicle));
+                // Neu khong co cho ne phai, fallback thanh CLEAR_PATH de tranh
+                // chan dau xe uu tien qua lau.
+                targetSpeed = Math.max(targetSpeed, getClearPathSpeed(vehicle));
             }
+        } else if (mode == Vehicle.YieldMode.CLEAR_PATH) {
+            targetSpeed = Math.max(targetSpeed, getClearPathSpeed(vehicle));
         }
 
-        if (mode != Vehicle.YieldMode.RUSH && currentLane != null) {
+        // 5. Khi het tinh huong uu tien, neu xe dang lech track spawn thi quay ve.
+        if (mode == Vehicle.YieldMode.NONE && currentLane != null) {
             sideShiftPlanner.tryReturnToPreferredOffset(
                     vehicle,
                     getSafeDistance(),
@@ -87,6 +112,7 @@ public abstract class AbstractBaseDriver implements IDriver {
             );
         }
 
+        // 6-8. Kiem tra xe phia truoc, thu vuot trong cung lane, neu khong thi bam duoi.
         currentLane = vehicle.getLane();
         if (currentLane != null) {
             Vehicle inFront = currentLane.occupancy().vehicleAheadOf(vehicle);
@@ -95,7 +121,11 @@ public abstract class AbstractBaseDriver implements IDriver {
                 boolean frontIsSlow = inFront.getSpeed() < getCruiseSpeed(vehicle) * 0.85;
                 boolean closeEnough = gap < getSafeDistance() * 2.0;
 
-                if (canOvertake() && !stoppingForLight && frontIsSlow && closeEnough) {
+                if (canOvertake()
+                        && mode == Vehicle.YieldMode.NONE
+                        && !stoppingForLight
+                        && frontIsSlow
+                        && closeEnough) {
                     boolean started = sideShiftPlanner.tryOvertakeInsideLane(
                             vehicle,
                             inFront,

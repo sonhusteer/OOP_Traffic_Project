@@ -45,14 +45,6 @@ public class TJunctionMap implements MapConfig {
         Lane road4 = new Lane(440, 340, 440, -50, null);
         lanes.add(road4);
 
-        road1.setLeftNeighbor(road2);
-        road1.setRightNeighbor(road2);
-        road2.setLeftNeighbor(road1);
-        road2.setRightNeighbor(road1);
-        road3.setLeftNeighbor(road4);
-        road3.setRightNeighbor(road4);
-        road4.setLeftNeighbor(road3);
-        road4.setRightNeighbor(road3);
 
         Intersection ngaBa = new Intersection(Intersection.Type.T_JUNCTION, 400, 300);
         for (Lane lane : lanes) ngaBa.addLane(lane);

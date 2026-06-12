@@ -50,17 +50,8 @@ public class CrossroadsMap implements MapConfig {
         road4.addWaypoint(440, 380); // vạch dừng
         lanes.add(road4);
 
-        // Map ngã tư này chỉ có 1 lane mỗi chiều. leftNeighbor giúp mô phỏng vượt.
-        // rightNeighbor được set đối xứng để code nhường đường không bị null,
-        // nhưng Vehicle.startLaneChange() vẫn chặn lane ngược chiều lệch góc > 45°.
-        road1.setLeftNeighbor(road2);
-        road1.setRightNeighbor(road2);
-        road2.setLeftNeighbor(road1);
-        road2.setRightNeighbor(road1);
-        road3.setLeftNeighbor(road4);
-        road3.setRightNeighbor(road4);
-        road4.setLeftNeighbor(road3);
-        road4.setRightNeighbor(road3);
+        // Vuot/nhuong hien duoc xu ly bang lateralOffset trong cung Lane,
+        // khong can khai bao left/right neighbor nua.
 
         // ── Ngã tư ──────────────────────────────────────────────────────
         Intersection ngaTu = new Intersection(Intersection.Type.CROSSROADS, 400, 300);

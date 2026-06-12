@@ -12,7 +12,22 @@ import com.traffic.map.TrafficLight;
  */
 public abstract class Vehicle {
 
-    public enum YieldMode { NONE, RUSH, STOP }
+    /**
+     * Trang thai xe thuong khi phai nhuong xe uu tien.
+     *
+     * NONE: chay binh thuong.
+     * PULL_RIGHT: ne sang phai trong cung lane.
+     * CLEAR_PATH: khong ne duoc thi tang toc nhe de thoat khoi duong uu tien.
+     * STOP: dung truoc vung xung dot.
+     * CLEAR_INTERSECTION: da o trong giao lo thi di tiep ra khoi giao lo.
+     */
+    public enum YieldMode {
+        NONE,
+        PULL_RIGHT,
+        CLEAR_PATH,
+        STOP,
+        CLEAR_INTERSECTION
+    }
 
     protected Vector2D position;
     protected double   speed;
@@ -38,7 +53,7 @@ public abstract class Vehicle {
     /** Do lech ngang so voi tim lane: am = trai, duong = phai theo huong chay. */
     protected double lateralOffset = 0.0;
 
-    /** Offset ngang ma xe dang muon tien toi. Tang sau se dung cho ne/vuot/nhuong. */
+    /** Offset ngang ma xe dang muon tien toi khi ne/vuot/nhuong trong cung lane. */
     protected double targetLateralOffset = 0.0;
 
     /** Offset mac dinh khi spawn. Sau khi ne/vuot, xe se quay ve offset nay. */
@@ -49,7 +64,7 @@ public abstract class Vehicle {
 
     protected static final double LATERAL_SHIFT_SPEED = 45.0;
 
-    // State chuyen lane vat ly. Giu tam de driver cu chua bi vo.
+    // State chuyen lane vat ly. Khong dung cho vuot/nhuong trong lane nua.
     protected boolean isChangingLane = false;
     protected Lane targetLane = null;
     protected double laneChangeElapsed = 0.0;
@@ -120,6 +135,7 @@ public abstract class Vehicle {
 
     /** Goi khi engine xoa xe. Neu khong reset, Vehicle object cu van giu lane cu. */
     public void detachFromLane() {
+        this.yieldMode = YieldMode.NONE;
         this.lane = null;
         this.homeLane = null;
         this.originalLane = null;
@@ -489,7 +505,7 @@ public abstract class Vehicle {
     public Lane     getHomeLane()        { return homeLane;            }
     public Lane     getTargetLane()      { return targetLane;          }
     public YieldMode getYieldMode()      { return yieldMode;           }
-    public void     setYieldMode(YieldMode m) { this.yieldMode = m;    }
+    public void     setYieldMode(YieldMode m) { this.yieldMode = m != null ? m : YieldMode.NONE; }
     public boolean  isChangingLane()     { return isChangingLane;      }
     public double   getLaneChangeCooldown()   { return laneChangeCooldown;  }
 
