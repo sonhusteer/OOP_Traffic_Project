@@ -122,8 +122,9 @@ public abstract class AbstractBaseRenderer implements IRenderer {
     protected void drawBuildings(GraphicsContext gc, double canvasW, double canvasH) {
         int step = 58;
 
-        for (int gx = 0; gx * step < canvasW; gx++) {
-            for (int gy = 0; gy * step < canvasH; gy++) {
+        // Đổi vòng lặp gy ra ngoài để vẽ theo thứ tự Y-sorting (nhà phía sau vẽ trước, nhà phía trước đè lên)
+        for (int gy = 0; gy * step < canvasH; gy++) {
+            for (int gx = 0; gx * step < canvasW; gx++) {
 
                 double cx = gx * step + step / 2.0;
                 double cy = gy * step + step / 2.0;
@@ -134,73 +135,84 @@ public abstract class AbstractBaseRenderer implements IRenderer {
                 // Hash tất định theo ô — đảm bảo ổn định giữa các frame
                 long h = hash2(gx, gy);
 
-                // ~30% ô trống (vườn / không gian)
-                if (Math.abs(h % 10) < 3) continue;
+                // ~40% ô trống (vườn / cây cối)
+                if (Math.abs(h % 10) < 4) {
+                    if (Math.abs(h % 10) <= 1) { // Vẽ cây 3D phong cách top-down
+                        drawTree(gc, cx, cy, h);
+                    }
+                    continue;
+                }
 
-                double bw = 18 + Math.abs(h % 24);
-                double bh = 18 + Math.abs((h >> 8) % 24);
-                int   ci  = (int) Math.abs(h % ROOF_COLORS.length);
+                // Chiều rộng (bw), chiều sâu (bl), chiều cao giả 3D (bZ)
+                double bw = 24 + Math.abs(h % 20);
+                double bl = 20 + Math.abs((h >> 4) % 20);
+                double bZ = 15 + Math.abs((h >> 8) % 45); // Tòa nhà cao 15 -> 60
 
+                // Tọa độ góc trên bên trái của TÒA NHÀ (dưới đất)
                 double bx = cx - bw / 2 + clamp((h % 7) - 3, -6, 6);
-                double by = cy - bh / 2 + clamp(((h >> 4) % 7) - 3, -6, 6);
+                double by = cy - bl / 2 + clamp(((h >> 4) % 7) - 3, -6, 6);
 
-                Color roof = ROOF_COLORS[ci];
-                Color wall = roof.deriveColor(0, 0.85, 0.62, 1.0);
+                int ci = (int) Math.abs(h % ROOF_COLORS.length);
+                Color roofColor = ROOF_COLORS[ci];
+                Color wallColor = roofColor.deriveColor(0, 0.7, 0.5, 1.0);
 
-                // Drop-shadow
-                gc.setFill(Color.rgb(0, 0, 0, 0.28));
-                gc.fillRoundRect(bx + 3, by + 3, bw, bh, 3, 3);
+                // 1. Bóng đổ (Drop Shadow)
+                gc.setFill(Color.rgb(0, 0, 0, 0.35));
+                gc.fillRoundRect(bx + bZ * 0.4, by + 4, bw, bl, 4, 4);
 
-                // Tường (viền ngoài)
-                gc.setFill(wall);
-                gc.fillRoundRect(bx, by, bw, bh, 3, 3);
+                // 2. Khối tường 2.5D (kéo dài từ nóc xuống đất)
+                gc.setFill(wallColor);
+                gc.fillRoundRect(bx, by - bZ, bw, bl + bZ, 4, 4);
 
-                // Mái nhà (bên trong)
-                gc.setFill(roof);
-                gc.fillRoundRect(bx + 2, by + 2, bw - 4, bh - 4, 2, 2);
+                // Viền tường tạo khối
+                gc.setStroke(wallColor.deriveColor(0, 1.0, 0.3, 1.0));
+                gc.setLineWidth(1.0);
+                gc.strokeRoundRect(bx, by - bZ, bw, bl + bZ, 4, 4);
 
-                // Chi tiết mái
-                boolean flatRoof = Math.abs(h % 3) != 0;
-                if (flatRoof && bw > 22 && bh > 22) {
-                    // Mái bằng: thiết bị hoặc cửa trời
-                    gc.setFill(Color.rgb(180, 185, 190, 0.38));
-                    gc.fillRoundRect(bx + bw * 0.3, by + bh * 0.3,
-                                     bw * 0.4, bh * 0.4, 2, 2);
-                } else {
-                    // Mái dốc: gờ giữa
-                    Color ridge = wall.deriveColor(0, 1, 0.55, 1);
-                    gc.setStroke(ridge);
-                    gc.setLineWidth(1.0);
-                    gc.setLineDashes((double[]) null);
-                    if (bw >= bh) {
-                        gc.strokeLine(bx + 3, by + bh / 2, bx + bw - 3, by + bh / 2);
-                    } else {
-                        gc.strokeLine(bx + bw / 2, by + 3, bx + bw / 2, by + bh - 3);
+                // 3. Mái nhà (Roof) - nằm ở trên cùng (by - bZ)
+                gc.setFill(roofColor);
+                gc.fillRoundRect(bx - 2, by - bZ - 2, bw + 4, bl + 4, 3, 3);
+                
+                // Chi tiết mái: Cục nóng điều hòa / Hộp kỹ thuật
+                gc.setFill(Color.rgb(150, 160, 170, 0.6));
+                gc.fillRoundRect(bx + bw * 0.2, by - bZ + bl * 0.2, bw * 0.3, bl * 0.3, 2, 2);
+
+                // 4. Cửa sổ phát sáng (Hiệu ứng thành phố đêm)
+                if (bZ > 20) {
+                    gc.setFill(Color.rgb(255, 235, 160, 0.8)); // Ánh sáng vàng ấm
+                    int rows = (int) (bZ / 12);
+                    int cols = (int) (bw / 10);
+                    for (int r = 0; r < rows; r++) {
+                        for (int c = 0; c < cols; c++) {
+                            // Xác suất 35% phòng bật đèn sáng
+                            if (Math.abs(hash2((int)h + r, c)) % 10 < 3) {
+                                double wx = bx + 4 + c * 10;
+                                double wy = by - bZ + 10 + r * 12;
+                                gc.fillRect(wx, wy, 5, 6);
+                            }
+                        }
                     }
-                }
-
-                // Cửa sổ
-                if (bw > 26 && bh > 26 && Math.abs(h % 2) == 0) {
-                    gc.setFill(Color.rgb(200, 235, 255, 0.55));
-                    gc.fillRect(bx + 4,       by + 4,       4, 3);
-                    gc.fillRect(bx + bw - 9,  by + 4,       4, 3);
-                    if (bh > 32) {
-                        gc.fillRect(bx + 4,      by + bh - 8, 4, 3);
-                        gc.fillRect(bx + bw - 9, by + bh - 8, 4, 3);
-                    }
-                }
-
-                // Vườn nhỏ (cây xanh) cạnh nhà xác suất thấp
-                if (Math.abs(h % 7) == 0 && bx > 8 && by > 8
-                        && bx + bw + 12 < canvasW && by + bh + 12 < canvasH) {
-                    gc.setFill(Color.rgb(46, 80, 40, 0.60));
-                    double tx = bx + bw + 5, ty = by + bh / 2.0;
-                    gc.fillOval(tx - 6, ty - 6, 12, 12);
-                    gc.setFill(Color.rgb(60, 110, 50, 0.50));
-                    gc.fillOval(tx - 4, ty - 4, 8, 8);
                 }
             }
         }
+    }
+
+    private void drawTree(GraphicsContext gc, double cx, double cy, long h) {
+        double r = 8 + Math.abs(h % 6);
+        double tx = cx + clamp((h % 11) - 5, -8, 8);
+        double ty = cy + clamp(((h >> 4) % 11) - 5, -8, 8);
+        
+        // Bóng cây
+        gc.setFill(Color.rgb(0, 0, 0, 0.3));
+        gc.fillOval(tx - r + 4, ty - r + 4, r*2, r*2);
+        
+        // Tán lá dưới (Tối)
+        gc.setFill(Color.rgb(34, 60, 30, 0.9));
+        gc.fillOval(tx - r, ty - r, r*2, r*2);
+        
+        // Tán lá trên (Sáng hơn, tạo độ bồng bềnh 3D)
+        gc.setFill(Color.rgb(55, 100, 45, 0.9));
+        gc.fillOval(tx - r*0.6, ty - r*0.6, r*1.2, r*1.2);
     }
 
     private boolean isTooCloseToRoad(double px, double py, double thr) {

@@ -5,7 +5,6 @@ import com.traffic.core.Vehicle;
 import com.traffic.core.VehicleFactory;
 import com.traffic.map.Lane;
 import com.traffic.maps.CrossroadsMap;
-import com.traffic.maps.FiveWayMap;
 import com.traffic.maps.HighwayMap;
 import com.traffic.maps.MapConfig;
 import com.traffic.maps.NetworkMap;
@@ -50,9 +49,8 @@ public class MainApp extends Application {
     private static final String[] MAP_NAMES = {
         "Ngã Tư",
         "Ngã Ba",
-        "Ngã Năm",
-        "Mạng lưới 2 Ngã Tư",
-        "Đại Lộ Cao Tốc"
+        "Mạng lưới giao 2 ngã 4",
+        "Đại lộ cao tốc"
     };
 
     /**
@@ -62,9 +60,8 @@ public class MainApp extends Application {
     private static MapConfig createMap(int index) {
         return switch (index) {
             case 1 -> new TJunctionMap();
-            case 2 -> new FiveWayMap();
-            case 3 -> new NetworkMap();
-            case 4 -> new HighwayMap();
+            case 2 -> new NetworkMap();
+            case 3 -> new HighwayMap();
             default -> new CrossroadsMap();
         };
     }

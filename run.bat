@@ -6,7 +6,7 @@ echo   Traffic Simulation - Build ^& Run
 echo ==========================================
 
 
-set JAVA_HOME=C:\Program Files\Microsoft\jdk-21.0.11.10-hotspot
+set JAVA_HOME=%~dp0jdk-26\jdk-26.0.1
 set JAVAFX_PATH=%USERPROFILE%\javafx-sdk\javafx-sdk-21.0.5\lib
 set JAVAC=%JAVA_HOME%\bin\javac.exe
 set JAVA=%JAVA_HOME%\bin\java.exe
