@@ -342,7 +342,12 @@ public class Lane {
     // ------------------------------------------------------------------
 
     public Vehicle getVehicleAhead(Vehicle me) {
-        double myProgress = getProgress(me.getPosition());
+        if (me == null) {
+            return null;
+        }
+        double myProgress = (me.getLane() == this)
+            ? me.getProgress()
+            : getProgress(me.getPosition());
         return getVehicleAheadAt(myProgress, me);
     }
 
@@ -352,7 +357,9 @@ public class Lane {
 
         for (Vehicle other : vehicles) {
             if (other == exclude) continue;
-            double otherProgress = getProgress(other.getPosition());
+            double otherProgress = (other.getLane() == this)
+                ? other.getProgress()
+                : getProgress(other.getPosition());
             double diff = otherProgress - fromProgress;
 
             if (diff > 0 && diff < minDiff) {
@@ -416,12 +423,18 @@ public class Lane {
         double posProgress = getProgress(pos);
 
         for (Vehicle v : vehicles) {
-            if (Math.abs(getProgress(v.getPosition()) - posProgress) < safeGap) {
+            double vehicleProgress = (v.getLane() == this)
+                ? v.getProgress()
+                : getProgress(v.getPosition());
+            if (Math.abs(vehicleProgress - posProgress) < safeGap) {
                 return false;
             }
         }
         for (Vehicle v : reservedBy) {
-            if (Math.abs(getProgress(v.getPosition()) - posProgress) < safeGap) {
+            double vehicleProgress = (v.getLane() == this)
+                ? v.getProgress()
+                : getProgress(v.getPosition());
+            if (Math.abs(vehicleProgress - posProgress) < safeGap) {
                 return false;
             }
         }

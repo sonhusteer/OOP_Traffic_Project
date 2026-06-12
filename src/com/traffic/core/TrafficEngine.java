@@ -170,13 +170,15 @@ public class TrafficEngine {
             // Tinh "phia truoc/phia sau" bang progress tren lane thay vi
             // khoang cach Euclid tu start. Cach nay dung hon voi lane gap khuc.
             if (priorityLane != null) {
-                double priorityProgress = priorityLane.getProgress(priority.getPosition());
+                double priorityProgress = priority.getProgress();
 
                 for (Vehicle normal : vehicles) {
                     if (normal.isPriority()) continue;
                     if (normal.getLane() != priorityLane) continue;
 
-                    double normalProgress = priorityLane.getProgress(normal.getPosition());
+                    // Tầng 2: xe cùng lane đã có progress là nguồn sự thật,
+                    // không cần project lại từ position x/y mỗi lần.
+                    double normalProgress = normal.getProgress();
                     double progressGap = normalProgress - priorityProgress;
 
                     // Xe uu tien dang o sau va sap bat kip xe thuong.

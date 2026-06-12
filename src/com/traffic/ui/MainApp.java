@@ -1,8 +1,6 @@
 package com.traffic.ui;
 
-import com.traffic.core.MathUtils;
 import com.traffic.core.TrafficEngine;
-import com.traffic.core.Vector2D;
 import com.traffic.core.Vehicle;
 import com.traffic.core.VehicleFactory;
 import com.traffic.map.Lane;
@@ -249,7 +247,6 @@ public class MainApp extends Application {
 
             for (int i = 0; i < count; i++) {
                 Vehicle v = VehicleFactory.create(type, 0, 0);
-                v.setLane(lane);
                 applySpawnPosition(v, lane, offIdx, i);
                 engine.addVehicle(v);
             }
@@ -411,8 +408,10 @@ public class MainApp extends Application {
     }
 
     /**
-     * Đặt xe theo progress dọc lane thay vì dịch mỗi trục X.
-     * Nhờ vậy spawn đúng với lane ngang, lane dọc và lane chéo.
+     * Tang 2: spawn bang progress cua Vehicle, khong set x/y truc tiep nua.
+     *
+     * Tam thoi giu lateralOffset = 0.0 de xe nam tren tim lane.
+     * Tang sau moi bat dau chia 2 track ngang trong cung lane.
      */
     private static void applySpawnPosition(Vehicle v, Lane lane, int offIdx, int i) {
         final double gap = 55.0;
@@ -424,16 +423,12 @@ public class MainApp extends Application {
             default -> 0.0;
         };
 
-        double progress = MathUtils.clamp(
-                baseProgress + i * gap,
+        double progress = Math.max(
                 0.0,
-                Math.max(0.0, laneLength - 5.0)
+                Math.min(baseProgress + i * gap, Math.max(0.0, laneLength - 5.0))
         );
 
-        Vector2D point = lane.getPointAtProgress(progress);
-        v.getPosition().setX(point.getX());
-        v.getPosition().setY(point.getY());
-        v.setAngle(lane.getAngleAtProgress(progress));
+        v.setLane(lane, progress);
     }
 
     private Label makeLabel(String text) {

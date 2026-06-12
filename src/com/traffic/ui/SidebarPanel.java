@@ -1,6 +1,5 @@
 package com.traffic.ui;
 
-import com.traffic.core.Vector2D;
 import com.traffic.core.Vehicle;
 import com.traffic.core.VehicleFactory;
 import com.traffic.map.Lane;
@@ -78,7 +77,6 @@ public class SidebarPanel {
 
             for (int i = 0; i < count; i++) {
                 Vehicle v = VehicleFactory.create(type, 0, 0);
-                v.setLane(lane);
                 applyOffset(v, lane, offIdx, i);
                 controller.getEngine().addVehicle(v);
             }
@@ -124,7 +122,10 @@ public class SidebarPanel {
 
     public TextArea getSpawnLog() { return spawnLog; }
 
-    /** Offset theo progress dọc lane, đúng cho cả lane dọc và lane xiên. */
+    /**
+     * Tang 2: spawn bang progress cua Vehicle, khong set x/y truc tiep nua.
+     * Tam thoi giu lateralOffset = 0.0; Tang sau moi chia 2 track ngang.
+     */
     private static void applyOffset(Vehicle v, Lane lane, int offIdx, int i) {
         final double gap = 55.0;
         double length = lane.getLength();
@@ -137,10 +138,7 @@ public class SidebarPanel {
             ? i * gap
             : Math.max(0.0, baseProgress - i * gap);
 
-        Vector2D p = lane.getPointAtProgress(progress);
-        v.getPosition().setX(p.getX());
-        v.getPosition().setY(p.getY());
-        v.setAngle(lane.getAngleAtProgress(progress));
+        v.setLane(lane, progress);
     }
 
     private Label makeLabel(String text) {
