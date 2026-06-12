@@ -5,24 +5,22 @@ import com.traffic.map.Lane;
 import java.util.List;
 
 /**
- * Giao dien chung cho moi ban do mo phong.
+ * Giao diện chung cho mọi bản đồ mô phỏng.
+ *
+ * Nguyên tắc OCP: thêm map mới chỉ cần tạo class mới implement
+ * interface này — không sửa MainApp hay bất kỳ class nào khác.
  */
 public interface MapConfig {
 
-    /** Ten hien thi tren dropdown chon map. */
+    /** Tên hiển thị trên dropdown chọn map */
     String getName();
 
-    /** Tat ca lane can ve tren map. */
+    /** Danh sách tất cả làn đường của map */
     List<Lane> getLanes();
 
-    /** Lane cho UI spawn xe. Mac dinh = getLanes(). */
-    default List<Lane> getSpawnLanes() {
-        return getLanes();
-    }
-
-    /** Danh sach nga re. */
+    /** Danh sách tất cả ngã rẽ của map */
     List<Intersection> getIntersections();
 
-    /** Ten cac lane hien thi tren spawn panel. */
+    /** Tên các làn đường hiển thị trên spawn panel */
     String[] getLaneNames();
 }

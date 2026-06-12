@@ -71,45 +71,35 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
     //  MAIN DRAW
     // =====================================================================
     @Override
-    public void draw(GraphicsContext gc, double width, double height) {
-        // Draw Grass background
-        gc.setFill(Color.web("#1b261a")); 
-        gc.fillRect(0, 0, width, height);
-
-        // Draw simple dummy grid / buildings for flavor (like in the screenshot)
-        drawSimpleBuildings(gc, width, height);
-
-        // Grid nhẹ (optional, to match screenshots)
-        gc.setStroke(Color.web("#2c3e2b", 0.5));
-        gc.setLineWidth(1);
-        for(int i = 0; i < width; i += 100) gc.strokeLine(i, 0, i, height);
-        for(int i = 0; i < height; i += 100) gc.strokeLine(0, i, width, i);
+    public void draw(GraphicsContext gc, double w, double h) {
+        drawBackground(gc, w, h);
+        drawBuildings(gc, w, h);      // nhà dân cư (dưới cùng)
         drawLanes(gc);                // đường xe chạy (kẻ vạch qua ngã tư)
         drawIntersections(gc);        // ngã giao (xóa vạch cũ, vẽ chuẩn)
         drawLights(gc);              // đèn giao thông
         drawVehicles(gc);            // xe
-        drawHUD(gc, width);          // HUD
+        drawRain(gc, w, h);          // hiệu ứng mưa trơn trượt
+        drawHUD(gc, w);              // HUD
     }
 
-    private void drawSimpleBuildings(GraphicsContext gc, double w, double h) {
-        gc.setFill(Color.web("#314234"));
-        // Random square blocks acting as simple top-down roofs
-        // Since we don't have a stable RNG seed, they will re-roll every frame if we just use random().
-        // For a quick fix without state, we can use a deterministic math function based on grid coords.
-        for (int x = 50; x < w; x += 100) {
-            for (int y = 50; y < h; y += 100) {
-                // Pseudo random
-                int hash = (x * 73856093 ^ y * 19349663);
-                if ((hash % 100) > 40) {
-                    double bw = 20 + Math.abs(hash % 30);
-                    double bh = 20 + Math.abs((hash / 17) % 30);
-                    gc.setFill(Color.web("#354638")); // shadow
-                    gc.fillRect(x + 2, y + 2, bw, bh);
-                    gc.setFill(Color.web(((hash % 2) == 0) ? "#4a5d4e" : "#515e52"));
-                    gc.fillRect(x, y, bw, bh);
-                }
-            }
-        }
+    // =====================================================================
+    //  1. NỀN CỎ — gradient tối hơn BasicRenderer
+    // =====================================================================
+    private void drawBackground(GraphicsContext gc, double w, double h) {
+        LinearGradient bg = new LinearGradient(
+            0, 0, w, h, false, CycleMethod.NO_CYCLE,
+            new Stop(0, BG_DARK),
+            new Stop(1, BG_GRASS)
+        );
+        gc.setFill(bg);
+        gc.fillRect(0, 0, w, h);
+
+        // Lưới cỏ mờ nhạt
+        gc.setStroke(Color.rgb(0, 0, 0, 0.08));
+        gc.setLineWidth(1);
+        gc.setLineDashes();
+        for (int x = 0; x < (int) w; x += 32) gc.strokeLine(x, 0, x, h);
+        for (int y = 0; y < (int) h; y += 32) gc.strokeLine(0, y, w, y);
     }
 
     // =====================================================================
@@ -126,29 +116,13 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
             gc.setLineJoin(StrokeLineJoin.ROUND);
             gc.setLineDashes();
 
-            // Hover effect
-            if (lane == hoveredLane) {
-                gc.setStroke(Color.rgb(255, 255, 0, 0.8));
-                gc.setLineWidth(96);
-                strokePath(gc, pts, 0, 0);
-            }
-
-            gc.setLineCap(StrokeLineCap.ROUND);
-            gc.setLineJoin(StrokeLineJoin.ROUND);
-            gc.setLineDashes();
-
             // 1. Shadow mềm
             gc.setStroke(Color.rgb(0, 0, 0, 0.30));
             gc.setLineWidth(88);
             strokePath(gc, pts, 3, 4);
 
-            // 2. Mặt đường asphalt hoặc heatmap
-            if (showHeatmap) {
-                double density = Math.min(1.0, lane.getVehicles().size() / 15.0);
-                gc.setStroke(Color.color(density, 1.0 - density, 0, 0.6));
-            } else {
-                gc.setStroke(ASPHALT);
-            }
+            // 2. Mặt đường asphalt
+            gc.setStroke(ASPHALT);
             gc.setLineWidth(80);
             strokePath(gc, pts, 0, 0);
 
@@ -174,37 +148,7 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
             gc.setLineDashes(14, 10);
             strokePath(gc, pts, 0, 0);
             gc.setLineDashes((double[]) null);
-
-            // 6. Mũi tên định hướng (Transparent Arrows)
-            gc.setStroke(Color.rgb(255, 255, 255, 0.2));
-            gc.setLineWidth(2.5);
-            for (int i = 0; i < pts.size() - 1; i++) {
-                drawArrow(gc, pts.get(i), pts.get(i + 1));
-            }
         }
-    }
-
-    private void drawArrow(GraphicsContext gc, Vector2D p1, Vector2D p2) {
-        double dx = p2.getX() - p1.getX();
-        double dy = p2.getY() - p1.getY();
-        double len = Math.hypot(dx, dy);
-        if (len < 10) return;
-        
-        // Vẽ mũi tên ở giữa đoạn thẳng
-        double mx = p1.getX() + dx / 2;
-        double my = p1.getY() + dy / 2;
-        double angle = Math.atan2(dy, dx);
-        
-        double arrowLen = 12;
-        double arrowAngle = Math.PI / 6;
-        
-        double x1 = mx - arrowLen * Math.cos(angle - arrowAngle);
-        double y1 = my - arrowLen * Math.sin(angle - arrowAngle);
-        double x2 = mx - arrowLen * Math.cos(angle + arrowAngle);
-        double y2 = my - arrowLen * Math.sin(angle + arrowAngle);
-        
-        gc.strokeLine(mx, my, x1, y1);
-        gc.strokeLine(mx, my, x2, y2);
     }
 
     private void strokePath(GraphicsContext gc, List<Vector2D> pts, double dx, double dy) {
@@ -355,7 +299,8 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
         gc.rotate(v.getAngle());   // JavaFX rotate() takes degrees
 
         // Viền cảnh báo STOP (cam)
-        if (v.getYieldMode() == Vehicle.YieldMode.STOP) {
+        if (v.getYieldMode() == Vehicle.YieldMode.STOP_BEFORE_CONFLICT
+                || v.getYieldMode() == Vehicle.YieldMode.CLEAR_CONFLICT) {
             gc.setStroke(Color.rgb(255, 140, 0, 160.0 / 255));
             gc.setLineWidth(2.5);
             gc.strokeRoundRect(-w / 2 - 4, -h / 2 - 4, w + 8, h + 8, 5, 5);
@@ -436,33 +381,7 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
     // =====================================================================
     //  5. HUD ĐÈN GIAO THÔNG — góc trái trên
     // =====================================================================
-    private void drawHUD(GraphicsContext gc, double w) {
-        // Có thể thêm minimap, la bàn, v.v. nếu cần
-        if (selectedVehicle != null) {
-            double vx = selectedVehicle.getPosition().getX();
-            double vy = selectedVehicle.getPosition().getY();
-            
-            gc.setFill(Color.rgb(20, 20, 30, 0.85));
-            gc.fillRoundRect(vx + 15, vy - 40, 110, 45, 5, 5);
-            gc.setStroke(Color.rgb(100, 150, 255, 0.5));
-            gc.setLineWidth(1);
-            gc.strokeRoundRect(vx + 15, vy - 40, 110, 45, 5, 5);
-            
-            gc.setFill(Color.WHITE);
-            gc.setFont(Font.font("Consolas", FontWeight.NORMAL, 11));
-            String type = selectedVehicle.getClass().getSimpleName();
-            String speedStr = String.format("Speed: %.1f", selectedVehicle.getSpeed());
-            gc.fillText(type, vx + 22, vy - 23);
-            gc.fillText(speedStr, vx + 22, vy - 8);
-            
-            // Draw highlight circle around selected vehicle
-            gc.setStroke(Color.WHITE);
-            gc.setLineWidth(1.5);
-            gc.setLineDashes(4, 4);
-            gc.strokeOval(vx - 12, vy - 12, 24, 24);
-            gc.setLineDashes((double[]) null);
-        }
-
+    private void drawHUD(GraphicsContext gc, double canvasW) {
         if (lights.isEmpty()) return;
 
         int panelW = 180, rowH = 22;

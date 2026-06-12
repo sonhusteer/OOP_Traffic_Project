@@ -259,7 +259,8 @@ public class BasicRenderer extends AbstractBaseRenderer {
         gc.rotate(v.getAngle());
 
         // Yield warning
-        if (v.getYieldMode() == Vehicle.YieldMode.STOP) {
+        if (v.getYieldMode() == Vehicle.YieldMode.STOP_BEFORE_CONFLICT
+                || v.getYieldMode() == Vehicle.YieldMode.CLEAR_CONFLICT) {
             gc.setStroke(Color.rgb(255, 140, 0, 0.8));
             gc.setLineWidth(2.5);
             gc.setLineDashes();

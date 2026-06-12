@@ -67,7 +67,6 @@ public class NetworkMap implements MapConfig {
 
         // Dummy lane để giữ đèn RH1 cho ngã tư phải (vì xe không nhận 2 đèn trên 1 làn)
         Lane dummyRH1 = new Lane(510, 340, 510, 340, lightRH1);
-        lanes.add(dummyRH1);
 
         // road2 ← Phải → Trái (Nửa trên Y=260)
         Lane road2 = new Lane(770, 260, 30, 260, lightRH2);
@@ -77,7 +76,6 @@ public class NetworkMap implements MapConfig {
 
         // Dummy lane để giữ đèn LH2 cho ngã tư trái
         Lane dummyLH2 = new Lane(290, 260, 290, 260, lightLH2);
-        lanes.add(dummyLH2);
 
         // ── Đường dọc ngã tư TRÁI (cx=250) ─────────────────────────
 
@@ -99,7 +97,15 @@ public class NetworkMap implements MapConfig {
         road8.addwaypoint(590, 340 + 40); // Stop line dưới (380)
         lanes.add(road8);
 
-        // Khong can neighbor: xe vuot/nhuong bang lateralOffset trong cung Lane.
+        // Thiết lập láng giềng
+        road1.setLeftNeighbor(road2);
+        road2.setLeftNeighbor(road1);
+        
+        road5.setLeftNeighbor(road6);
+        road6.setLeftNeighbor(road5);
+        
+        road7.setLeftNeighbor(road8);
+        road8.setLeftNeighbor(road7);
 
         // ═══════════════════════════════════════════════════════════════════
         //  NGÃ TƯ (Intersection)
@@ -123,7 +129,7 @@ public class NetworkMap implements MapConfig {
         intersections.add(ngaTuPhai);
     }
 
-    @Override public String getName() { return "Mạng lưới giao 2 ngã 4"; }
+    @Override public String getName() { return "Mạng lưới 2 Ngã Tư"; }
 
     @Override public List<Lane> getLanes() { return lanes; }
 

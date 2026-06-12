@@ -2,10 +2,12 @@ package com.traffic.map;
 
 import com.traffic.core.TrafficEngine;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
- * RoadNetwork dang ky cac Intersection va TrafficLight vao TrafficEngine.
+ * Mạng lưới giao thông - quản lý nhiều Intersection.
  */
 public class RoadNetwork {
 
@@ -21,24 +23,20 @@ public class RoadNetwork {
         return intersections;
     }
 
+    /** Lấy tất cả đèn, chống trùng khi một lane/light thuộc nhiều intersection. */
     public List<TrafficLight> getAllLights() {
-        List<TrafficLight> all = new ArrayList<>();
+        Set<TrafficLight> unique = new LinkedHashSet<>();
         for (Intersection intersection : intersections) {
-            for (TrafficLight light : intersection.getAllLights()) {
-                if (light != null && !all.contains(light)) {
-                    all.add(light);
-                }
-            }
+            unique.addAll(intersection.getAllLights());
         }
-        return all;
+        return new ArrayList<>(unique);
     }
 
-    /** Dang ky moi den/ngatu dung 1 lan. Engine cung co guard de tranh trung. */
     public void registerTo(TrafficEngine engine) {
+        for (TrafficLight light : getAllLights()) {
+            engine.addTrafficLight(light);
+        }
         for (Intersection intersection : intersections) {
-            for (TrafficLight light : intersection.getAllLights()) {
-                engine.addTrafficLight(light);
-            }
             engine.addIntersection(intersection);
         }
     }

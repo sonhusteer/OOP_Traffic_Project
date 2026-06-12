@@ -1,25 +1,17 @@
 package com.traffic.drivers;
 
 import com.traffic.core.IDriver;
-import com.traffic.core.LateralManeuver;
 import com.traffic.core.MathUtils;
-import com.traffic.core.Vector2D;
 import com.traffic.core.Vehicle;
 import com.traffic.map.Lane;
 import com.traffic.map.TrafficLight;
 
-/**
- * Bo nao lai xe co ban.
- *
- * Final clean-code layer:
- * - Driver khong dung leftNeighbor/rightNeighbor de vuot/nhuong nua.
- * - Vươt/ne/nhuong duoc giao cho SideShiftPlanner trong cung Lane.
- * - YieldMode moi phan biet ro PULL_RIGHT, CLEAR_PATH, STOP, CLEAR_INTERSECTION.
- * - startLaneChange() chi con de tuong thich cho doi lane vat ly that su.
- */
+/** Shared driver brain with a small in-lane overtaking state machine. */
 public abstract class AbstractBaseDriver implements IDriver {
 
-    private final SideShiftPlanner sideShiftPlanner = new SideShiftPlanner();
+    private static final double RETURN_FRONT_GAP = 75.0;
+    private static final double RETURN_BACK_GAP = 45.0;
+    private static final double PASS_CLEAR_GAP = 28.0;
 
     protected abstract double getBrakeDistance();
     protected abstract double getStopDistance();
@@ -28,222 +20,233 @@ public abstract class AbstractBaseDriver implements IDriver {
     protected abstract double getSafeDistance();
     protected abstract double getOvertakeGap();
     protected abstract boolean canOvertake();
-
     protected boolean obeyTrafficLight() { return true; }
-    protected boolean rushYellowLight()  { return false; }
-
-    protected double getCruiseSpeed(Vehicle vehicle) {
-        return Math.min(getMaxSpeed(), vehicle.getMaxSpeed());
-    }
-
-    protected double getRushSpeed(Vehicle vehicle) {
-        return Math.min(getMaxSpeed() * 1.5, vehicle.getMaxSpeed() * 1.3);
-    }
-
-    protected double getClearPathSpeed(Vehicle vehicle) {
-        return Math.min(getRushSpeed(vehicle), vehicle.getMaxSpeed());
-    }
 
     @Override
     public void makeDecision(Vehicle vehicle, TrafficLight nextLight) {
-        if (vehicle == null) {
-            return;
-        }
-
-        if (vehicle.isPhysicalLaneChanging()) {
-            keepSafeSpeedDuringPhysicalLaneChange(vehicle);
-            return;
-        }
+        if (vehicle.isChangingLane()) return;
 
         Vehicle.YieldMode mode = vehicle.getYieldMode();
-        Lane currentLane = vehicle.getLane();
-
-        // 1. STOP: dung truoc vung xung dot.
-        if (mode == Vehicle.YieldMode.STOP) {
-            vehicle.setSpeed(0);
+        if (mode == Vehicle.YieldMode.STOP_BEFORE_CONFLICT) {
+            vehicle.cancelOvertake();
+            vehicle.setManeuverState(Vehicle.ManeuverState.STOPPED_FOR_CONFLICT);
+            vehicle.returnToPreferredSlot();
+            vehicle.setSpeed(0.0);
             return;
         }
 
-        // 2. CLEAR_INTERSECTION: da o trong giao lo thi khong dung giua duong.
-        if (mode == Vehicle.YieldMode.CLEAR_INTERSECTION) {
-            vehicle.setSpeed(getClearPathSpeed(vehicle));
+        if (mode == Vehicle.YieldMode.CLEAR_CONFLICT) {
+            vehicle.cancelOvertake();
+            vehicle.setManeuverState(Vehicle.ManeuverState.CLEARING_CONFLICT);
+            vehicle.returnToPreferredSlot();
+            vehicle.setSpeed(Math.max(vehicle.getSpeed(), getMaxSpeed() * 0.75));
             return;
         }
 
-        double targetSpeed = getCruiseSpeed(vehicle);
-
-        // 3. Xu ly den do/den vang.
-        TrafficLightContext lightContext = findTrafficLightContext(vehicle, currentLane, nextLight);
-        boolean stoppingForLight = false;
-        if (obeyTrafficLight() && lightContext.isValid()) {
-            LightDecision lightDecision = decideTrafficLightSpeed(vehicle, lightContext, targetSpeed);
-            targetSpeed = lightDecision.targetSpeed;
-            stoppingForLight = lightDecision.stopping;
+        if (mode == Vehicle.YieldMode.YIELD_RIGHT) {
+            vehicle.cancelOvertake();
+            vehicle.setManeuverState(Vehicle.ManeuverState.YIELDING_RIGHT);
+            vehicle.setTargetLateralOffset(Vehicle.RIGHT_OFFSET);
+            vehicle.setSpeed(Math.min(getMaxSpeed() * 0.55,
+                    vehicle.getSpeed() > 0.0 ? vehicle.getSpeed() : getMaxSpeed() * 0.45));
+            return;
         }
 
-        // 4. Xu ly yeu cau nhuong xe uu tien.
-        if (mode == Vehicle.YieldMode.PULL_RIGHT && currentLane != null) {
-            boolean alreadyPullingRight = vehicle.getCurrentManeuver().getType()
-                    == LateralManeuver.Type.YIELD_RIGHT;
-            boolean pulledRight = alreadyPullingRight || sideShiftPlanner.tryYieldRight(
-                    vehicle,
-                    null,
-                    getSafeDistance(),
-                    getSafeDistance() * 1.5
-            );
-
-            if (pulledRight) {
-                targetSpeed = Math.min(targetSpeed, getCruiseSpeed(vehicle) * 0.8);
-            } else {
-                // Neu khong co cho ne phai, fallback thanh CLEAR_PATH de tranh
-                // chan dau xe uu tien qua lau.
-                targetSpeed = Math.max(targetSpeed, getClearPathSpeed(vehicle));
-            }
-        } else if (mode == Vehicle.YieldMode.CLEAR_PATH) {
-            targetSpeed = Math.max(targetSpeed, getClearPathSpeed(vehicle));
+        if (vehicle.getManeuverState() == Vehicle.ManeuverState.YIELDING_RIGHT
+                || vehicle.getManeuverState() == Vehicle.ManeuverState.STOPPED_FOR_CONFLICT
+                || vehicle.getManeuverState() == Vehicle.ManeuverState.CLEARING_CONFLICT) {
+            vehicle.setManeuverState(Vehicle.ManeuverState.NORMAL);
+            vehicle.returnToPreferredSlot();
         }
 
-        // 5. Khi het tinh huong uu tien, neu xe dang lech track spawn thi quay ve.
-        if (mode == Vehicle.YieldMode.NONE && currentLane != null) {
-            sideShiftPlanner.tryReturnToPreferredOffset(
-                    vehicle,
-                    getSafeDistance(),
-                    getSafeDistance() * 1.5
-            );
+        if (handleActiveOvertake(vehicle)) {
+            vehicle.setSpeed(getMaxSpeed());
+            return;
         }
 
-        // 6-8. Kiem tra xe phia truoc, thu vuot trong cung lane, neu khong thi bam duoi.
-        currentLane = vehicle.getLane();
-        if (currentLane != null) {
-            Vehicle inFront = currentLane.occupancy().vehicleAheadOf(vehicle);
+        SpeedDecision speedDecision = applyTrafficLightRule(vehicle, nextLight);
+        double targetSpeed = speedDecision.targetSpeed;
+        boolean stoppingForLight = speedDecision.stoppingForLight;
+
+        Lane lane = vehicle.getLane();
+        if (lane != null) {
+            Vehicle inFront = lane.getVehicleAhead(vehicle);
             if (inFront != null) {
-                double gap = inFront.getProgress() - vehicle.getProgress();
-                boolean frontIsSlow = inFront.getSpeed() < getCruiseSpeed(vehicle) * 0.85;
-                boolean closeEnough = gap < getSafeDistance() * 2.0;
-
-                if (canOvertake()
-                        && mode == Vehicle.YieldMode.NONE
-                        && !stoppingForLight
-                        && frontIsSlow
-                        && closeEnough) {
-                    boolean started = sideShiftPlanner.tryOvertakeInsideLane(
-                            vehicle,
-                            inFront,
-                            getOvertakeGap(),
-                            getOvertakeGap() * 1.5,
-                            true
-                    );
-                    if (started) {
-                        vehicle.setSpeed(targetSpeed);
+                double longitudinalGap = inFront.getRearProgress() - vehicle.getFrontProgress();
+                if (longitudinalGap <= getSafeDistance()) {
+                    if (shouldStartOvertake(vehicle, inFront, stoppingForLight)) {
+                        startOvertake(vehicle, inFront);
+                        vehicle.setSpeed(getMaxSpeed());
                         return;
                     }
-                }
 
-                if (gap <= getSafeDistance()) {
                     targetSpeed = Math.min(targetSpeed, inFront.getSpeed());
-                    if (gap <= getSafeDistance() * 0.5) {
+                    if (longitudinalGap <= getSafeDistance() * 0.35) {
                         targetSpeed = getMinSpeed();
                     }
                 }
             }
+
+            if (!vehicle.isOvertaking()
+                    && Math.abs(vehicle.getLateralOffset() - vehicle.getPreferredLateralOffset()) > 0.5) {
+                vehicle.returnToPreferredSlot();
+            }
+
+            if (tryKeepRightAfterFormalOvertake(vehicle, targetSpeed)) return;
         }
 
         vehicle.setSpeed(targetSpeed);
     }
 
-    private void keepSafeSpeedDuringPhysicalLaneChange(Vehicle vehicle) {
-        double targetSpeed = getCruiseSpeed(vehicle);
+    private record SpeedDecision(double targetSpeed, boolean stoppingForLight) {}
 
-        Lane targetLane = vehicle.getTargetLane();
-        if (targetLane != null) {
-            Vehicle inFrontNew = targetLane.getVehicleAhead(vehicle);
-            if (inFrontNew != null) {
-                double gap = inFrontNew.getProgress() - vehicle.getProgress();
-                if (gap <= getSafeDistance()) {
-                    targetSpeed = Math.min(targetSpeed, inFrontNew.getSpeed());
+    private SpeedDecision applyTrafficLightRule(Vehicle vehicle, TrafficLight nextLight) {
+        double targetSpeed = getMaxSpeed();
+        boolean stoppingForLight = false;
+
+        Lane logicalLane = vehicle.getOriginalLane() != null ? vehicle.getOriginalLane() : vehicle.getLane();
+        TrafficLight logicalLight = logicalLane != null ? logicalLane.getLight() : nextLight;
+
+        if (obeyTrafficLight() && logicalLight != null && logicalLane != null) {
+            double stopProgress = logicalLane.getStopProgress();
+            double frontProgress = vehicle.getLane() == logicalLane
+                    ? vehicle.getFrontProgress()
+                    : logicalLane.getProgressOf(vehicle.getPosition()) + vehicle.getLongitudinalLength() / 2.0;
+            double distToStop = stopProgress - frontProgress;
+            boolean isPastStop = distToStop < -3.0;
+
+            if (!isPastStop) {
+                if (logicalLight.isRed()) {
+                    stoppingForLight = true;
+                    if (distToStop <= getStopDistance()) {
+                        targetSpeed = getMinSpeed();
+                    } else if (distToStop <= getBrakeDistance()) {
+                        double ratio = (distToStop - getStopDistance())
+                                / Math.max(1.0, getBrakeDistance() - getStopDistance());
+                        targetSpeed = MathUtils.clamp(getMaxSpeed() * ratio, getMinSpeed(), getMaxSpeed());
+                    }
+                } else if (logicalLight.isYellow() && this instanceof AggressiveDriver) {
+                    targetSpeed = getMaxSpeed() * 1.1;
                 }
             }
         }
+        return new SpeedDecision(targetSpeed, stoppingForLight);
+    }
 
-        Lane originalLane = vehicle.getOriginalLane();
-        if (originalLane != null) {
-            Vehicle inFrontOld = originalLane.getVehicleAhead(vehicle);
-            if (inFrontOld != null) {
-                double gap = inFrontOld.getProgress() - vehicle.getProgress();
-                if (gap <= getSafeDistance() * 0.3) {
-                    targetSpeed = Math.min(targetSpeed, inFrontOld.getSpeed());
+    private boolean handleActiveOvertake(Vehicle vehicle) {
+        if (!vehicle.isOvertaking()) return false;
+        Lane lane = vehicle.getLane();
+        Vehicle target = vehicle.getOvertakingTarget();
+
+        if (lane == null || target == null || target.getLane() != lane) {
+            vehicle.returnToPreferredSlot();
+            vehicle.setManeuverState(Vehicle.ManeuverState.OVERTAKE_RETURNING);
+        }
+
+        switch (vehicle.getManeuverState()) {
+            case OVERTAKE_SHIFT_LEFT -> {
+                vehicle.setTargetLateralOffset(Vehicle.LEFT_OFFSET);
+                if (Math.abs(vehicle.getLateralOffset() - Vehicle.LEFT_OFFSET) <= 3.0) {
+                    vehicle.setManeuverState(Vehicle.ManeuverState.OVERTAKE_PASSING);
                 }
+                return true;
             }
-        }
-
-        vehicle.setSpeed(targetSpeed);
-    }
-
-    private LightDecision decideTrafficLightSpeed(Vehicle vehicle, TrafficLightContext context, double targetSpeed) {
-        double myProgress = (vehicle.getLane() == context.lane)
-                ? vehicle.getProgress()
-                : context.lane.getProgress(vehicle.getPosition());
-        double stopProgress = context.lane.getProgress(context.stopLine);
-        double distToStop = stopProgress - myProgress;
-        boolean isPastStop = distToStop < -3.0;
-        if (isPastStop) {
-            return new LightDecision(targetSpeed, false);
-        }
-
-        if (context.light.isRed()) {
-            if (distToStop <= getStopDistance()) {
-                return new LightDecision(getMinSpeed(), true);
+            case OVERTAKE_PASSING -> {
+                vehicle.setTargetLateralOffset(Vehicle.LEFT_OFFSET);
+                target = vehicle.getOvertakingTarget();
+                if (target == null || hasPassedTarget(vehicle, target)) {
+                    if (lane == null || lane.isLateralSpaceFree(vehicle,
+                            vehicle.getPreferredLateralOffset(), RETURN_FRONT_GAP, RETURN_BACK_GAP)) {
+                        vehicle.returnToPreferredSlot();
+                        vehicle.setManeuverState(Vehicle.ManeuverState.OVERTAKE_RETURNING);
+                    }
+                }
+                return true;
             }
-            if (distToStop <= getBrakeDistance()) {
-                double ratio = (distToStop - getStopDistance()) / (getBrakeDistance() - getStopDistance());
-                double speed = MathUtils.clamp(getCruiseSpeed(vehicle) * ratio, getMinSpeed(), getCruiseSpeed(vehicle));
-                return new LightDecision(speed, true);
+            case OVERTAKE_RETURNING -> {
+                if (lane != null && !vehicle.isNearPreferredLateralOffset(5.0)
+                        && !lane.isLateralSpaceFree(vehicle,
+                            vehicle.getPreferredLateralOffset(), RETURN_FRONT_GAP, RETURN_BACK_GAP)) {
+                    vehicle.setTargetLateralOffset(Vehicle.LEFT_OFFSET);
+                    vehicle.setManeuverState(Vehicle.ManeuverState.OVERTAKE_PASSING);
+                    return true;
+                }
+
+                vehicle.returnToPreferredSlot();
+                if (vehicle.isNearPreferredLateralOffset(2.0)) {
+                    vehicle.setOvertakingTarget(null);
+                    vehicle.setManeuverState(Vehicle.ManeuverState.NORMAL);
+                    vehicle.setManeuverCooldown(1.0);
+                }
+                return true;
             }
-        } else if (context.light.isYellow() && rushYellowLight()) {
-            double speed = Math.min(getRushSpeed(vehicle), getCruiseSpeed(vehicle) * 1.1);
-            return new LightDecision(speed, false);
-        }
-        return new LightDecision(targetSpeed, false);
-    }
-
-    private TrafficLightContext findTrafficLightContext(Vehicle vehicle, Lane currentLane, TrafficLight fallbackLight) {
-        Lane homeLane = vehicle.getHomeLane();
-        Lane lightLane = homeLane != null ? homeLane : currentLane;
-        TrafficLight logicalLight = fallbackLight;
-        Vector2D stopLine = null;
-
-        if (lightLane != null) {
-            Lane.TrafficControlPoint nextControl = lightLane.getNextTrafficControl(vehicle.getPosition());
-            if (nextControl != null) {
-                logicalLight = nextControl.getLight();
-                stopLine = nextControl.getStopLine();
-            } else if (logicalLight != null) {
-                stopLine = lightLane.getStopLine();
+            default -> {
+                return false;
             }
-        }
-        return new TrafficLightContext(lightLane, logicalLight, stopLine);
-    }
-
-    private static final class LightDecision {
-        private final double targetSpeed;
-        private final boolean stopping;
-        private LightDecision(double targetSpeed, boolean stopping) {
-            this.targetSpeed = targetSpeed;
-            this.stopping = stopping;
         }
     }
 
-    private static final class TrafficLightContext {
-        private final Lane lane;
-        private final TrafficLight light;
-        private final Vector2D stopLine;
-        private TrafficLightContext(Lane lane, TrafficLight light, Vector2D stopLine) {
-            this.lane = lane;
-            this.light = light;
-            this.stopLine = stopLine;
+    private boolean shouldStartOvertake(Vehicle vehicle, Vehicle inFront, boolean stoppingForLight) {
+        if (!canOvertake() || stoppingForLight) return false;
+        if (vehicle.getManeuverCooldown() > 0.0 || vehicle.getLaneChangeCooldown() > 0.0) return false;
+        if (vehicle.getLane() == null || inFront == null || inFront.isPriority()) return false;
+
+        Lane lane = vehicle.getLane();
+        if (lane.isFormalLaneChangeAllowed()) {
+            Lane left = lane.getLeftNeighbor();
+            if (left != null && vehicle.isSameDirection(left)
+                    && left.isSafeToEnter(vehicle.getPosition(), getOvertakeGap())) {
+                return true;
+            }
         }
-        private boolean isValid() {
-            return lane != null && light != null && stopLine != null;
+
+        return lane.isInLaneOvertakeAllowed()
+                && Math.abs(vehicle.getLateralOffset() - Vehicle.LEFT_OFFSET) > 3.0
+                && lane.isLateralSpaceFree(vehicle, Vehicle.LEFT_OFFSET, getOvertakeGap() + 45.0, 35.0);
+    }
+
+    private void startOvertake(Vehicle vehicle, Vehicle inFront) {
+        Lane lane = vehicle.getLane();
+        if (lane != null && lane.isFormalLaneChangeAllowed()) {
+            Lane left = lane.getLeftNeighbor();
+            if (left != null && vehicle.isSameDirection(left)
+                    && left.isSafeToEnter(vehicle.getPosition(), getOvertakeGap())) {
+                vehicle.startLaneChange(left);
+                return;
+            }
         }
+        vehicle.beginInLaneOvertake(inFront);
+    }
+
+    private boolean hasPassedTarget(Vehicle vehicle, Vehicle target) {
+        if (target == null || target.getLane() != vehicle.getLane()) return true;
+        return vehicle.getRearProgress() > target.getFrontProgress() + PASS_CLEAR_GAP;
+    }
+
+    private boolean tryKeepRightAfterFormalOvertake(Vehicle vehicle, double targetSpeed) {
+        Lane lane = vehicle.getLane();
+        if (!vehicle.hasOvertaken()
+                || vehicle.getLaneChangeCooldown() > 0.0
+                || lane == null
+                || !lane.isFormalLaneChangeAllowed()
+                || lane.getRightNeighbor() == null) {
+            return false;
+        }
+
+        Lane right = lane.getRightNeighbor();
+        if (!vehicle.isSameDirection(right)) return false;
+
+        Vehicle frontRight = right.getVehicleAhead(vehicle);
+        double gapRight = frontRight != null
+                ? frontRight.getRearProgress() - vehicle.getFrontProgress()
+                : Double.MAX_VALUE;
+
+        if (right.isSafeToEnter(vehicle.getPosition(), getSafeDistance())
+                && gapRight > getSafeDistance() * 2.0) {
+            vehicle.startLaneChange(right);
+            vehicle.setSpeed(targetSpeed);
+            return true;
+        }
+        return false;
     }
 }
