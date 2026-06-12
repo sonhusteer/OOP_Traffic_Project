@@ -12,9 +12,9 @@ public abstract class TrafficLight {
 
     protected State state;
     protected double timeLeft;
-    protected final double greenTime;
+    protected double greenTime;
     protected final double yellowTime = 3.0;
-    protected final double redTime;
+    protected double redTime;
     protected Vector2D position;
 
     // Khi manualMode = true, den khong tu dong chuyen mau.
@@ -58,6 +58,20 @@ public abstract class TrafficLight {
             case YELLOW -> { timeLeft = redTime;    yield State.RED;    }
             case RED    -> { timeLeft = greenTime;  yield State.GREEN;  }
         };
+    }
+
+    public void setGreenTime(double t) {
+        this.greenTime = t;
+        if (state == State.GREEN && timeLeft > t) {
+            timeLeft = t;
+        }
+    }
+
+    public void setRedTime(double t) {
+        this.redTime = t;
+        if (state == State.RED && timeLeft > t) {
+            timeLeft = t;
+        }
     }
 
     public void setManualMode(boolean manual) {

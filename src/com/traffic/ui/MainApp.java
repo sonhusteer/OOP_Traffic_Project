@@ -349,7 +349,61 @@ public class MainApp extends Application {
             lblOffset, cmbOffset, 
             lblCount, spinner,
             lblSpeedTitle, speedSlider,
-            btnSpawn, btnAuto, btnClear,
+            btnSpawn, btnAuto, btnClear
+        );
+
+        // --- TRAFFIC LIGHT CONFIG ---
+        Separator sepLight = new Separator();
+        sepLight.setStyle("-fx-background-color: #444466;");
+        
+        Label lblLightTitle = new Label("🚦 Cấu hình Đèn (s)");
+        lblLightTitle.setFont(Font.font("SansSerif", FontWeight.BOLD, 15));
+        lblLightTitle.setTextFill(Color.rgb(180, 200, 255));
+
+        Label lblGreenTime = makeLabel("Đèn Xanh: 10s");
+        Slider greenSlider = new Slider(2, 30, 10);
+        greenSlider.valueProperty().addListener((obs, oldV, newV) -> {
+            int val = newV.intValue();
+            lblGreenTime.setText("Đèn Xanh: " + val + "s");
+            if (currentMap != null) {
+                for (Lane lane : currentMap.getLanes()) {
+                    for (com.traffic.map.TrafficLight light : lane.getAllTrafficLights()) {
+                        light.setGreenTime(val);
+                    }
+                }
+            }
+        });
+
+        Label lblRedTime = makeLabel("Đèn Đỏ: 10s");
+        Slider redSlider = new Slider(2, 30, 10);
+        redSlider.valueProperty().addListener((obs, oldV, newV) -> {
+            int val = newV.intValue();
+            lblRedTime.setText("Đèn Đỏ: " + val + "s");
+            if (currentMap != null) {
+                for (Lane lane : currentMap.getLanes()) {
+                    for (com.traffic.map.TrafficLight light : lane.getAllTrafficLights()) {
+                        light.setRedTime(val);
+                    }
+                }
+            }
+        });
+
+        sidebar.getChildren().addAll(
+            sepLight, lblLightTitle,
+            lblGreenTime, greenSlider,
+            lblRedTime, redSlider
+        );
+        // -----------------------------
+
+        sep = new Separator();
+        sep.setStyle("-fx-background-color: #444466;");
+        lblLog = makeLabel("📋 Lịch sử:");
+        spawnLog.setEditable(false);
+        spawnLog.setPrefRowCount(8);
+        spawnLog.setWrapText(true);
+        spawnLog.setStyle("-fx-control-inner-background: #111120;-fx-text-fill: #88cc88;-fx-font-family: 'Consolas';-fx-font-size: 11px;");
+
+        sidebar.getChildren().addAll(
             sep, lblLog, spawnLog
         );
         VBox.setVgrow(spawnLog, Priority.ALWAYS);
