@@ -57,7 +57,7 @@ public class HighwayMap implements MapConfig {
         road4.setRightNeighbor(road3); // Vượt xong thì tạt phải về (road3)
     }
 
-    @Override public String getName() { return "Đại Lộ Cao Tốc"; }
+    @Override public String getName() { return "Đại lộ cao tốc"; }
 
     @Override public List<Lane> getLanes() { return lanes; }
 

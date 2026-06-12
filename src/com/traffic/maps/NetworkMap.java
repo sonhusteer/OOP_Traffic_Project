@@ -131,7 +131,7 @@ public class NetworkMap implements MapConfig {
         intersections.add(ngaTuPhai);
     }
 
-    @Override public String getName() { return "Mạng lưới 2 Ngã Tư"; }
+    @Override public String getName() { return "Mạng lưới giao 2 ngã 4"; }
 
     @Override public List<Lane> getLanes() { return lanes; }
 

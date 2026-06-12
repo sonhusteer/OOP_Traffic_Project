@@ -77,6 +77,7 @@ public abstract class AbstractBaseRenderer implements IRenderer {
 
     protected static final double ROAD_HALF = 40.0;
     private   static final int   LIGHT_HIT  = 45;
+    private   static final double CONTROL_MARKING_RADIUS = 180.0;
 
     public AbstractBaseRenderer(List<Lane> lanes) { this.lanes = lanes; }
 
@@ -121,8 +122,9 @@ public abstract class AbstractBaseRenderer implements IRenderer {
     protected void drawBuildings(GraphicsContext gc, double canvasW, double canvasH) {
         int step = 58;
 
-        for (int gx = 0; gx * step < canvasW; gx++) {
-            for (int gy = 0; gy * step < canvasH; gy++) {
+        // Đổi vòng lặp gy ra ngoài để vẽ theo thứ tự Y-sorting (nhà phía sau vẽ trước, nhà phía trước đè lên)
+        for (int gy = 0; gy * step < canvasH; gy++) {
+            for (int gx = 0; gx * step < canvasW; gx++) {
 
                 double cx = gx * step + step / 2.0;
                 double cy = gy * step + step / 2.0;
@@ -133,73 +135,84 @@ public abstract class AbstractBaseRenderer implements IRenderer {
                 // Hash tất định theo ô — đảm bảo ổn định giữa các frame
                 long h = hash2(gx, gy);
 
-                // ~30% ô trống (vườn / không gian)
-                if (Math.abs(h % 10) < 3) continue;
+                // ~40% ô trống (vườn / cây cối)
+                if (Math.abs(h % 10) < 4) {
+                    if (Math.abs(h % 10) <= 1) { // Vẽ cây 3D phong cách top-down
+                        drawTree(gc, cx, cy, h);
+                    }
+                    continue;
+                }
 
-                double bw = 18 + Math.abs(h % 24);
-                double bh = 18 + Math.abs((h >> 8) % 24);
-                int   ci  = (int) Math.abs(h % ROOF_COLORS.length);
+                // Chiều rộng (bw), chiều sâu (bl), chiều cao giả 3D (bZ)
+                double bw = 24 + Math.abs(h % 20);
+                double bl = 20 + Math.abs((h >> 4) % 20);
+                double bZ = 15 + Math.abs((h >> 8) % 45); // Tòa nhà cao 15 -> 60
 
+                // Tọa độ góc trên bên trái của TÒA NHÀ (dưới đất)
                 double bx = cx - bw / 2 + clamp((h % 7) - 3, -6, 6);
-                double by = cy - bh / 2 + clamp(((h >> 4) % 7) - 3, -6, 6);
+                double by = cy - bl / 2 + clamp(((h >> 4) % 7) - 3, -6, 6);
 
-                Color roof = ROOF_COLORS[ci];
-                Color wall = roof.deriveColor(0, 0.85, 0.62, 1.0);
+                int ci = (int) Math.abs(h % ROOF_COLORS.length);
+                Color roofColor = ROOF_COLORS[ci];
+                Color wallColor = roofColor.deriveColor(0, 0.7, 0.5, 1.0);
 
-                // Drop-shadow
-                gc.setFill(Color.rgb(0, 0, 0, 0.28));
-                gc.fillRoundRect(bx + 3, by + 3, bw, bh, 3, 3);
+                // 1. Bóng đổ (Drop Shadow)
+                gc.setFill(Color.rgb(0, 0, 0, 0.35));
+                gc.fillRoundRect(bx + bZ * 0.4, by + 4, bw, bl, 4, 4);
 
-                // Tường (viền ngoài)
-                gc.setFill(wall);
-                gc.fillRoundRect(bx, by, bw, bh, 3, 3);
+                // 2. Khối tường 2.5D (kéo dài từ nóc xuống đất)
+                gc.setFill(wallColor);
+                gc.fillRoundRect(bx, by - bZ, bw, bl + bZ, 4, 4);
 
-                // Mái nhà (bên trong)
-                gc.setFill(roof);
-                gc.fillRoundRect(bx + 2, by + 2, bw - 4, bh - 4, 2, 2);
+                // Viền tường tạo khối
+                gc.setStroke(wallColor.deriveColor(0, 1.0, 0.3, 1.0));
+                gc.setLineWidth(1.0);
+                gc.strokeRoundRect(bx, by - bZ, bw, bl + bZ, 4, 4);
 
-                // Chi tiết mái
-                boolean flatRoof = Math.abs(h % 3) != 0;
-                if (flatRoof && bw > 22 && bh > 22) {
-                    // Mái bằng: thiết bị hoặc cửa trời
-                    gc.setFill(Color.rgb(180, 185, 190, 0.38));
-                    gc.fillRoundRect(bx + bw * 0.3, by + bh * 0.3,
-                                     bw * 0.4, bh * 0.4, 2, 2);
-                } else {
-                    // Mái dốc: gờ giữa
-                    Color ridge = wall.deriveColor(0, 1, 0.55, 1);
-                    gc.setStroke(ridge);
-                    gc.setLineWidth(1.0);
-                    gc.setLineDashes((double[]) null);
-                    if (bw >= bh) {
-                        gc.strokeLine(bx + 3, by + bh / 2, bx + bw - 3, by + bh / 2);
-                    } else {
-                        gc.strokeLine(bx + bw / 2, by + 3, bx + bw / 2, by + bh - 3);
+                // 3. Mái nhà (Roof) - nằm ở trên cùng (by - bZ)
+                gc.setFill(roofColor);
+                gc.fillRoundRect(bx - 2, by - bZ - 2, bw + 4, bl + 4, 3, 3);
+                
+                // Chi tiết mái: Cục nóng điều hòa / Hộp kỹ thuật
+                gc.setFill(Color.rgb(150, 160, 170, 0.6));
+                gc.fillRoundRect(bx + bw * 0.2, by - bZ + bl * 0.2, bw * 0.3, bl * 0.3, 2, 2);
+
+                // 4. Cửa sổ phát sáng (Hiệu ứng thành phố đêm)
+                if (bZ > 20) {
+                    gc.setFill(Color.rgb(255, 235, 160, 0.8)); // Ánh sáng vàng ấm
+                    int rows = (int) (bZ / 12);
+                    int cols = (int) (bw / 10);
+                    for (int r = 0; r < rows; r++) {
+                        for (int c = 0; c < cols; c++) {
+                            // Xác suất 35% phòng bật đèn sáng
+                            if (Math.abs(hash2((int)h + r, c)) % 10 < 3) {
+                                double wx = bx + 4 + c * 10;
+                                double wy = by - bZ + 10 + r * 12;
+                                gc.fillRect(wx, wy, 5, 6);
+                            }
+                        }
                     }
-                }
-
-                // Cửa sổ
-                if (bw > 26 && bh > 26 && Math.abs(h % 2) == 0) {
-                    gc.setFill(Color.rgb(200, 235, 255, 0.55));
-                    gc.fillRect(bx + 4,       by + 4,       4, 3);
-                    gc.fillRect(bx + bw - 9,  by + 4,       4, 3);
-                    if (bh > 32) {
-                        gc.fillRect(bx + 4,      by + bh - 8, 4, 3);
-                        gc.fillRect(bx + bw - 9, by + bh - 8, 4, 3);
-                    }
-                }
-
-                // Vườn nhỏ (cây xanh) cạnh nhà xác suất thấp
-                if (Math.abs(h % 7) == 0 && bx > 8 && by > 8
-                        && bx + bw + 12 < canvasW && by + bh + 12 < canvasH) {
-                    gc.setFill(Color.rgb(46, 80, 40, 0.60));
-                    double tx = bx + bw + 5, ty = by + bh / 2.0;
-                    gc.fillOval(tx - 6, ty - 6, 12, 12);
-                    gc.setFill(Color.rgb(60, 110, 50, 0.50));
-                    gc.fillOval(tx - 4, ty - 4, 8, 8);
                 }
             }
         }
+    }
+
+    private void drawTree(GraphicsContext gc, double cx, double cy, long h) {
+        double r = 8 + Math.abs(h % 6);
+        double tx = cx + clamp((h % 11) - 5, -8, 8);
+        double ty = cy + clamp(((h >> 4) % 11) - 5, -8, 8);
+        
+        // Bóng cây
+        gc.setFill(Color.rgb(0, 0, 0, 0.3));
+        gc.fillOval(tx - r + 4, ty - r + 4, r*2, r*2);
+        
+        // Tán lá dưới (Tối)
+        gc.setFill(Color.rgb(34, 60, 30, 0.9));
+        gc.fillOval(tx - r, ty - r, r*2, r*2);
+        
+        // Tán lá trên (Sáng hơn, tạo độ bồng bềnh 3D)
+        gc.setFill(Color.rgb(55, 100, 45, 0.9));
+        gc.fillOval(tx - r*0.6, ty - r*0.6, r*1.2, r*1.2);
     }
 
     private boolean isTooCloseToRoad(double px, double py, double thr) {
@@ -251,65 +264,81 @@ public abstract class AbstractBaseRenderer implements IRenderer {
             double x1 = b[0], y1 = b[1], x2 = b[2], y2 = b[3];
             double bw = x2 - x1, bh = y2 - y1;
 
-            // ── 1. Nền asphalt (Xóa các vạch kẻ đường đè lên nhau) ────────
+            // ── 1. Nền asphalt (xóa các vạch kẻ đường đè lên nhau) ─────
             gc.setFill(Color.rgb(38, 41, 50));
             gc.fillRect(x1, y1, bw, bh);
 
             // Highlight ánh sáng giữa ngã tư
             gc.setFill(Color.rgb(255, 255, 255, 0.04));
-            gc.fillOval(x1 + bw*0.1, y1 + bh*0.1, bw*0.8, bh*0.8);
+            gc.fillOval(x1 + bw * 0.1, y1 + bh * 0.1, bw * 0.8, bh * 0.8);
 
-            // ── 2. Vẽ vạch kẻ theo TỪNG LÀN (Realistic Markings) ──────────
+            // ── 2. Vẽ vạch dừng/zebra theo từng control point gần ngã tư ─
             for (Lane lane : inter.getLanes()) {
-                Vector2D start = lane.getStart();
-                Vector2D end = lane.getEnd();
-                Vector2D stop = lane.getStopLine();
-                
-                double dx = end.getX() - start.getX();
-                double dy = end.getY() - start.getY();
-                double len = Math.hypot(dx, dy);
-                if (len == 0) continue;
-                double nx = dx / len;
-                double ny = dy / len;
-                double px = -ny; // Vector vuông góc
-                double py = nx;
-                
-                double hw = ROAD_HALF; // 40px
-                
-                // --- Stop Line (Vạch dừng) ---
-                gc.setStroke(Color.rgb(240, 240, 240, 0.85));
-                gc.setLineWidth(4.0);
-                gc.setLineCap(StrokeLineCap.BUTT);
-                gc.strokeLine(
-                    stop.getX() + px * hw, stop.getY() + py * hw,
-                    stop.getX() - px * hw, stop.getY() - py * hw
-                );
-                
-                // --- Zebra Crossing (Vạch người đi bộ) ---
-                double zebraDist = 18; // lùi về sau vạch dừng
-                double zcx = stop.getX() - nx * zebraDist;
-                double zcy = stop.getY() - ny * zebraDist;
-                
-                double zebraLen = 16;
-                gc.setStroke(Color.rgb(220, 220, 220, 0.45));
-                gc.setLineWidth(5.0);
-                // Vẽ từng sọc song song với hướng đi
-                for (double offset = -hw + 8; offset <= hw - 8; offset += 12) {
-                    double cx = zcx + px * offset;
-                    double cy = zcy + py * offset;
-                    gc.strokeLine(
-                        cx - nx * (zebraLen/2), cy - ny * (zebraLen/2),
-                        cx + nx * (zebraLen/2), cy + ny * (zebraLen/2)
+                boolean hasMarking = false;
+
+                // Lane co the co nhieu den/vach dung (NetworkMap road1/road2).
+                // Chi ve vach dung gan center cua Intersection hien tai de tranh
+                // ve ca vach dung cua nga tu ben kia.
+                for (Lane.TrafficControlPoint control : lane.getTrafficControls()) {
+                    Vector2D stop = control.getStopLine();
+                    double distToCenter = Math.hypot(
+                        stop.getX() - inter.getCenter().getX(),
+                        stop.getY() - inter.getCenter().getY()
                     );
+                    if (distToCenter <= CONTROL_MARKING_RADIUS) {
+                        drawStopMarking(gc, lane, stop);
+                        hasMarking = true;
+                    }
                 }
-                
-                // --- Mũi tên chỉ hướng (Road Arrow) ---
-                double arrowDist = 55; // lùi xa hơn zebra
-                double ax = stop.getX() - nx * arrowDist;
-                double ay = stop.getY() - ny * arrowDist;
-                drawRoadArrow(gc, ax, ay, nx, ny);
+
+                // Fallback cho lane kieu cu chi co 1 den.
+                if (!hasMarking && lane.getLight() != null) {
+                    drawStopMarking(gc, lane, lane.getStopLine());
+                }
             }
         }
+    }
+
+    /** Ve vach dung, zebra crossing va mui ten tai 1 stop line. */
+    private void drawStopMarking(GraphicsContext gc, Lane lane, Vector2D stop) {
+        double stopProgress = lane.getProgress(stop);
+        double angle = Math.toRadians(lane.getAngleAtProgress(stopProgress));
+        double nx = Math.cos(angle);
+        double ny = Math.sin(angle);
+        double px = -ny;
+        double py = nx;
+        double hw = ROAD_HALF;
+
+        // Stop line.
+        gc.setStroke(Color.rgb(240, 240, 240, 0.85));
+        gc.setLineWidth(4.0);
+        gc.setLineCap(StrokeLineCap.BUTT);
+        gc.strokeLine(
+            stop.getX() + px * hw, stop.getY() + py * hw,
+            stop.getX() - px * hw, stop.getY() - py * hw
+        );
+
+        // Zebra crossing.
+        double zebraDist = 18;
+        double zcx = stop.getX() - nx * zebraDist;
+        double zcy = stop.getY() - ny * zebraDist;
+        double zebraLen = 16;
+        gc.setStroke(Color.rgb(220, 220, 220, 0.45));
+        gc.setLineWidth(5.0);
+        for (double offset = -hw + 8; offset <= hw - 8; offset += 12) {
+            double cx = zcx + px * offset;
+            double cy = zcy + py * offset;
+            gc.strokeLine(
+                cx - nx * (zebraLen / 2), cy - ny * (zebraLen / 2),
+                cx + nx * (zebraLen / 2), cy + ny * (zebraLen / 2)
+            );
+        }
+
+        // Road arrow.
+        double arrowDist = 55;
+        double ax = stop.getX() - nx * arrowDist;
+        double ay = stop.getY() - ny * arrowDist;
+        drawRoadArrow(gc, ax, ay, nx, ny);
     }
 
     private void drawRoadArrow(GraphicsContext gc, double x, double y, double nx, double ny) {
