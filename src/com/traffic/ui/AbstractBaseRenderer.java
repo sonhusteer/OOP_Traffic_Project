@@ -77,6 +77,7 @@ public abstract class AbstractBaseRenderer implements IRenderer {
 
     protected static final double ROAD_HALF = 40.0;
     private   static final int   LIGHT_HIT  = 45;
+    private   static final double CONTROL_MARKING_RADIUS = 180.0;
 
     public AbstractBaseRenderer(List<Lane> lanes) { this.lanes = lanes; }
 
@@ -251,65 +252,81 @@ public abstract class AbstractBaseRenderer implements IRenderer {
             double x1 = b[0], y1 = b[1], x2 = b[2], y2 = b[3];
             double bw = x2 - x1, bh = y2 - y1;
 
-            // ── 1. Nền asphalt (Xóa các vạch kẻ đường đè lên nhau) ────────
+            // ── 1. Nền asphalt (xóa các vạch kẻ đường đè lên nhau) ─────
             gc.setFill(Color.rgb(38, 41, 50));
             gc.fillRect(x1, y1, bw, bh);
 
             // Highlight ánh sáng giữa ngã tư
             gc.setFill(Color.rgb(255, 255, 255, 0.04));
-            gc.fillOval(x1 + bw*0.1, y1 + bh*0.1, bw*0.8, bh*0.8);
+            gc.fillOval(x1 + bw * 0.1, y1 + bh * 0.1, bw * 0.8, bh * 0.8);
 
-            // ── 2. Vẽ vạch kẻ theo TỪNG LÀN (Realistic Markings) ──────────
+            // ── 2. Vẽ vạch dừng/zebra theo từng control point gần ngã tư ─
             for (Lane lane : inter.getLanes()) {
-                Vector2D start = lane.getStart();
-                Vector2D end = lane.getEnd();
-                Vector2D stop = lane.getStopLine();
-                
-                double dx = end.getX() - start.getX();
-                double dy = end.getY() - start.getY();
-                double len = Math.hypot(dx, dy);
-                if (len == 0) continue;
-                double nx = dx / len;
-                double ny = dy / len;
-                double px = -ny; // Vector vuông góc
-                double py = nx;
-                
-                double hw = ROAD_HALF; // 40px
-                
-                // --- Stop Line (Vạch dừng) ---
-                gc.setStroke(Color.rgb(240, 240, 240, 0.85));
-                gc.setLineWidth(4.0);
-                gc.setLineCap(StrokeLineCap.BUTT);
-                gc.strokeLine(
-                    stop.getX() + px * hw, stop.getY() + py * hw,
-                    stop.getX() - px * hw, stop.getY() - py * hw
-                );
-                
-                // --- Zebra Crossing (Vạch người đi bộ) ---
-                double zebraDist = 18; // lùi về sau vạch dừng
-                double zcx = stop.getX() - nx * zebraDist;
-                double zcy = stop.getY() - ny * zebraDist;
-                
-                double zebraLen = 16;
-                gc.setStroke(Color.rgb(220, 220, 220, 0.45));
-                gc.setLineWidth(5.0);
-                // Vẽ từng sọc song song với hướng đi
-                for (double offset = -hw + 8; offset <= hw - 8; offset += 12) {
-                    double cx = zcx + px * offset;
-                    double cy = zcy + py * offset;
-                    gc.strokeLine(
-                        cx - nx * (zebraLen/2), cy - ny * (zebraLen/2),
-                        cx + nx * (zebraLen/2), cy + ny * (zebraLen/2)
+                boolean hasMarking = false;
+
+                // Lane co the co nhieu den/vach dung (NetworkMap road1/road2).
+                // Chi ve vach dung gan center cua Intersection hien tai de tranh
+                // ve ca vach dung cua nga tu ben kia.
+                for (Lane.TrafficControlPoint control : lane.getTrafficControls()) {
+                    Vector2D stop = control.getStopLine();
+                    double distToCenter = Math.hypot(
+                        stop.getX() - inter.getCenter().getX(),
+                        stop.getY() - inter.getCenter().getY()
                     );
+                    if (distToCenter <= CONTROL_MARKING_RADIUS) {
+                        drawStopMarking(gc, lane, stop);
+                        hasMarking = true;
+                    }
                 }
-                
-                // --- Mũi tên chỉ hướng (Road Arrow) ---
-                double arrowDist = 55; // lùi xa hơn zebra
-                double ax = stop.getX() - nx * arrowDist;
-                double ay = stop.getY() - ny * arrowDist;
-                drawRoadArrow(gc, ax, ay, nx, ny);
+
+                // Fallback cho lane kieu cu chi co 1 den.
+                if (!hasMarking && lane.getLight() != null) {
+                    drawStopMarking(gc, lane, lane.getStopLine());
+                }
             }
         }
+    }
+
+    /** Ve vach dung, zebra crossing va mui ten tai 1 stop line. */
+    private void drawStopMarking(GraphicsContext gc, Lane lane, Vector2D stop) {
+        double stopProgress = lane.getProgress(stop);
+        double angle = Math.toRadians(lane.getAngleAtProgress(stopProgress));
+        double nx = Math.cos(angle);
+        double ny = Math.sin(angle);
+        double px = -ny;
+        double py = nx;
+        double hw = ROAD_HALF;
+
+        // Stop line.
+        gc.setStroke(Color.rgb(240, 240, 240, 0.85));
+        gc.setLineWidth(4.0);
+        gc.setLineCap(StrokeLineCap.BUTT);
+        gc.strokeLine(
+            stop.getX() + px * hw, stop.getY() + py * hw,
+            stop.getX() - px * hw, stop.getY() - py * hw
+        );
+
+        // Zebra crossing.
+        double zebraDist = 18;
+        double zcx = stop.getX() - nx * zebraDist;
+        double zcy = stop.getY() - ny * zebraDist;
+        double zebraLen = 16;
+        gc.setStroke(Color.rgb(220, 220, 220, 0.45));
+        gc.setLineWidth(5.0);
+        for (double offset = -hw + 8; offset <= hw - 8; offset += 12) {
+            double cx = zcx + px * offset;
+            double cy = zcy + py * offset;
+            gc.strokeLine(
+                cx - nx * (zebraLen / 2), cy - ny * (zebraLen / 2),
+                cx + nx * (zebraLen / 2), cy + ny * (zebraLen / 2)
+            );
+        }
+
+        // Road arrow.
+        double arrowDist = 55;
+        double ax = stop.getX() - nx * arrowDist;
+        double ay = stop.getY() - ny * arrowDist;
+        drawRoadArrow(gc, ax, ay, nx, ny);
     }
 
     private void drawRoadArrow(GraphicsContext gc, double x, double y, double nx, double ny) {

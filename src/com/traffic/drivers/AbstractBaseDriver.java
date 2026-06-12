@@ -2,18 +2,19 @@ package com.traffic.drivers;
 
 import com.traffic.core.IDriver;
 import com.traffic.core.MathUtils;
+import com.traffic.core.Vector2D;
 import com.traffic.core.Vehicle;
 import com.traffic.map.Lane;
 import com.traffic.map.TrafficLight;
 
 /**
- * Bộ não lái xe trừu tượng.
- *
- * Logic ưu tiên (từ cao đến thấp):
- *   1. Đèn đỏ → phanh/dừng  (TUYỆT ĐỐI không vượt khi đèn đỏ)
- *   2. Nhường xe ưu tiên → lấn phải
- *   3. Xe chậm phía trước → lấn trái vượt (NẾU đèn không đỏ)
- *   4. Đang mượn làn → quay về homeLane ngay khi có thể
+ * Bo nao lai xe co ban.
+ * Thu tu uu tien:
+ * 1. STOP do xe uu tien o nga tu.
+ * 2. RUSH / nhuong duong xe uu tien.
+ * 3. Den giao thong sap toi.
+ * 4. Quay ve lane nha neu dang muon lane.
+ * 5. Giu khoang cach va vuot xe.
  */
 public abstract class AbstractBaseDriver implements IDriver {
 
@@ -28,21 +29,29 @@ public abstract class AbstractBaseDriver implements IDriver {
     protected boolean obeyTrafficLight() { return true; }
     protected boolean rushYellowLight()  { return false; }
 
+    /** Toc do hanh trinh bi gioi han boi ca driver va loai xe. */
+    protected double getCruiseSpeed(Vehicle vehicle) {
+        return Math.min(getMaxSpeed(), vehicle.getMaxSpeed());
+    }
+
+    /** Toc do khi RUSH, van khong de xe dap/xe cuu hoa vuot qua qua phi ly. */
+    protected double getRushSpeed(Vehicle vehicle) {
+        return Math.min(getMaxSpeed() * 1.5, vehicle.getMaxSpeed() * 1.3);
+    }
+
     @Override
     public void makeDecision(Vehicle vehicle, TrafficLight nextLight) {
 
-        // ── Đang trượt ngang → chỉ canh xe, không ra quyết định mới ─────
+        // Dang chuyen lane: chi can giu toc do an toan, khong ra lenh moi.
         if (vehicle.isChangingLane()) {
-            double targetSpeed = getMaxSpeed();
+            double targetSpeed = getCruiseSpeed(vehicle);
 
             Lane targetLane = vehicle.getTargetLane();
             if (targetLane != null) {
                 Vehicle inFrontNew = targetLane.getVehicleAhead(vehicle);
                 if (inFrontNew != null) {
                     double distNew = MathUtils.distance(
-                        vehicle.getPosition(),
-                        inFrontNew.getPosition()
-                    );
+                        vehicle.getPosition(), inFrontNew.getPosition());
 
                     if (distNew <= getSafeDistance()) {
                         targetSpeed = Math.min(targetSpeed, inFrontNew.getSpeed());
@@ -57,9 +66,7 @@ public abstract class AbstractBaseDriver implements IDriver {
 
                 if (inFrontOld != null) {
                     double distOld = MathUtils.distance(
-                        vehicle.getPosition(),
-                        inFrontOld.getPosition()
-                    );
+                        vehicle.getPosition(), inFrontOld.getPosition());
 
                     if (distOld <= getSafeDistance() * 0.3) {
                         targetSpeed = Math.min(targetSpeed, inFrontOld.getSpeed());
@@ -73,66 +80,76 @@ public abstract class AbstractBaseDriver implements IDriver {
 
         Vehicle.YieldMode mode = vehicle.getYieldMode();
 
-        // ── 1. Dừng hẳn ở ngã tư ────────────────────────────────────────
         if (mode == Vehicle.YieldMode.STOP) {
             vehicle.setSpeed(0);
             return;
         }
 
-        double targetSpeed = getMaxSpeed();
+        double targetSpeed = getCruiseSpeed(vehicle);
         if (mode == Vehicle.YieldMode.RUSH) {
-            targetSpeed = getMaxSpeed() * 1.5;
+            targetSpeed = getRushSpeed(vehicle);
         }
 
-        // ── 2. Nhường đường: lấn sang phải ──────────────────────────────
-        if (mode == Vehicle.YieldMode.RUSH && vehicle.getLane().getRightNeighbor() != null) {
-            Lane right = vehicle.getLane().getRightNeighbor();
+        Lane currentLane = vehicle.getLane();
+
+        // RUSH: thu sang lane ben phai neu co. Neu khong co, xe se tang toc.
+        if (mode == Vehicle.YieldMode.RUSH && currentLane != null
+                && currentLane.getRightNeighbor() != null) {
+            Lane right = currentLane.getRightNeighbor();
             if (right.isSafeToEnter(vehicle.getPosition(), getSafeDistance())
                     && vehicle.startLaneChange(right)) {
                 return;
             }
         }
 
-        // ── 3. Đèn giao thông (LUÔN dùng đèn của homeLane) ─────────────
-        //    Đây là fix chính: khi xe đang mượn làn khác để vượt,
-        //    nó vẫn tuân theo đèn của LÀN NHÀ, không phải làn đang mượn.
+        // Den giao thong: chon control point sap toi tren homeLane.
         boolean stoppingForLight = false;
-
         Lane homeLane = vehicle.getHomeLane();
-        Lane lightLane = (homeLane != null) ? homeLane : vehicle.getLane();
-        TrafficLight logicalLight = (lightLane != null) ? lightLane.getLight() : nextLight;
+        Lane lightLane = (homeLane != null) ? homeLane : currentLane;
+        TrafficLight logicalLight = nextLight;
+        Vector2D stopLine = null;
 
-        if (obeyTrafficLight() && logicalLight != null && lightLane != null) {
-            var stopLine   = lightLane.getStopLine();
-            var laneStart  = lightLane.getStart();
+        if (lightLane != null) {
+            Lane.TrafficControlPoint nextControl =
+                lightLane.getNextTrafficControl(vehicle.getPosition());
+            if (nextControl != null) {
+                logicalLight = nextControl.getLight();
+                stopLine = nextControl.getStopLine();
+            } else if (logicalLight != null) {
+                stopLine = lightLane.getStopLine();
+            }
+        }
 
-            double distToStop      = MathUtils.distance(vehicle.getPosition(), stopLine);
-            double myDistToStart   = MathUtils.distance(laneStart, vehicle.getPosition());
-            double stopDistToStart = MathUtils.distance(laneStart, stopLine);
-            boolean isPastStop     = myDistToStart > stopDistToStart;
+        if (obeyTrafficLight() && logicalLight != null && lightLane != null && stopLine != null) {
+            double myProgress = lightLane.getProgress(vehicle.getPosition());
+            double stopProgress = lightLane.getProgress(stopLine);
+            double distToStop = stopProgress - myProgress;
+            boolean isPastStop = distToStop < -3.0;
 
             if (!isPastStop) {
                 if (logicalLight.isRed()) {
                     stoppingForLight = true;
+
                     if (distToStop <= getStopDistance()) {
                         targetSpeed = getMinSpeed();
                     } else if (distToStop <= getBrakeDistance()) {
                         double ratio = (distToStop - getStopDistance())
                                      / (getBrakeDistance() - getStopDistance());
                         targetSpeed = MathUtils.clamp(
-                            getMaxSpeed() * ratio, getMinSpeed(), getMaxSpeed());
+                            getCruiseSpeed(vehicle) * ratio,
+                            getMinSpeed(),
+                            getCruiseSpeed(vehicle));
                     }
                 } else if (logicalLight.isYellow() && rushYellowLight()) {
-                    targetSpeed = getMaxSpeed() * 1.1;
+                    targetSpeed = Math.min(getRushSpeed(vehicle), getCruiseSpeed(vehicle) * 1.1);
                 }
             }
         }
 
-        // ── 4. Quay về homeLane nếu đang mượn làn ───────────────────────
-        //    Ưu tiên cao hơn vượt xe: nếu đã vượt xong → về nhà ngay.
+        // Neu dang muon lane de vuot, co gang ve homeLane truoc khi vuot tiep.
         if (vehicle.isAwayFromHome() && vehicle.getLaneChangeCooldown() <= 0) {
             Lane home = vehicle.getHomeLane();
-            if (home != null && home != vehicle.getLane()) {
+            if (home != null && home != currentLane) {
                 Vehicle frontHome = home.getVehicleAhead(vehicle);
                 double distHome = (frontHome != null)
                     ? MathUtils.distance(vehicle.getPosition(), frontHome.getPosition())
@@ -147,26 +164,25 @@ public abstract class AbstractBaseDriver implements IDriver {
             }
         }
 
-        // ── 5. Giữ khoảng cách & Vượt xe ────────────────────────────────
-        if (vehicle.getLane() != null) {
-            Vehicle inFront = vehicle.getLane().getVehicleAhead(vehicle);
+        // Giu khoang cach va vuot xe neu co the.
+        currentLane = vehicle.getLane();
+        if (currentLane != null) {
+            Vehicle inFront = currentLane.getVehicleAhead(vehicle);
             if (inFront != null) {
                 double distToCar = MathUtils.distance(
                     vehicle.getPosition(), inFront.getPosition());
 
                 if (distToCar <= getSafeDistance()) {
-                    // *** KHÔNG vượt khi đèn đỏ ***
                     if (canOvertake()
                             && !stoppingForLight
-                            && vehicle.getLane().getLeftNeighbor() != null) {
-                        Lane left = vehicle.getLane().getLeftNeighbor();
+                            && currentLane.getLeftNeighbor() != null) {
+                        Lane left = currentLane.getLeftNeighbor();
                         if (left.isSafeToEnter(vehicle.getPosition(), getOvertakeGap())
                                 && vehicle.startLaneChange(left)) {
                             return;
                         }
                     }
 
-                    // Không vượt được → bám đuôi
                     targetSpeed = Math.min(targetSpeed, inFront.getSpeed());
                     if (distToCar <= getSafeDistance() * 0.5) {
                         targetSpeed = getMinSpeed();

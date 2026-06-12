@@ -1,62 +1,239 @@
-
 package com.traffic.map;
- 
+
 import com.traffic.core.MathUtils;
 import com.traffic.core.Vector2D;
 import com.traffic.core.Vehicle;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
- 
+
 /**
- * Một làn đường: danh sách waypoints và đèn kiểm soát.
- * Waypoints: index 0 = điểm đầu, index 1 = vạch dừng, index cuối = điểm cuối.
+ * Mot lane gom polyline waypoints, xe dang nam tren lane va cac diem den.
+ *
+ * Backward compatibility:
+ * - addwaypoint() van duoc giu de cac map cu khong phai sua het.
+ * - Neu lane co light va chua khai bao control point ro rang, waypoint dau
+ *   tien duoc xem la vach dung cua light cu.
  */
 public class Lane {
- 
-    private final List<Vector2D> waypoints = new ArrayList<>();
-    private final TrafficLight   light;
-    private final List<Vehicle>  vehicles  = new ArrayList<>();
 
-    // ── Neighbor Lanes (Láng giềng để chuyển làn) ────────────────────────
+    /** Mot diem dieu khien giao thong: vach dung + den tuong ung. */
+    public static final class TrafficControlPoint {
+        private final Vector2D stopLine;
+        private final TrafficLight light;
+
+        private TrafficControlPoint(Vector2D stopLine, TrafficLight light) {
+            this.stopLine = stopLine;
+            this.light = light;
+        }
+
+        public Vector2D getStopLine() { return stopLine; }
+        public TrafficLight getLight() { return light; }
+    }
+
+    private static final double POINT_EPSILON = 0.0001;
+    private static final double PASSED_STOP_TOLERANCE = 8.0;
+
+    private final List<Vector2D> waypoints = new ArrayList<>();
+    private final TrafficLight light;
+    private final List<TrafficControlPoint> trafficControls = new ArrayList<>();
+    private boolean explicitTrafficControls = false;
+
+    private final List<Vehicle> vehicles = new ArrayList<>();
+
     private Lane leftNeighbor;
     private Lane rightNeighbor;
 
-    // Các xe đang có ý định lấn vào làn này (Chống deadlock)
+    // Xe dang dat cho de chuyen vao lane nay.
     private final List<Vehicle> reservedBy = new ArrayList<>();
- 
+
     public Lane(double startX, double startY,
                 double endX,   double endY,
                 TrafficLight light) {
         this.light = light;
-        waypoints.add(new Vector2D(startX, startY)); // index 0: điểm đầu
-        waypoints.add(new Vector2D(endX, endY));     // index cuối: điểm cuối
+        waypoints.add(new Vector2D(startX, startY));
+        waypoints.add(new Vector2D(endX, endY));
     }
- 
-    // ── Waypoints ────────────────────────────────────────────────────────
- 
-    /** Chèn waypoint vào trước điểm cuối — gọi theo thứ tự từ đầu đến cuối */
+
+    // ------------------------------------------------------------------
+    // Waypoints va traffic controls.
+    // ------------------------------------------------------------------
+
+    /** Ten dung chuan Java. Nen dung method nay cho code moi. */
+    public void addWaypoint(double x, double y) {
+        Vector2D point = insertWaypointBeforeEnd(x, y);
+
+        // Tuong thich code cu: waypoint dau tien la vach dung cho light chinh.
+        if (!explicitTrafficControls && light != null && trafficControls.isEmpty()) {
+            trafficControls.add(new TrafficControlPoint(point, light));
+        }
+    }
+
+    /** Ten cu trong project. Giu lai de khong phai sua toan bo map. */
     public void addwaypoint(double x, double y) {
-        waypoints.add(waypoints.size() - 1, new Vector2D(x, y));
+        addWaypoint(x, y);
     }
- 
-    public List<Vector2D> getwaypoints() { return waypoints; }
-    public Vector2D       getStart()     { return waypoints.get(0); }
-    public Vector2D       getEnd()       { return waypoints.get(waypoints.size() - 1); }
- 
+
+    /** Ten getter moi, ro nghia hon. */
+    public List<Vector2D> getWaypoints() {
+        return waypoints;
+    }
+
+    /** Ten getter cu, giu de renderer cu van compile. */
+    public List<Vector2D> getwaypoints() {
+        return waypoints;
+    }
+
+    public Vector2D getStart() {
+        return waypoints.get(0);
+    }
+
+    public Vector2D getEnd() {
+        return waypoints.get(waypoints.size() - 1);
+    }
+
     /**
-     * Vạch dừng = waypoint thứ 2 (index 1), được thêm qua addwaypoint().
-     * Nếu chưa có waypoint trung gian → fallback về vị trí đèn.
+     * Khai bao ro mot den va vach dung tren lane.
+     * Can cho NetworkMap vi road1/road2 di qua 2 nga tu, moi nga tu co 1 den.
      */
+    public void addTrafficControlPoint(double x, double y, TrafficLight light) {
+        if (light == null) return;
+
+        // Khi dung explicit controls, bo implicit control sinh tu addWaypoint().
+        if (!explicitTrafficControls) {
+            trafficControls.clear();
+            explicitTrafficControls = true;
+        }
+
+        Vector2D stopLine = findOrInsertWaypoint(x, y);
+        if (!containsControl(stopLine, light)) {
+            trafficControls.add(new TrafficControlPoint(stopLine, light));
+        }
+    }
+
+    public List<TrafficControlPoint> getTrafficControls() {
+        return Collections.unmodifiableList(trafficControls);
+    }
+
+    /** Lay tat ca den cua lane, co the nhieu hon 1 den. */
+    public List<TrafficLight> getLights() {
+        List<TrafficLight> result = new ArrayList<>();
+        for (TrafficControlPoint control : trafficControls) {
+            TrafficLight controlLight = control.getLight();
+            if (controlLight != null && !result.contains(controlLight)) {
+                result.add(controlLight);
+            }
+        }
+        if (result.isEmpty() && light != null) {
+            result.add(light);
+        }
+        return result;
+    }
+
+    /** Alias ro nghia hon cho Intersection/RoadNetwork khi gom den. */
+    public List<TrafficLight> getAllTrafficLights() {
+        return getLights();
+    }
+
+    /**
+     * API cu: tra ve den dau tien cua lane. Driver moi nen dung
+     * getNextTrafficControl() de chon den sap toi.
+     */
+    public TrafficLight getLight() {
+        if (!trafficControls.isEmpty()) {
+            return trafficControls.get(0).getLight();
+        }
+        return light;
+    }
+
+    /** API cu: tra ve vach dung dau tien. */
     public Vector2D getStopLine() {
+        if (!trafficControls.isEmpty()) {
+            return trafficControls.get(0).getStopLine();
+        }
         if (waypoints.size() >= 3) {
-            return waypoints.get(1); // index 1 = vạch dừng
+            return waypoints.get(1);
         }
         return light != null ? light.getPosition() : getEnd();
     }
 
-    // ── Tiến độ dọc theo lane (polyline) ─────────────────────────────────
+    /**
+     * Tim vach dung gan mot diem, dung cho renderer khi 1 lane thuoc nhieu
+     * Intersection. Vi du NetworkMap: road1 co vach dung o ca nga tu trai
+     * va nga tu phai.
+     */
+    public Vector2D getStopLineNear(Vector2D point) {
+        if (point == null || trafficControls.isEmpty()) {
+            return getStopLine();
+        }
 
-    /** Tổng chiều dài lane dọc theo waypoints */
+        TrafficControlPoint best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (TrafficControlPoint control : trafficControls) {
+            double distance = MathUtils.distance(point, control.getStopLine());
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = control;
+            }
+        }
+        return best != null ? best.getStopLine() : getStopLine();
+    }
+
+    /**
+     * Tim den/vach dung tiep theo theo progress hien tai cua xe.
+     * Neu xe da qua den thu nhat tren NetworkMap, method se tra ve den thu hai.
+     */
+    public TrafficControlPoint getNextTrafficControl(Vector2D pos) {
+        if (trafficControls.isEmpty()) return null;
+
+        double myProgress = getProgress(pos);
+        TrafficControlPoint best = null;
+        double bestProgress = Double.MAX_VALUE;
+
+        for (TrafficControlPoint control : trafficControls) {
+            double controlProgress = getProgress(control.getStopLine());
+
+            // Cho dung sai nho de xe dung ngay vach van con nhin thay den hien tai.
+            if (controlProgress + PASSED_STOP_TOLERANCE >= myProgress
+                    && controlProgress < bestProgress) {
+                bestProgress = controlProgress;
+                best = control;
+            }
+        }
+
+        return best;
+    }
+
+    private Vector2D insertWaypointBeforeEnd(double x, double y) {
+        Vector2D point = new Vector2D(x, y);
+        waypoints.add(waypoints.size() - 1, point);
+        return point;
+    }
+
+    private Vector2D findOrInsertWaypoint(double x, double y) {
+        Vector2D target = new Vector2D(x, y);
+        for (Vector2D point : waypoints) {
+            if (MathUtils.distance(point, target) <= POINT_EPSILON) {
+                return point;
+            }
+        }
+        return insertWaypointBeforeEnd(x, y);
+    }
+
+    private boolean containsControl(Vector2D stopLine, TrafficLight controlLight) {
+        for (TrafficControlPoint control : trafficControls) {
+            if (control.getLight() == controlLight
+                    && MathUtils.distance(control.getStopLine(), stopLine) <= POINT_EPSILON) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // ------------------------------------------------------------------
+    // Progress tren polyline.
+    // ------------------------------------------------------------------
+
     public double getLength() {
         double total = 0.0;
         for (int i = 0; i < waypoints.size() - 1; i++) {
@@ -65,7 +242,6 @@ public class Lane {
         return total;
     }
 
-    /** Tính tiến độ (quãng đường từ đầu lane) của một vị trí pos trên lane */
     public double getProgress(Vector2D pos) {
         double bestProgress = 0.0;
         double bestDistanceSq = Double.MAX_VALUE;
@@ -78,7 +254,6 @@ public class Lane {
             double dx = b.getX() - a.getX();
             double dy = b.getY() - a.getY();
             double lenSq = dx * dx + dy * dy;
-
             if (lenSq < 0.000001) continue;
 
             double t = ((pos.getX() - a.getX()) * dx + (pos.getY() - a.getY()) * dy) / lenSq;
@@ -95,12 +270,12 @@ public class Lane {
                 bestDistanceSq = distanceSq;
                 bestProgress = accumulated + Math.sqrt(lenSq) * t;
             }
+
             accumulated += Math.sqrt(lenSq);
         }
         return bestProgress;
     }
 
-    /** Lấy tọa độ điểm tại vị trí progress trên lane */
     public Vector2D getPointAtProgress(double progress) {
         progress = MathUtils.clamp(progress, 0.0, getLength());
         double accumulated = 0.0;
@@ -109,7 +284,6 @@ public class Lane {
             Vector2D a = waypoints.get(i);
             Vector2D b = waypoints.get(i + 1);
             double segmentLength = MathUtils.distance(a, b);
-
             if (segmentLength < 0.000001) continue;
 
             if (accumulated + segmentLength >= progress) {
@@ -124,7 +298,6 @@ public class Lane {
         return getEnd();
     }
 
-    /** Lấy góc (degrees) của lane tại vị trí progress */
     public double getAngleAtProgress(double progress) {
         if (waypoints.size() < 2) return 0.0;
         progress = MathUtils.clamp(progress, 0.0, getLength());
@@ -134,7 +307,6 @@ public class Lane {
             Vector2D a = waypoints.get(i);
             Vector2D b = waypoints.get(i + 1);
             double segmentLength = MathUtils.distance(a, b);
-
             if (segmentLength < 0.000001) continue;
 
             if (accumulated + segmentLength >= progress) {
@@ -144,19 +316,19 @@ public class Lane {
         }
         return MathUtils.angleTo(waypoints.get(waypoints.size() - 2), getEnd());
     }
- 
-    // ── Xe phía trước ────────────────────────────────────────────────────
 
-    /** Tìm xe gần nhất phía trước, dùng tiến độ dọc theo lane */
+    // ------------------------------------------------------------------
+    // Tim xe phia truoc.
+    // ------------------------------------------------------------------
+
     public Vehicle getVehicleAhead(Vehicle me) {
         double myProgress = getProgress(me.getPosition());
         return getVehicleAheadAt(myProgress, me);
     }
 
-    /** Tìm xe gần nhất phía trước tại vị trí progress trên lane */
     public Vehicle getVehicleAheadAt(double fromProgress, Vehicle exclude) {
         Vehicle inFront = null;
-        double  minDiff = Double.MAX_VALUE;
+        double minDiff = Double.MAX_VALUE;
 
         for (Vehicle other : vehicles) {
             if (other == exclude) continue;
@@ -170,31 +342,68 @@ public class Lane {
         }
         return inFront;
     }
- 
-    // ── Getters ──────────────────────────────────────────────────────────
- 
-    public TrafficLight  getLight()              { return light;       }
-    public List<Vehicle> getVehicles()           { return vehicles;    }
-    public void          addVehicle(Vehicle v)   { vehicles.add(v);    }
-    public void          removeVehicle(Vehicle v){ vehicles.remove(v); }
 
-    // ── Neighbors & Safety ───────────────────────────────────────────────
+    // ------------------------------------------------------------------
+    // Vehicles, neighbors va safety.
+    // ------------------------------------------------------------------
 
-    public Lane getLeftNeighbor()                { return leftNeighbor;  }
-    public void setLeftNeighbor(Lane left)       { this.leftNeighbor = left; }
-    public Lane getRightNeighbor()               { return rightNeighbor; }
-    public void setRightNeighbor(Lane right)     { this.rightNeighbor = right; }
+    public List<Vehicle> getVehicles() {
+        return vehicles;
+    }
 
-    public void reserve(Vehicle v)               { reservedBy.add(v);    }
-    public void release(Vehicle v)               { reservedBy.remove(v); }
+    public void addVehicle(Vehicle v) {
+        if (v != null && !vehicles.contains(v)) {
+            vehicles.add(v);
+        }
+    }
 
-    /** Kiểm tra xem một vị trí pos trên làn này có an toàn để xe lấn vào không */
+    public void removeVehicle(Vehicle v) {
+        vehicles.remove(v);
+        reservedBy.remove(v);
+    }
+
+    public Lane getLeftNeighbor() {
+        return leftNeighbor;
+    }
+
+    public void setLeftNeighbor(Lane left) {
+        this.leftNeighbor = left;
+    }
+
+    public Lane getRightNeighbor() {
+        return rightNeighbor;
+    }
+
+    public void setRightNeighbor(Lane right) {
+        this.rightNeighbor = right;
+    }
+
+    public void reserve(Vehicle v) {
+        if (v != null && !reservedBy.contains(v)) {
+            reservedBy.add(v);
+        }
+    }
+
+    public void release(Vehicle v) {
+        reservedBy.remove(v);
+    }
+
+    /**
+     * Kiem tra an toan de nhap lane theo progress, tot hon so voi chi do
+     * khoang cach Euclid tren cac lane gap khuc.
+     */
     public boolean isSafeToEnter(Vector2D pos, double safeGap) {
+        double posProgress = getProgress(pos);
+
         for (Vehicle v : vehicles) {
-            if (MathUtils.distance(v.getPosition(), pos) < safeGap) return false;
+            if (Math.abs(getProgress(v.getPosition()) - posProgress) < safeGap) {
+                return false;
+            }
         }
         for (Vehicle v : reservedBy) {
-            if (MathUtils.distance(v.getPosition(), pos) < safeGap) return false;
+            if (Math.abs(getProgress(v.getPosition()) - posProgress) < safeGap) {
+                return false;
+            }
         }
         return true;
     }

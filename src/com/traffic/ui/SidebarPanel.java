@@ -1,5 +1,6 @@
 package com.traffic.ui;
 
+import com.traffic.core.Vector2D;
 import com.traffic.core.Vehicle;
 import com.traffic.core.VehicleFactory;
 import com.traffic.map.Lane;
@@ -11,7 +12,6 @@ import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
-
 
 /**
  * Panel bên phải — spawn xe, chọn loại/làn/vị trí, log lịch sử.
@@ -25,7 +25,7 @@ public class SidebarPanel {
         this.controller = controller;
     }
 
-    /** Dựng sidebar cho map cụ thể */
+    /** Dựng sidebar cho map cụ thể. */
     public VBox build(MapConfig map) {
         VBox sidebar = new VBox(10);
         sidebar.setPadding(new Insets(16, 12, 16, 12));
@@ -35,12 +35,10 @@ public class SidebarPanel {
           + "-fx-border-color: #333355; -fx-border-width: 0 0 0 1;"
         );
 
-        // Title
         Label title = new Label("🚘 Spawn Vehicle");
         title.setFont(Font.font("SansSerif", FontWeight.BOLD, 15));
         title.setTextFill(Color.rgb(180, 200, 255));
 
-        // Vehicle type
         String[] types = {"car", "motorcycle", "bicycle", "ambulance", "firetruck"};
         String[] typeLabels = {"Car", "Motorcycle", "Bicycle", "Ambulance", "Firetruck"};
         ComboBox<String> cmbType = new ComboBox<>();
@@ -49,7 +47,6 @@ public class SidebarPanel {
         cmbType.setMaxWidth(Double.MAX_VALUE);
         cmbType.getStyleClass().add("dark-combo");
 
-        // Lane
         String[] laneNames = map.getLaneNames();
         ComboBox<String> cmbLane = new ComboBox<>();
         cmbLane.getItems().addAll(laneNames);
@@ -57,19 +54,16 @@ public class SidebarPanel {
         cmbLane.setMaxWidth(Double.MAX_VALUE);
         cmbLane.getStyleClass().add("dark-combo");
 
-        // Offset
         ComboBox<String> cmbOffset = new ComboBox<>();
         cmbOffset.getItems().addAll("Đầu làn", "Giữa làn", "Cuối làn");
         cmbOffset.getSelectionModel().selectFirst();
         cmbOffset.setMaxWidth(Double.MAX_VALUE);
         cmbOffset.getStyleClass().add("dark-combo");
 
-        // Count
         Spinner<Integer> spinner = new Spinner<>(1, 10, 1);
         spinner.setMaxWidth(Double.MAX_VALUE);
 
-        // Spawn button
-        Lane[] laneArray = map.getLanes().toArray(new Lane[0]);
+        Lane[] laneArray = map.getSpawnLanes().toArray(new Lane[0]);
         Button btnSpawn = new Button("✦ Spawn");
         btnSpawn.getStyleClass().add("btn-spawn");
         btnSpawn.setMaxWidth(Double.MAX_VALUE);
@@ -85,15 +79,14 @@ public class SidebarPanel {
             for (int i = 0; i < count; i++) {
                 Vehicle v = VehicleFactory.create(type, 0, 0);
                 v.setLane(lane);
-                applyOffset(v, offIdx, i);
+                applyOffset(v, lane, offIdx, i);
                 controller.getEngine().addVehicle(v);
             }
 
-            spawnLog.appendText(String.format("[+] %dx %s → %s\n",
+            spawnLog.appendText(String.format("[+] %dx %s → %s%n",
                 count, type, laneNames[laneIdx]));
         });
 
-        // Clear button
         Button btnClear = new Button("✕ Clear All");
         btnClear.getStyleClass().add("btn-clear");
         btnClear.setMaxWidth(Double.MAX_VALUE);
@@ -102,11 +95,9 @@ public class SidebarPanel {
             spawnLog.appendText("[!] Đã xóa tất cả xe\n");
         });
 
-        // Separator
         Separator sep = new Separator();
         sep.setStyle("-fx-background-color: #444466;");
 
-        // Log
         Label lblLog = makeLabel("📋 Lịch sử:");
         spawnLog.setEditable(false);
         spawnLog.setPrefRowCount(5);
@@ -133,20 +124,23 @@ public class SidebarPanel {
 
     public TextArea getSpawnLog() { return spawnLog; }
 
-    // ── Fix #10: offset theo hướng lane thay vì chỉ X ────────────────────
-
-    private static void applyOffset(Vehicle v, int offIdx, int i) {
-        int gap = 55;
-        double baseOffset = switch (offIdx) {
-            case 1  -> i * gap - 200;
-            case 2  -> i * gap - 400;
-            default -> i * gap;
+    /** Offset theo progress dọc lane, đúng cho cả lane dọc và lane xiên. */
+    private static void applyOffset(Vehicle v, Lane lane, int offIdx, int i) {
+        final double gap = 55.0;
+        double length = lane.getLength();
+        double baseProgress = switch (offIdx) {
+            case 1 -> length * 0.45;
+            case 2 -> length * 0.75;
+            default -> 0.0;
         };
-        // Dịch theo hướng lane (đúng cho cả làn dọc, xiên)
-        double angle = Math.toRadians(v.getAngle());
-        double dx = Math.cos(angle) * baseOffset;
-        double dy = Math.sin(angle) * baseOffset;
-        v.setLaneStartOffset(dx, dy);
+        double progress = (offIdx == 0)
+            ? i * gap
+            : Math.max(0.0, baseProgress - i * gap);
+
+        Vector2D p = lane.getPointAtProgress(progress);
+        v.getPosition().setX(p.getX());
+        v.getPosition().setY(p.getY());
+        v.setAngle(lane.getAngleAtProgress(progress));
     }
 
     private Label makeLabel(String text) {
