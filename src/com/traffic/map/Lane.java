@@ -35,6 +35,16 @@ public class Lane {
     private static final double PASSED_STOP_TOLERANCE = 8.0;
 
     private final List<Vector2D> waypoints = new ArrayList<>();
+
+    // Tang 1 clean-code: tach hinh hoc duong di sang LanePath.
+    // LanePath giu reference toi waypoints, nen khi map add waypoint thi path tu cap nhat.
+    private final LanePath path = new LanePath(waypoints);
+
+    // Lane bay gio duoc xem la mot dai duong rong, khong chi la mot duong tam mong.
+    // Cac field nay se duoc Vehicle/LaneOccupancy dung manh hon o cac tang sau.
+    private double width = 80.0;
+    private int trackCount = 2;
+
     private final TrafficLight light;
     private final List<TrafficControlPoint> trafficControls = new ArrayList<>();
     private boolean explicitTrafficControls = false;
@@ -90,6 +100,79 @@ public class Lane {
 
     public Vector2D getEnd() {
         return waypoints.get(waypoints.size() - 1);
+    }
+
+    // ------------------------------------------------------------------
+    // Lane geometry.
+    // ------------------------------------------------------------------
+
+    /**
+     * Duong hinh hoc cua lane. Code moi nen dung lane.path() de tinh
+     * progress, goc, diem trung tam va diem lech ngang.
+     */
+    public LanePath path() {
+        return path;
+    }
+
+    /** Chieu rong vat ly cua lane tinh bang pixel trong simulation. */
+    public double getWidth() {
+        return width;
+    }
+
+    public void setWidth(double width) {
+        if (width <= 0.0) {
+            throw new IllegalArgumentException("Lane width must be positive");
+        }
+        this.width = width;
+    }
+
+    /** So vet ngang co the spawn/chay song song trong cung lane. */
+    public int getTrackCount() {
+        return trackCount;
+    }
+
+    public void setTrackCount(int trackCount) {
+        if (trackCount <= 0) {
+            throw new IllegalArgumentException("trackCount must be positive");
+        }
+        this.trackCount = trackCount;
+    }
+
+    /**
+     * Tinh offset ngang cho trackIndex.
+     *
+     * Voi width = 80 va trackCount = 2, hai track se nam xap xi:
+     * - track 0: -17px, ben trai tim lane.
+     * - track 1: +17px, ben phai tim lane.
+     */
+    public double getTrackOffset(int trackIndex) {
+        if (trackCount <= 1) {
+            return 0.0;
+        }
+
+        trackIndex = (int) MathUtils.clamp(trackIndex, 0, trackCount - 1);
+
+        double edgeMargin = 6.0;
+        double usableWidth = Math.max(0.0, width - 2.0 * edgeMargin);
+        double cellWidth = usableWidth / trackCount;
+        return -usableWidth / 2.0 + cellWidth * (trackIndex + 0.5);
+    }
+
+    /** Offset trai nhat ma xe van con nam trong lane. */
+    public double getLeftmostOffset(Vehicle v) {
+        double vehicleHalfWidth = v != null ? v.getHeight() / 2.0 : 0.0;
+        return -width / 2.0 + 6.0 + vehicleHalfWidth;
+    }
+
+    /** Offset phai nhat ma xe van con nam trong lane. */
+    public double getRightmostOffset(Vehicle v) {
+        double vehicleHalfWidth = v != null ? v.getHeight() / 2.0 : 0.0;
+        return width / 2.0 - 6.0 - vehicleHalfWidth;
+    }
+
+    /** Gioi han offset ngang de than xe khong vuot ra ngoai lane. */
+    public double clampOffset(Vehicle v, double offset) {
+        return MathUtils.clamp(offset, getLeftmostOffset(v), getRightmostOffset(v));
     }
 
     /**
@@ -235,86 +318,23 @@ public class Lane {
     // ------------------------------------------------------------------
 
     public double getLength() {
-        double total = 0.0;
-        for (int i = 0; i < waypoints.size() - 1; i++) {
-            total += MathUtils.distance(waypoints.get(i), waypoints.get(i + 1));
-        }
-        return total;
+        return path.length();
     }
 
     public double getProgress(Vector2D pos) {
-        double bestProgress = 0.0;
-        double bestDistanceSq = Double.MAX_VALUE;
-        double accumulated = 0.0;
-
-        for (int i = 0; i < waypoints.size() - 1; i++) {
-            Vector2D a = waypoints.get(i);
-            Vector2D b = waypoints.get(i + 1);
-
-            double dx = b.getX() - a.getX();
-            double dy = b.getY() - a.getY();
-            double lenSq = dx * dx + dy * dy;
-            if (lenSq < 0.000001) continue;
-
-            double t = ((pos.getX() - a.getX()) * dx + (pos.getY() - a.getY()) * dy) / lenSq;
-            t = MathUtils.clamp(t, 0.0, 1.0);
-
-            double px = a.getX() + t * dx;
-            double py = a.getY() + t * dy;
-
-            double diffX = pos.getX() - px;
-            double diffY = pos.getY() - py;
-            double distanceSq = diffX * diffX + diffY * diffY;
-
-            if (distanceSq < bestDistanceSq) {
-                bestDistanceSq = distanceSq;
-                bestProgress = accumulated + Math.sqrt(lenSq) * t;
-            }
-
-            accumulated += Math.sqrt(lenSq);
-        }
-        return bestProgress;
+        return path.progressOf(pos);
     }
 
     public Vector2D getPointAtProgress(double progress) {
-        progress = MathUtils.clamp(progress, 0.0, getLength());
-        double accumulated = 0.0;
+        return path.centerAt(progress);
+    }
 
-        for (int i = 0; i < waypoints.size() - 1; i++) {
-            Vector2D a = waypoints.get(i);
-            Vector2D b = waypoints.get(i + 1);
-            double segmentLength = MathUtils.distance(a, b);
-            if (segmentLength < 0.000001) continue;
-
-            if (accumulated + segmentLength >= progress) {
-                double t = (progress - accumulated) / segmentLength;
-                return new Vector2D(
-                    MathUtils.lerp(a.getX(), b.getX(), t),
-                    MathUtils.lerp(a.getY(), b.getY(), t)
-                );
-            }
-            accumulated += segmentLength;
-        }
-        return getEnd();
+    public Vector2D getPointAtProgress(double progress, double lateralOffset) {
+        return path.pointAt(progress, lateralOffset);
     }
 
     public double getAngleAtProgress(double progress) {
-        if (waypoints.size() < 2) return 0.0;
-        progress = MathUtils.clamp(progress, 0.0, getLength());
-        double accumulated = 0.0;
-
-        for (int i = 0; i < waypoints.size() - 1; i++) {
-            Vector2D a = waypoints.get(i);
-            Vector2D b = waypoints.get(i + 1);
-            double segmentLength = MathUtils.distance(a, b);
-            if (segmentLength < 0.000001) continue;
-
-            if (accumulated + segmentLength >= progress) {
-                return MathUtils.angleTo(a, b);
-            }
-            accumulated += segmentLength;
-        }
-        return MathUtils.angleTo(waypoints.get(waypoints.size() - 2), getEnd());
+        return path.angleAt(progress);
     }
 
     // ------------------------------------------------------------------
