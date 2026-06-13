@@ -117,4 +117,4 @@ public class IntersectionOccupancy {
         boolean notCleared = priority.getRearProgress() <= conflict + CENTER_CONFLICT_RADIUS + 32.0;
         return approaching && notCleared;
     }
-
+}
