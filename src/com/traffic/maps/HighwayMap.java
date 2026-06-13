@@ -65,6 +65,7 @@ public class HighwayMap implements MapConfig {
         for (Lane lane : lanes) {
             lane.setAllowFormalLaneChange(false);
             lane.setInLaneOvertakeAllowed(true);
+            lane.setStraightOnly(true); // Expressway: no L/R turn intent, badges always show S.
         }
         road3.setFormalLaneChangeAllowed(false);
         road4.setFormalLaneChangeAllowed(false);

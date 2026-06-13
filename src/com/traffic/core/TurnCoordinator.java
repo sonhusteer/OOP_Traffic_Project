@@ -26,6 +26,8 @@ public class TurnCoordinator {
     private static final double PREFERRED_OFFSET_TOLERANCE = 6.0;
     private static final double WAITING_DISTANCE = 96.0;
     private static final double STRAIGHT_CONTINUATION_MIN = 92.0;
+    private static final double TURN_SLOT_TOLERANCE = 5.0;
+    private static final double TURN_SLOT_TARGET_TOLERANCE = 7.0;
 
     private final IntersectionOccupancy occupancy = new IntersectionOccupancy();
 
@@ -151,6 +153,21 @@ public class TurnCoordinator {
             return;
         }
 
+        Vehicle.TurnDecision requested = normalizeDecisionByMapRule(
+                vehicle, sourceLane, intersection, vehicle.getTurnDecision());
+        if (vehicle.getTurnDecision() != requested) {
+            vehicle.setTurnDecision(requested);
+        }
+
+        // Tight-turn rule: a RIGHT turn may only start from the right virtual
+        // slot, and a LEFT turn may only start from the left virtual slot. If the
+        // car is on the wrong side, it must prepare/stop before the junction;
+        // never create a wide looping turn through the far side of the road.
+        if (!isInRequiredTurnSlot(vehicle, sourceLane, requested)) {
+            prepareVehicleForTightTurnSlot(vehicle, sourceLane, intersection, requested);
+            return;
+        }
+
         if (!isLateralStableForIntersection(vehicle)) {
             vehicle.abortLateralManeuverSafely();
             waitBeforeIntersection(vehicle, intersection, "STABILIZE_SLOT");
@@ -176,7 +193,6 @@ public class TurnCoordinator {
             return;
         }
 
-        Vehicle.TurnDecision requested = vehicle.getTurnDecision();
         TurnCandidate candidate = chooseTurnCandidate(vehicle, vehicles, sourceLane, intersection, requested);
         if (candidate == null) {
             String reason = vehicle.getTurnWaitReason();
@@ -216,6 +232,98 @@ public class TurnCoordinator {
         );
         vehicle.startTurn(maneuver);
         vehicle.setTurnWaitReason(null);
+    }
+
+    private Vehicle.TurnDecision normalizeDecisionByMapRule(Vehicle vehicle,
+                                                            Lane lane,
+                                                            Intersection intersection,
+                                                            Vehicle.TurnDecision requested) {
+        Vehicle.TurnDecision safe = requested == null
+                ? Vehicle.TurnDecision.STRAIGHT
+                : requested;
+        if (lane == null) return safe;
+        if (lane.isStraightOnly()) return Vehicle.TurnDecision.STRAIGHT;
+        if (!lane.hasAnyTurnRule(intersection)) return safe;
+
+        if (lane.hasTurnRule(intersection, safe)
+                && lane.getTurnTarget(intersection, safe) != null) {
+            return safe;
+        }
+
+        boolean canStraight = lane.hasTurnRule(intersection, Vehicle.TurnDecision.STRAIGHT)
+                && lane.getTurnTarget(intersection, Vehicle.TurnDecision.STRAIGHT) != null;
+        boolean canLeft = lane.hasTurnRule(intersection, Vehicle.TurnDecision.LEFT)
+                && lane.getTurnTarget(intersection, Vehicle.TurnDecision.LEFT) != null;
+        boolean canRight = lane.hasTurnRule(intersection, Vehicle.TurnDecision.RIGHT)
+                && lane.getTurnTarget(intersection, Vehicle.TurnDecision.RIGHT) != null;
+
+        if (safe == Vehicle.TurnDecision.STRAIGHT || safe == null) {
+            if (canStraight) return Vehicle.TurnDecision.STRAIGHT;
+            if (vehicle != null) {
+                double left = lane.getLeftmostOffset(vehicle);
+                double right = lane.getRightmostOffset(vehicle);
+                boolean closerLeft = Math.abs(vehicle.getLateralOffset() - left)
+                        <= Math.abs(vehicle.getLateralOffset() - right);
+                if (closerLeft && canLeft) return Vehicle.TurnDecision.LEFT;
+                if (!closerLeft && canRight) return Vehicle.TurnDecision.RIGHT;
+            }
+            if (canLeft) return Vehicle.TurnDecision.LEFT;
+            if (canRight) return Vehicle.TurnDecision.RIGHT;
+        }
+
+        if (safe == Vehicle.TurnDecision.LEFT) {
+            if (canStraight) return Vehicle.TurnDecision.STRAIGHT;
+            if (canRight) return Vehicle.TurnDecision.RIGHT;
+        }
+        if (safe == Vehicle.TurnDecision.RIGHT) {
+            if (canStraight) return Vehicle.TurnDecision.STRAIGHT;
+            if (canLeft) return Vehicle.TurnDecision.LEFT;
+        }
+
+        if (canStraight) return Vehicle.TurnDecision.STRAIGHT;
+        if (canLeft) return Vehicle.TurnDecision.LEFT;
+        if (canRight) return Vehicle.TurnDecision.RIGHT;
+        return Vehicle.TurnDecision.STRAIGHT;
+    }
+
+    private boolean isInRequiredTurnSlot(Vehicle vehicle,
+                                         Lane lane,
+                                         Vehicle.TurnDecision decision) {
+        if (vehicle == null || lane == null || decision == null) return true;
+        if (decision == Vehicle.TurnDecision.STRAIGHT) return true;
+        double required = requiredSourceOffsetForTurn(vehicle, lane, decision);
+        return Math.abs(vehicle.getLateralOffset() - required) <= TURN_SLOT_TOLERANCE
+                && Math.abs(vehicle.getTargetLateralOffset() - required) <= TURN_SLOT_TARGET_TOLERANCE;
+    }
+
+    private double requiredSourceOffsetForTurn(Vehicle vehicle,
+                                               Lane lane,
+                                               Vehicle.TurnDecision decision) {
+        if (decision == Vehicle.TurnDecision.LEFT) {
+            return lane.getLeftmostOffset(vehicle);
+        }
+        if (decision == Vehicle.TurnDecision.RIGHT) {
+            return lane.getRightmostOffset(vehicle);
+        }
+        return lane.clampOffset(vehicle, vehicle.getPreferredLateralOffset());
+    }
+
+    private void prepareVehicleForTightTurnSlot(Vehicle vehicle,
+                                                Lane lane,
+                                                Intersection intersection,
+                                                Vehicle.TurnDecision decision) {
+        if (vehicle == null || lane == null || decision == null
+                || decision == Vehicle.TurnDecision.STRAIGHT) {
+            return;
+        }
+        double required = requiredSourceOffsetForTurn(vehicle, lane, decision);
+        vehicle.abortLateralManeuverSafely();
+        vehicle.setPreferredLateralOffset(required);
+        vehicle.setTargetLateralOffset(required);
+        vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION);
+        vehicle.setCurrentIntersection(intersection);
+        vehicle.setTurnWaitReason("PREPARE_" + decision + "_SLOT");
+        vehicle.setSpeed(Math.min(vehicle.getSpeed(), 10.0));
     }
 
     private boolean shouldTreatAsStraightCrossing(Vehicle vehicle, Lane lane, Intersection intersection) {
@@ -440,6 +548,11 @@ public class TurnCoordinator {
         // is forbidden on this map (for example RIGHT from the stem-less side of a
         // T junction), normalize it to a real available movement instead of making
         // the vehicle wait forever.
+        if (sourceLane != null && sourceLane.isStraightOnly()) {
+            result.add(Vehicle.TurnDecision.STRAIGHT);
+            return result;
+        }
+
         if (sourceLane != null && sourceLane.hasAnyTurnRule(intersection)) {
             boolean requestedAllowed = sourceLane.hasTurnRule(intersection, safeRequested)
                     && sourceLane.getTurnTarget(intersection, safeRequested) != null;
@@ -481,6 +594,10 @@ public class TurnCoordinator {
                                 Intersection intersection) {
         if (currentLane == null || intersection == null || decision == null) {
             return null;
+        }
+
+        if (currentLane.isStraightOnly()) {
+            return decision == Vehicle.TurnDecision.STRAIGHT ? currentLane : null;
         }
 
         if (currentLane.hasAnyTurnRule(intersection)) {
@@ -557,13 +674,17 @@ public class TurnCoordinator {
                     ? Vehicle.LEFT_OFFSET : Vehicle.RIGHT_OFFSET);
             candidates.add(Math.abs(preferred - Vehicle.LEFT_OFFSET) < Math.abs(preferred - Vehicle.RIGHT_OFFSET)
                     ? Vehicle.RIGHT_OFFSET : Vehicle.LEFT_OFFSET);
+        } else if (decision == Vehicle.TurnDecision.LEFT) {
+            // Narrow left turns: enter the left virtual slot, not the far/right slot.
+            candidates.add(targetLane.getLeftmostOffset(vehicle));
+            candidates.add(targetLane.getRightmostOffset(vehicle));
         } else {
-            // For turns, enter the right-hand slot of the target road by default.
-            // Reusing the source-lane offset can send cars to the wrong side of the
-            // destination lane and creates ugly S-shaped curves at corners.
-            candidates.add(Vehicle.RIGHT_OFFSET);
-            candidates.add(Vehicle.LEFT_OFFSET);
+            // Narrow right turns: enter the right virtual slot, not the far/left slot.
+            candidates.add(targetLane.getRightmostOffset(vehicle));
+            candidates.add(targetLane.getLeftmostOffset(vehicle));
         }
+        // Center is only a last-resort temporary entry buffer. Normal stable
+        // driving still returns to the two real slots.
         candidates.add(Vehicle.CENTER_OFFSET);
 
         for (double raw : candidates) {

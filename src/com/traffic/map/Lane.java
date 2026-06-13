@@ -42,6 +42,7 @@ public class Lane {
     private boolean formalLaneChangeAllowed = false;
     private boolean inLaneOvertakeAllowed = true;
     private boolean spawnAllowed = true;
+    private boolean straightOnly = false;
 
     public Lane(double startX, double startY,
                 double endX, double endY,
@@ -282,6 +283,59 @@ public class Lane {
         if (intersection == null) return false;
         EnumMap<Vehicle.TurnDecision, Lane> byDecision = turnTargets.get(intersection);
         return byDecision != null && !byDecision.isEmpty();
+    }
+
+    /** True when this lane has any explicit routing rule on any intersection. */
+    public boolean hasAnyTurnRule() {
+        for (EnumMap<Vehicle.TurnDecision, Lane> byDecision : turnTargets.values()) {
+            if (byDecision != null && !byDecision.isEmpty()) return true;
+        }
+        return false;
+    }
+
+    /** True when a movement was declared, even when its target is null/forbidden. */
+    public boolean hasDeclaredTurnDecision(Vehicle.TurnDecision decision) {
+        if (decision == null) return false;
+        for (EnumMap<Vehicle.TurnDecision, Lane> byDecision : turnTargets.values()) {
+            if (byDecision != null && byDecision.containsKey(decision)) return true;
+        }
+        return false;
+    }
+
+    /** True when at least one declared rule allows this movement with a real target. */
+    public boolean hasAllowedTurnDecision(Vehicle.TurnDecision decision) {
+        if (decision == null) return false;
+        for (EnumMap<Vehicle.TurnDecision, Lane> byDecision : turnTargets.values()) {
+            if (byDecision != null && byDecision.containsKey(decision) && byDecision.get(decision) != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Highway/expressway lanes are straight-only: no turn intent is allowed. */
+    public void setStraightOnly(boolean straightOnly) {
+        this.straightOnly = straightOnly;
+    }
+
+    public boolean isStraightOnly() {
+        return straightOnly;
+    }
+
+    /**
+     * Route-level allowance used by spawners/UI before a specific intersection
+     * has been reached. If explicit map rules exist, only non-null targets are
+     * considered valid. If there are no rules, keep backward-compatible freedom.
+     */
+    public boolean allowsTurnDecision(Vehicle.TurnDecision decision) {
+        Vehicle.TurnDecision safe = decision == null ? Vehicle.TurnDecision.STRAIGHT : decision;
+        if (straightOnly) {
+            return safe == Vehicle.TurnDecision.STRAIGHT;
+        }
+        if (!hasAnyTurnRule()) {
+            return true;
+        }
+        return hasAllowedTurnDecision(safe);
     }
 
     public Set<Vehicle> getReservedVehicles() { return reservedBy; }
