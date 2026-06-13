@@ -462,6 +462,11 @@ public class MainApp extends Application {
         basicRenderer.setLanes(newMap.getLanes());
         graphicRenderer.setLanes(newMap.getLanes());
 
+        // Cập nhật scenery type cho graphic renderer
+        if (graphicRenderer instanceof JavaFXRenderer jfxR) {
+            jfxR.setSceneryType(newMap.getSceneryType());
+        }
+
         // Rebuild sidebar
         BorderPane root = (BorderPane) canvas.getScene().getRoot();
         spawnContainer = buildSidebar(newMap);
@@ -469,6 +474,7 @@ public class MainApp extends Application {
 
         appendSpawnLog("[✓] Map: " + newMap.getName() + "\n");
     }
+
 
     private static void registerMap(TrafficEngine engine, MapConfig map) {
         RoadNetwork network = new RoadNetwork();

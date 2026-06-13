@@ -23,4 +23,10 @@ public interface MapConfig {
 
     /** Tên các làn đường hiển thị trên spawn panel */
     String[] getLaneNames();
+
+    /**
+     * Loại cảnh quan (scenery) cho renderer.
+     * CROSSROADS, T_JUNCTION, FIVE_WAY, NETWORK, HIGHWAY
+     */
+    default String getSceneryType() { return "CROSSROADS"; }
 }

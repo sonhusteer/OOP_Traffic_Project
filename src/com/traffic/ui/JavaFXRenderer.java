@@ -23,6 +23,16 @@ import java.util.Map;
 public class JavaFXRenderer extends AbstractBaseRenderer {
 
     private final Map<String, Image> sprites = new HashMap<>();
+    private final List<Image[]> castleAnimations = new java.util.ArrayList<>();
+    private final List<Image[]> houseAnimations = new java.util.ArrayList<>();
+    private final List<Image> treeSprites = new java.util.ArrayList<>();
+    
+    // ── Scenery tiles (GK Japanese City) ────────────────────────────────────
+    private final Map<Integer, Image> tiles = new HashMap<>();
+    private String sceneryType = "CROSSROADS"; // được cập nhật khi đổi map
+    
+    private ImagePattern roadPattern = null;
+    private ImagePattern riverPattern = null;
 
     // ── Bảng màu đường & nền ─────────────────────────────────────────────
     private static final Color ASPHALT      = Color.rgb(38, 41, 50);
@@ -53,7 +63,6 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
         loadSprites();
     }
 
-    /** Tải sprite PNG từ /images/. Nếu không có, fallback về 2D shapes. */
     private void loadSprites() {
         String[] types = {"car", "motorcycle", "bicycle", "ambulance", "firetruck"};
         for (String type : types) {
@@ -64,6 +73,119 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
                 }
             } catch (Exception ignored) {}
         }
+        
+        // Tải các chuỗi animation nhà cửa
+        loadAnimation(castleAnimations, "/images/Sprites/Towers/Blue towers/castle_tower_blue(%d).png", 9);
+        loadAnimation(castleAnimations, "/images/Sprites/Towers/Green towers/castle_tower_green(%d).png", 9);
+        loadAnimation(castleAnimations, "/images/Sprites/Towers/Red tower/castle_tower_red(%d).png", 9);
+        loadAnimation(castleAnimations, "/images/Sprites/Towers/Wood towers/castle_tower_wood(%d).png", 9);
+        
+        loadAnimation(houseAnimations, "/images/Sprites/Buildings/house/White houses/Blue house/white_blue_house(%d).png", 4);
+        loadAnimation(houseAnimations, "/images/Sprites/Buildings/house/White houses/Green house/white_green_house(%d).png", 4);
+        loadAnimation(houseAnimations, "/images/Sprites/Buildings/house/White houses/Red house/white_red_house(%d).png", 4);
+        loadAnimation(houseAnimations, "/images/Sprites/Buildings/house/Wood houses/Blue house/wood_blue_house(%d).png", 4);
+        loadAnimation(houseAnimations, "/images/Sprites/Buildings/house/Wood houses/Green house/wood_green_house(%d).png", 4);
+        loadAnimation(houseAnimations, "/images/Sprites/Buildings/house/Wood houses/Red house/wood_red_house(%d).png", 4);
+        
+        loadAnimation(houseAnimations, "/images/Sprites/Buildings/house/blacksmith_blue(%d).png", 2);
+        loadAnimation(houseAnimations, "/images/Sprites/Buildings/house/blacksmith_green(%d).png", 2);
+        loadAnimation(houseAnimations, "/images/Sprites/Buildings/house/blacksmith_red(%d).png", 2);
+        loadAnimation(houseAnimations, "/images/Sprites/Buildings/house/blacksmith_wood(%d).png", 2);
+        
+        loadAnimation(houseAnimations, "/images/Sprites/Buildings/mill/mill(%d).png", 4);
+
+        // Tải sprite cây
+        String[] trees = {"tree(3)", "tree(4)"};
+        for (String t : trees) {
+            try {
+                InputStream is = getClass().getResourceAsStream("/images/Enviroument/Spring/" + t + ".png");
+                if (is == null) is = getClass().getResourceAsStream("/images/" + t + ".png");
+                if (is != null) treeSprites.add(new Image(is));
+            } catch (Exception ignored) {}
+        }
+        
+        // Tải GK Japanese City tiles
+        loadSceneryTiles();
+    }
+
+    private void loadSceneryTiles() {
+        // Danh sách tile cần tải theo vai trò
+        int[] needed = {
+            // Nền vỉa hè (sidewalk checker)
+            236,
+            // Mái nhà – xanh xám
+            1, 2, 3, 4,
+            // Mái nhà – đỏ cam (ngói)
+            5, 6, 7, 8,
+            // Thân nhà phần trên (sàn trên)
+            211, 212, 213, 214,
+            // Mặt tiền nhà (tường gỗ ngang)
+            278, 279, 280,
+            // Cửa ra vào
+            355, 357,
+            // Cửa sổ / bảng hiệu
+            358, 359,
+            // Máy bán nước
+            68,
+            // Đèn đường
+            29,
+            // Chậu cây / potted plant
+            84,
+            // Rèm cửa noren / chi tiết mặt tiền
+            186, 187, 188,
+            // Tường nhà (panel ngang)
+            103, 104, 105, 106, 107, 108,
+            // Mái nhà nghiêng bên trái
+            129, 130, 131, 132,
+            // Mái nhà nghiêng bên phải
+            133, 134, 135, 136,
+            // Góc mái
+            151, 152, 153, 154, 155, 156,
+            // Hàng rào / tường thấp
+            47, 48, 76
+        };
+        for (int id : needed) {
+            String path = String.format("/images/Tiles/GK_JC_Free_%03d.png", id);
+            try {
+                InputStream is = getClass().getResourceAsStream(path);
+                if (is != null) tiles.put(id, new Image(is));
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private void loadAnimation(List<Image[]> list, String pathTemplate, int numFrames) {
+        Image[] frames = new Image[numFrames];
+        boolean valid = true;
+        for (int i = 1; i <= numFrames; i++) {
+            try {
+                String path = String.format(pathTemplate, i);
+                InputStream is = getClass().getResourceAsStream(path);
+                if (is != null) {
+                    frames[i - 1] = new Image(is);
+                } else {
+                    valid = false;
+                    break;
+                }
+            } catch (Exception e) {
+                valid = false;
+                break;
+            }
+        }
+        if (valid) {
+            list.add(frames);
+        }
+        
+        // Thử tải mẫu đường và sông
+        try {
+            if (roadPattern == null) {
+                InputStream isRoad = getClass().getResourceAsStream("/images/Roads/Spring/road(1).png");
+                if (isRoad != null) roadPattern = new ImagePattern(new Image(isRoad), 0, 0, 100, 100, false);
+            }
+            if (riverPattern == null) {
+                InputStream isRiver = getClass().getResourceAsStream("/images/Rivers/Spring/river(1).png");
+                if (isRiver != null) riverPattern = new ImagePattern(new Image(isRiver), 0, 0, 120, 120, false);
+            }
+        } catch (Exception ignored) {}
     }
 
     // =====================================================================
@@ -72,6 +194,7 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
     @Override
     public void draw(GraphicsContext gc, double w, double h) {
         drawBackground(gc, w, h);
+        drawRivers(gc, w, h);        // Dòng sông trang trí dưới mặt đất
         drawBuildings(gc, w, h);      // nhà dân cư (dưới cùng)
         drawLanes(gc);                // đường xe chạy (kẻ vạch qua ngã tư)
         drawIntersections(gc);        // ngã giao (xóa vạch cũ, vẽ chuẩn)
@@ -87,101 +210,500 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
     //  1. NỀN CỎ — gradient tối hơn BasicRenderer
     // =====================================================================
     private void drawBackground(GraphicsContext gc, double w, double h) {
-        LinearGradient bg = new LinearGradient(
-            0, 0, w, h, false, CycleMethod.NO_CYCLE,
-            new Stop(0, BG_DARK),
-            new Stop(1, BG_GRASS)
-        );
-        gc.setFill(bg);
+        // Solid, smooth dark green grass color, NO grid lines for all maps
+        gc.setFill(Color.rgb(34, 139, 34)); // Forest green
         gc.fillRect(0, 0, w, h);
-
-        // Lưới cỏ mờ nhạt
-        gc.setStroke(Color.rgb(0, 0, 0, 0.08));
-        gc.setLineWidth(1);
-        gc.setLineDashes();
-        for (int x = 0; x < (int) w; x += 32) gc.strokeLine(x, 0, x, h);
-        for (int y = 0; y < (int) h; y += 32) gc.strokeLine(0, y, w, y);
     }
 
     // =====================================================================
-    //  1.5. TÒA NHÀ (Glass Skyscrapers & Brick Buildings)
+    //  1.2 SÔNG TRANG TRÍ
+    // =====================================================================
+    private void drawRivers(GraphicsContext gc, double w, double h) {
+        // Trống - chờ làm lại
+    }
+
+    // =====================================================================
+    //  PUBLIC: đổi map type để renderer vẽ scenery phù hợp
+    // =====================================================================
+    public void setSceneryType(String type) {
+        this.sceneryType = (type != null) ? type : "CROSSROADS";
+    }
+
+    // =====================================================================
+    //  1.5. CẢnh QUAN — Universal City Blocks Generator
     // =====================================================================
     @Override
-    protected void drawBuildings(GraphicsContext gc, double canvasW, double canvasH) {
-        // Cố định seed để nhà không bị giật khi render lại
-        java.util.Random rnd = new java.util.Random(42);
+    protected void drawBuildings(GraphicsContext gc, double W, double H) {
+        drawCityBlocks(gc, W, H);
+    }
+
+    // ── UNIVERSAL CITY BLOCKS GENERATOR ─────────────────────────────────
+    private void drawCityBlocks(GraphicsContext gc, double W, double H) {
+        Image pineTree = treeSprites.size() > 0 ? treeSprites.get(0) : null;
         
-        int bSize = 60;
-        int padding = 20;
-        int streetClearance = 80;
-
-        for (int y = padding; y < canvasH - padding; y += bSize + padding) {
-            for (int x = padding; x < canvasW - padding; x += bSize + padding) {
-                // Kiểm tra xem tòa nhà có đè lên đường không
-                boolean isClear = true;
-                for (Lane lane : lanes) {
-                    if (lane == null) continue;
-                    // Kiểm tra khoảng cách từ tâm tòa nhà đến đường (rất cơ bản)
-                    double cx = x + bSize / 2.0;
-                    double cy = y + bSize / 2.0;
-                    double lx1 = lane.getStart().getX(), ly1 = lane.getStart().getY();
-                    double lx2 = lane.getEnd().getX(), ly2 = lane.getEnd().getY();
+        for (double y = 40; y < H - 20; y += 60) {
+            for (double x = 40; x < W - 20; x += 50) {
+                if (isSafeGrass(x, y)) {
+                    double noise = (x * 17 + y * 23) % 100;
                     
-                    // Khoảng cách từ điểm đến đoạn thẳng
-                    double dist = pointToLineDistance(cx, cy, lx1, ly1, lx2, ly2);
-                    if (dist < streetClearance) {
-                        isClear = false;
-                        break;
+                    double treeProb = 20;
+                    double houseProb = 90;
+                    
+                    if ("T_JUNCTION".equals(sceneryType)) {
+                        treeProb = 8;
+                        houseProb = 25; // 25-8 = 17% chance for a house
                     }
-                }
 
-                if (isClear && rnd.nextDouble() > 0.2) { // 80% có nhà
-                    boolean isGlass = rnd.nextDouble() > 0.4; // 60% nhà kính
-                    double bw = bSize + rnd.nextInt(20);
-                    double bh = bSize + rnd.nextInt(30);
-                    
-                    // Vẽ bóng đổ (Soft shadow)
-                    gc.setFill(Color.rgb(0, 0, 0, 0.4));
-                    gc.fillRoundRect(x + 10, y + 10, bw, bh, 8, 8);
-
-                    if (isGlass) {
-                        // Tòa nhà kính (Glass Skyscraper)
-                        LinearGradient glassGrad = new LinearGradient(
-                            x, y, x + bw, y + bh, false, CycleMethod.NO_CYCLE,
-                            new Stop(0, Color.rgb(180, 220, 255, 0.9)), // Phản chiếu bầu trời
-                            new Stop(1, Color.rgb(40, 80, 140, 0.9))
-                        );
-                        gc.setFill(glassGrad);
-                        gc.fillRoundRect(x, y, bw, bh, 4, 4);
-                        
-                        // Lưới vân kính
-                        gc.setStroke(Color.rgb(255, 255, 255, 0.3));
-                        gc.setLineWidth(1.0);
-                        for(double i = 5; i < bw; i += 10) gc.strokeLine(x+i, y, x+i, y+bh);
-                        for(double i = 5; i < bh; i += 10) gc.strokeLine(x, y+i, x+bw, y+i);
-                        
-                    } else {
-                        // Nhà gạch (Low-poly Brick)
-                        gc.setFill(Color.rgb(140, 60, 50));
-                        gc.fillRoundRect(x, y, bw, bh, 4, 4);
-                        
-                        // Mái bằng phẳng màu xám sậm
-                        gc.setFill(Color.rgb(80, 80, 80));
-                        gc.fillRoundRect(x+4, y+4, bw-8, bh-8, 2, 2);
-                        
-                        // Mặt tiền (storefront giả lập)
-                        gc.setFill(Color.rgb(255, 240, 180, 0.8));
-                        gc.fillRect(x + bw/2 - 10, y + bh - 6, 20, 6);
+                    if (noise < treeProb && pineTree != null) {
+                        gc.drawImage(pineTree, x, y, 36, 48);
+                    } else if (noise >= treeProb && noise < houseProb) {
+                        drawHouseAt(gc, x, y);
                     }
-                    
-                    // Viền nóc nhà
-                    gc.setStroke(Color.rgb(30, 30, 30, 0.8));
-                    gc.setLineWidth(1.5);
-                    gc.strokeRoundRect(x, y, bw, bh, 4, 4);
                 }
             }
         }
     }
+
+    private boolean isSafeGrass(double x, double y) {
+        double m = 25; // Safe margin from road edges
+        if ("CROSSROADS".equals(sceneryType)) {
+            if (y > 220 - m && y < 380 + m) return false;
+            if (x > 320 - m && x < 480 + m) return false;
+            return true;
+        } else if ("T_JUNCTION".equals(sceneryType)) {
+            if (y > 220 - m && y < 380 + m) return false;
+            if (x > 320 - m && x < 480 + m && y < 380 + m) return false;
+            return true;
+        } else if ("NETWORK".equals(sceneryType)) {
+            if (y > 220 - m && y < 380 + m) return false;
+            if (x > 170 - m && x < 330 + m) return false;
+            if (x > 470 - m && x < 630 + m) return false;
+            return true;
+        } else if ("HIGHWAY".equals(sceneryType)) {
+            // Highway takes roughly Y=200~400
+            if (y > 200 - m && y < 400 + m) return false;
+            return true;
+        } else if ("FIVE_WAY".equals(sceneryType)) {
+            double cx = 400, cy = 300;
+            double dx = x - cx, dy = y - cy;
+            // Central roundabout clearance
+            if (dx*dx + dy*dy < 130*130) return false; 
+            // 5 radiating roads
+            for (int i = 0; i < 5; i++) {
+                double angle = Math.PI * 2 * i / 5 - Math.PI / 2;
+                double cos = Math.cos(angle);
+                double sin = Math.sin(angle);
+                double u = dx * cos + dy * sin;
+                if (u > -20) {
+                    double dist = Math.abs(dx * sin - dy * cos);
+                    if (dist < 80 + m) return false; // Road width is roughly 160 (radius 80)
+                }
+            }
+            return true;
+        }
+        return true;
+    }
+
+    @Override
+    protected void drawIntersections(GraphicsContext gc) {
+        super.drawIntersections(gc);
+        // Zebra Crosswalks
+        gc.setFill(Color.WHITE);
+        
+        if ("CROSSROADS".equals(sceneryType)) {
+            double cx = 400, cy = 300;
+            drawZebraCrosswalk(gc, cx - 35, cy - 105, 70, 15, false); // Top
+            drawZebraCrosswalk(gc, cx - 35, cy + 90, 70, 15, false);  // Bottom
+            drawZebraCrosswalk(gc, cx - 105, cy - 35, 15, 70, true);  // Left
+            drawZebraCrosswalk(gc, cx + 90, cy - 35, 15, 70, true);   // Right
+        } else if ("T_JUNCTION".equals(sceneryType)) {
+            double cx = 400, cy = 300;
+            drawZebraCrosswalk(gc, cx - 35, cy - 105, 70, 15, false); // Top
+            drawZebraCrosswalk(gc, cx - 105, cy - 35, 15, 70, true);  // Left
+            drawZebraCrosswalk(gc, cx + 90, cy - 35, 15, 70, true);   // Right
+        } else if ("NETWORK".equals(sceneryType)) {
+            double[] centersX = {250, 550};
+            for (double cx : centersX) {
+                double cy = 300;
+                drawZebraCrosswalk(gc, cx - 35, cy - 105, 70, 15, false); // Top
+                drawZebraCrosswalk(gc, cx - 35, cy + 90, 70, 15, false);  // Bottom
+                drawZebraCrosswalk(gc, cx - 105, cy - 35, 15, 70, true);  // Left
+                drawZebraCrosswalk(gc, cx + 90, cy - 35, 15, 70, true);   // Right
+            }
+        } else if ("FIVE_WAY".equals(sceneryType)) {
+            double cx = 400, cy = 300;
+            for (int i = 0; i < 5; i++) {
+                double angle = Math.PI * 2 * i / 5 - Math.PI / 2;
+                gc.save();
+                gc.translate(cx, cy);
+                gc.rotate(Math.toDegrees(angle));
+                drawZebraCrosswalk(gc, 90, -35, 15, 70, true); // Rotate and draw "Right"
+                gc.restore();
+            }
+        }
+    }
+
+    private void drawZebraCrosswalk(GraphicsContext gc, double x, double y, double w, double h, boolean verticalStripe) {
+        double stripeThickness = 4;
+        double gap = 4;
+        if (verticalStripe) {
+            for (double sy = y; sy < y + h; sy += stripeThickness + gap) {
+                gc.fillRect(x, sy, w, stripeThickness);
+            }
+        } else {
+            for (double sx = x; sx < x + w; sx += stripeThickness + gap) {
+                gc.fillRect(sx, y, stripeThickness, h);
+            }
+        }
+    }
+
+    private void drawArrow(GraphicsContext gc, double sx, double sy, double dx, double dy) {
+        gc.strokeLine(sx, sy, sx + dx, sy + dy);
+        double headLen = 6;
+        if (dx == 0) { // Vertical
+            double dir = Math.signum(dy);
+            gc.strokeLine(sx + dx, sy + dy, sx - headLen, sy + dy - dir * headLen);
+            gc.strokeLine(sx + dx, sy + dy, sx + headLen, sy + dy - dir * headLen);
+        } else { // Horizontal
+            double dir = Math.signum(dx);
+            gc.strokeLine(sx + dx, sy + dy, sx + dx - dir * headLen, sy - headLen);
+            gc.strokeLine(sx + dx, sy + dy, sx + dx - dir * headLen, sy + headLen);
+        }
+    }
+
+
+    // ── OLD SCENERY METHODS REMOVED ─────────────────────────────────────
+    // A universal `drawCityBlocks` generator now gracefully populates 
+    // all map variations based on the sceneryType boundaries.
+
+    private void drawHouseAt(GraphicsContext gc, double x, double y) {
+        if (houseAnimations == null || houseAnimations.isEmpty()) return;
+        // Use coordinates to deterministically pick a random house index
+        int index = (int)((x * 13 + y * 7) % houseAnimations.size());
+        Image house = houseAnimations.get(index)[0];
+        if (house != null) {
+            gc.drawImage(house, x, y, 32, 36);
+        }
+    }
+
+    // Vẽ dải phân cách cao tốc (màu xanh lá + sọc trắng)
+    private void drawMedianStrip(GraphicsContext gc, double x, double y, double w, double h) {
+        gc.setFill(Color.rgb(34, 80, 34));
+        gc.fillRect(x, y, w, h);
+        gc.setFill(Color.rgb(255, 255, 255, 0.35));
+        for (double mx = x; mx < x + w; mx += 24) {
+            gc.fillRect(mx, y + h/2 - 2, 14, 4);
+        }
+        // Chậu cây dọc median
+        double T = 36;
+        for (double mx = x + 20; mx < x + w - 20; mx += 100) {
+            drawTileAt(gc, 84, mx, y + (h - T)/2, T, T);
+        }
+    }
+
+    // Vẽ biển báo cao tốc (hình chữ nhật xanh)
+    private void drawHighwaySign(GraphicsContext gc, double x, double y) {
+        gc.setFill(Color.rgb(0, 100, 0));
+        gc.fillRoundRect(x, y, 44, 22, 4, 4);
+        gc.setStroke(Color.WHITE);
+        gc.setLineWidth(1.5);
+        gc.strokeRoundRect(x+2, y+2, 40, 18, 3, 3);
+        gc.setFill(Color.WHITE);
+        gc.setFont(Font.font("Arial", FontWeight.BOLD, 9));
+        gc.fillText("HIGHWAY", x + 5, y + 14);
+        // Cột biển
+        gc.setStroke(Color.rgb(160, 160, 160));
+        gc.setLineWidth(2);
+        gc.strokeLine(x + 22, y + 22, x + 22, y + 38);
+    }
+
+    // Vẽ đèn đường tại 4 góc ngã tư
+    private void drawStreetlights(GraphicsContext gc, double roadTop, double roadBot, double roadLeft, double roadRight) {
+        double T = 32;
+        // 4 góc
+        double[][] corners = {
+            {roadLeft  - T - 4, roadTop  - T - 4},
+            {roadRight + 4,      roadTop  - T - 4},
+            {roadLeft  - T - 4, roadBot  + 4},
+            {roadRight + 4,      roadBot  + 4},
+        };
+        for (double[] c : corners) {
+            drawTileAt(gc, 29, c[0], c[1], T * 0.5, T); // đèn đường tile #29
+        }
+    }
+
+    // Vẽ mây trang trí cho ngã năm
+    private void drawClouds(GraphicsContext gc, double W, double H) {
+        gc.setFill(Color.rgb(220, 235, 255, 0.18));
+        double[][] clouds = {{80, 30, 90, 32}, {W-160, 20, 110, 28}, {W/2-50, 10, 80, 26}};
+        for (double[] c : clouds) {
+            gc.fillOval(c[0], c[1], c[2], c[3]);
+            gc.fillOval(c[0]+15, c[1]-8, c[2]*0.7, c[3]*0.8);
+            gc.fillOval(c[0]+30, c[1]+4, c[2]*0.6, c[3]*0.7);
+        }
+    }
+
+    // Helper: vẽ tile tại tọa độ cụ thể (alias ngắn gọn cho drawTile)
+    private void drawTileAt(GraphicsContext gc, int id, double x, double y, double w, double h) {
+        drawTile(gc, id, x, y, w, h);
+    }
+
+
+    // Vẽ nền sidewalk (tile checker xám)
+    private void drawSidewalk(GraphicsContext gc, double x, double y, double w, double h) {
+        Image sw = tiles.get(236);
+        double T = 48;
+        if (sw != null) {
+            for (double ty = y; ty < y + h; ty += T) {
+                for (double tx = x; tx < x + w; tx += T) {
+                    double tw = Math.min(T, x + w - tx);
+                    double th = Math.min(T, y + h - ty);
+                    gc.drawImage(sw, tx, ty, tw, th);
+                }
+            }
+        } else {
+            gc.setFill(Color.rgb(90, 104, 112));
+            gc.fillRect(x, y, w, h);
+        }
+    }
+
+    // Vẽ một dải sidewalk hẹp (kẻ đôi màu đậm hơn)
+    private void drawSidewalkStrip(GraphicsContext gc, double x, double y, double w, double h) {
+        gc.setFill(Color.rgb(80, 92, 100, 0.85));
+        gc.fillRect(x, y, w, h);
+        gc.setStroke(Color.rgb(55, 65, 75));
+        gc.setLineWidth(1);
+        gc.strokeRect(x, y, w, h);
+    }
+
+    // Vẽ dãy nhà ngang (TOP hoặc BOTTOM)
+    // variant: 0=xanh mái+gỗ nâu, 1=ngói đỏ+trắng, 2=xanh đậm+gỗ tối
+    private void drawBuildingStrip(GraphicsContext gc, double x, double y, double totalW, double totalH, boolean facingDown, int baseVariant) {
+        if (totalW < 32 || totalH < 32) return;
+        double T = 48.0;
+        // Mỗi căn nhà có độ rộng 3~5 tiles
+        int[] widthTiles = {4, 3, 5, 3, 4, 5, 3, 4};
+        int wi = 0;
+        double cx = x;
+        while (cx < x + totalW - T) {
+            int w = widthTiles[wi % widthTiles.length];
+            double bW = w * T;
+            if (cx + bW > x + totalW) bW = x + totalW - cx;
+            int variant = (baseVariant + wi) % 3;
+            drawMachiya(gc, cx, y, bW, totalH, T, facingDown, variant);
+            cx += bW;
+            wi++;
+        }
+    }
+
+    // Vẽ dãy nhà dọc (LEFT hoặc RIGHT)
+    private void drawBuildingStripV(GraphicsContext gc, double x, double y, double totalW, double totalH, boolean facingRight, int baseVariant) {
+        if (totalW < 32 || totalH < 32) return;
+        double T = 48.0;
+        int[] heightTiles = {3, 4, 3, 5, 3, 4};
+        int hi = 0;
+        double cy = y;
+        while (cy < y + totalH - T) {
+            int h = heightTiles[hi % heightTiles.length];
+            double bH = h * T;
+            if (cy + bH > y + totalH) bH = y + totalH - cy;
+            int variant = (baseVariant + hi) % 3;
+            drawMachiyaV(gc, x, cy, totalW, bH, T, facingRight, variant);
+            cy += bH;
+            hi++;
+        }
+    }
+
+    // ── Vẽ 1 ngôi nhà machiya NGANG ─────────────────────────────────────
+    //  facingDown=false → mái trên, mặt tiền dưới (nhìn xuống đường)
+    //  facingDown=true  → mặt tiền trên, mái dưới  (nhìn lên đường)
+    private void drawMachiya(GraphicsContext gc, double x, double y, double bW, double bH, double T,
+                              boolean facingDown, int variant) {
+        double roofH  = Math.min(T * 1.1, bH * 0.45);
+        double wallH  = bH - roofH;
+        double roofY  = facingDown ? y + wallH : y;
+        double wallY  = facingDown ? y          : y + roofH;
+
+        // -- Tường --
+        drawWall(gc, x, wallY, bW, wallH, T, variant);
+        // -- Mặt tiền (cửa, rèm) --
+        double frontH = Math.min(T * 1.3, wallH);
+        double frontY = facingDown ? wallY : wallY + wallH - frontH;
+        drawFacade(gc, x, frontY, bW, frontH, T, variant);
+        // -- Mái --
+        drawRoof(gc, x, roofY, bW, roofH, T, variant);
+    }
+
+    // ── Vẽ 1 ngôi nhà machiya DỌC ───────────────────────────────────────
+    private void drawMachiyaV(GraphicsContext gc, double x, double y, double bW, double bH, double T,
+                               boolean facingRight, int variant) {
+        double roofW  = Math.min(T * 1.0, bW * 0.4);
+        double wallW  = bW - roofW;
+        double roofX  = facingRight ? x : x + wallW;
+        double wallX  = facingRight ? x + roofW : x;
+
+        drawWallV(gc, wallX, y, wallW, bH, T, variant);
+        double facadeW = Math.min(T * 1.2, wallW);
+        double facadeX = facingRight ? wallX : wallX + wallW - facadeW;
+        drawFacadeV(gc, facadeX, y, facadeW, bH, T, variant);
+        drawRoofV(gc, roofX, y, roofW, bH, T, variant);
+    }
+
+    // -- Vẽ phần tường --
+    private void drawWall(GraphicsContext gc, double x, double y, double w, double h, double T, int v) {
+        int[] wallIds = {211, 212, 213};
+        int tid = wallIds[v % wallIds.length];
+        for (double ty = y; ty < y + h; ty += T)
+            for (double tx = x; tx < x + w; tx += T)
+                drawTile(gc, tid, tx, ty, Math.min(T, x+w-tx), Math.min(T, y+h-ty));
+    }
+
+    private void drawWallV(GraphicsContext gc, double x, double y, double w, double h, double T, int v) {
+        drawWall(gc, x, y, w, h, T, v);
+    }
+
+    // -- Vẽ phần mặt tiền (kẻ ngang gỗ, cửa, rèm) --
+    private void drawFacade(GraphicsContext gc, double x, double y, double w, double h, double T, int v) {
+        // Kẻ sọc gỗ ngang
+        int[] facadeIds = {278, 279, 280};
+        int fid = facadeIds[v % facadeIds.length];
+        for (double tx = x; tx < x + w; tx += T)
+            drawTile(gc, fid, tx, y, Math.min(T, x+w-tx), h);
+
+        // Cửa chính ở giữa
+        double doorW = Math.min(T * 1.1, w * 0.35);
+        double doorH = h * 1.15;
+        double doorX = x + (w - doorW) / 2;
+        int[] doorIds = {355, 357, 355};
+        drawTile(gc, doorIds[v % doorIds.length], doorX, y - h * 0.1, doorW, doorH);
+
+        // Rèm noren trái
+        if (w > T * 3) {
+            drawTile(gc, 186, doorX - T * 0.95, y + h * 0.05, T * 0.85, h * 0.85);
+        }
+        // Bảng hiệu/cửa sổ phải
+        if (w > T * 3.5) {
+            int[] winIds = {358, 359, 358};
+            drawTile(gc, winIds[v % winIds.length], doorX + doorW + T * 0.1, y + h * 0.1, T * 0.9, h * 0.75);
+        }
+    }
+
+    private void drawFacadeV(GraphicsContext gc, double x, double y, double w, double h, double T, int v) {
+        int[] facadeIds = {278, 279, 280};
+        int fid = facadeIds[v % facadeIds.length];
+        for (double ty = y; ty < y + h; ty += T)
+            drawTile(gc, fid, x, ty, w, Math.min(T, y+h-ty));
+        // Cửa ở giữa
+        double doorH2 = Math.min(T * 1.0, h * 0.35);
+        double doorY2 = y + (h - doorH2) / 2;
+        int[] doorIds = {355, 357, 355};
+        drawTile(gc, doorIds[v % doorIds.length], x, doorY2, w, doorH2);
+    }
+
+    // -- Vẽ phần mái --
+    private void drawRoof(GraphicsContext gc, double x, double y, double w, double h, double T, int v) {
+        // Góc trái, giữa lặp, góc phải
+        int[][] sets = {
+            {151, 152, 153},  // variant 0: mái xanh xám
+            {154, 155, 156},  // variant 1: mái đỏ cam
+            {129, 130, 131}   // variant 2: mái tối
+        };
+        int[] s = sets[v % sets.length];
+        drawTile(gc, s[0], x, y, T, h);
+        double mid = x + T;
+        while (mid + T < x + w) {
+            drawTile(gc, s[1], mid, y, T, h);
+            mid += T;
+        }
+        if (mid < x + w) drawTile(gc, s[2], mid, y, x + w - mid, h);
+        else              drawTile(gc, s[2], x + w - T, y, T, h);
+    }
+
+    private void drawRoofV(GraphicsContext gc, double x, double y, double w, double h, double T, int v) {
+        int[] ids = {1, 5, 3};
+        int tid = ids[v % ids.length];
+        for (double ty = y; ty < y + h; ty += T)
+            drawTile(gc, tid, x, ty, w, Math.min(T, y+h-ty));
+    }
+
+    // -- Props (máy bán nước, chậu cây, hàng rào) --
+    private void drawStreetProps(GraphicsContext gc, double W, double H,
+                                  double roadTop, double roadBot, double roadLeft, double roadRight, double pad) {
+        double T = 48;
+        double sidewalkN = roadTop - pad - 18;   // Y vỉa hè phía bắc
+        double sidewalkS = roadBot + pad;         // Y vỉa hè phía nam
+
+        // Máy bán nước - đặt ngay trên vỉa hè phía Bắc
+        if (sidewalkN > T) {
+            drawTile(gc, 68, roadLeft  - T * 1.5, sidewalkN - T * 1.4, T * 1.0, T * 1.4);
+            drawTile(gc, 68, roadRight + T * 0.5, sidewalkN - T * 1.4, T * 1.0, T * 1.4);
+        }
+        // Máy bán nước - phía Nam
+        if (H - sidewalkS > T * 1.5) {
+            drawTile(gc, 68, roadLeft  - T * 1.5, sidewalkS + 2, T * 1.0, T * 1.4);
+            drawTile(gc, 68, roadRight + T * 0.5, sidewalkS + 2, T * 1.0, T * 1.4);
+        }
+
+        // Chậu cây - dọc theo đường Bắc
+        double[] pxN = {T * 0.5, T * 1.8, W - T * 2.5, W - T * 1.1};
+        if (sidewalkN > T) {
+            for (double px : pxN)
+                drawTile(gc, 84, px, sidewalkN - T * 1.1, T * 0.85, T * 0.95);
+        }
+        // Chậu cây - đường Nam
+        double[] pxS = {T * 0.5, T * 1.8, W - T * 2.5, W - T * 1.1};
+        if (H - sidewalkS > T * 1.2) {
+            for (double px : pxS)
+                drawTile(gc, 84, px, sidewalkS + 4, T * 0.85, T * 0.95);
+        }
+        // Chậu cây - bên trái đường
+        double leftEdge = roadLeft - pad - 18;
+        if (leftEdge > T) {
+            drawTile(gc, 84, leftEdge - T * 1.1, roadTop + (roadBot-roadTop)/2 - T*0.4, T*0.85, T*0.95);
+        }
+        // Chậu cây - bên phải đường
+        double rightEdge = roadRight + pad;
+        if (W - rightEdge > T) {
+            drawTile(gc, 84, rightEdge + 4, roadTop + (roadBot-roadTop)/2 - T*0.4, T*0.85, T*0.95);
+        }
+    }
+
+    // Helper: vẽ một tile với kích thước tùy chỉnh
+    private void drawTile(GraphicsContext gc, int tileId, double x, double y, double w, double h) {
+        Image img = tiles.get(tileId);
+        if (img != null && w > 0 && h > 0) {
+            gc.drawImage(img, x, y, w, h);
+        }
+    }
+
+
+
+    // Tính ranh giới an toàn (khoảng cách tối thiểu tới làn đường)
+    private double getSafeBoundary(double W, double H, String direction) {
+        double closest = switch (direction) {
+            case "north" -> H / 2;
+            case "south" -> H / 2;
+            case "west"  -> W / 2;
+            case "east"  -> W / 2;
+            default -> H / 2;
+        };
+        for (Lane lane : lanes) {
+            if (lane == null) continue;
+            List<com.traffic.core.Vector2D> pts = lane.getwaypoints();
+            if (pts == null || pts.size() < 2) continue;
+            for (com.traffic.core.Vector2D pt : pts) {
+                switch (direction) {
+                    case "north" -> closest = Math.min(closest, pt.getY());
+                    case "south" -> closest = Math.max(closest, pt.getY());
+                    case "west"  -> closest = Math.min(closest, pt.getX());
+                    case "east"  -> closest = Math.max(closest, pt.getX());
+                }
+            }
+        }
+        return closest;
+    }
+
+
 
     private double pointToLineDistance(double px, double py, double x1, double y1, double x2, double y2) {
         double A = px - x1;
@@ -209,81 +731,12 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
     //  1.6. CÂY XANH & NGƯỜI ĐI BỘ
     // =====================================================================
     private void drawTrees(GraphicsContext gc, double canvasW, double canvasH) {
-        java.util.Random rnd = new java.util.Random(123);
-        
-        for (int i = 0; i < 40; i++) { // Vẽ 40 cụm cây
-            double tx = rnd.nextDouble() * canvasW;
-            double ty = rnd.nextDouble() * canvasH;
-            
-            // Chỉ vẽ cây nếu gần đường (vỉa hè) nhưng không đè lên giữa đường
-            boolean nearRoad = false;
-            boolean onRoad = false;
-            for (Lane lane : lanes) {
-                if (lane == null) continue;
-                double dist = pointToLineDistance(tx, ty, lane.getStart().getX(), lane.getStart().getY(), lane.getEnd().getX(), lane.getEnd().getY());
-                if (dist > 45 && dist < 120) nearRoad = true;
-                if (dist <= 45) onRoad = true; // Đường rộng 80 (bán kính 40)
-            }
-            
-            if (nearRoad && !onRoad) {
-                // Tán cây sồi lớn: bóng đổ trước
-                double treeR = 25 + rnd.nextDouble() * 15;
-                gc.setFill(Color.rgb(0, 0, 0, 0.35));
-                gc.fillOval(tx - treeR + 8, ty - treeR + 8, treeR * 2, treeR * 2);
-                
-                // Các lớp lá đè lên nhau
-                for (int j = 0; j < 3; j++) {
-                    double leafR = treeR * (1.0 - j*0.2);
-                    double ox = (rnd.nextDouble() - 0.5) * 10;
-                    double oy = (rnd.nextDouble() - 0.5) * 10;
-                    
-                    // Màu xanh lá đậm -> nhạt (với chút vàng của sồi già)
-                    gc.setFill(Color.rgb(30 + j*15, 80 + j*25 + rnd.nextInt(20), 20 + j*10));
-                    gc.fillOval(tx - leafR + ox, ty - leafR + oy, leafR * 2, leafR * 2);
-                }
-            }
-        }
+        // Cây và props đã được vẽ trong drawBuildings -> drawStreetProps
     }
 
+
     private void drawPedestrians(GraphicsContext gc) {
-        java.util.Random rnd = new java.util.Random(999);
-        // Tìm các vị trí ngã tư (Intersection) để vẽ người đứng chờ
-        for (com.traffic.map.Intersection inter : intersections) {
-            if (inter == null) continue;
-            double cx = inter.getCenter().getX();
-            double cy = inter.getCenter().getY();
-            
-            // Vẽ 3-5 nhóm người ở 4 góc
-            int numGroups = 3 + rnd.nextInt(3);
-            for (int g = 0; g < numGroups; g++) {
-                double angle = rnd.nextDouble() * Math.PI * 2;
-                double dist = 90 + rnd.nextDouble() * 30; // Đứng dạt ra ngoài rìa ngã tư
-                double px = cx + Math.cos(angle) * dist;
-                double py = cy + Math.sin(angle) * dist;
-                
-                // 1-3 người mỗi nhóm
-                int people = 1 + rnd.nextInt(3);
-                for (int p = 0; p < people; p++) {
-                    double ox = px + (rnd.nextDouble() - 0.5) * 12;
-                    double oy = py + (rnd.nextDouble() - 0.5) * 12;
-                    
-                    // Bóng đổ
-                    gc.setFill(Color.rgb(0, 0, 0, 0.4));
-                    gc.fillOval(ox - 3, oy - 3, 6, 6);
-                    
-                    // Vai áo (Màu sắc đa dạng)
-                    int r = 50 + rnd.nextInt(200);
-                    int gC = 50 + rnd.nextInt(200);
-                    int b = 50 + rnd.nextInt(200);
-                    gc.setFill(Color.rgb(r, gC, b));
-                    gc.fillOval(ox - 3.5, oy - 2.5, 7, 5); // Vai áo ngang
-                    
-                    // Đầu
-                    gc.setFill(Color.rgb(240, 200, 180));
-                    gc.fillOval(ox - 2, oy - 2, 4, 4);
-                }
-            }
-        }
+        // Trống - chờ làm lại
     }
 
     // =====================================================================
@@ -305,7 +758,7 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
             gc.setLineWidth(88);
             strokePath(gc, pts, 3, 4);
 
-            // 2. Mặt đường asphalt
+            // 2. Mặt đường asphalt hoặc texture đường
             gc.setStroke(ASPHALT);
             gc.setLineWidth(80);
             strokePath(gc, pts, 0, 0);
