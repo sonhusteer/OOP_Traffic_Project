@@ -88,6 +88,7 @@ public class TJunctionMap implements MapConfig {
     }
 
     @Override public String getName() { return "Ngã Ba"; }
+    @Override public String getSceneryType() { return "T_JUNCTION"; }
 
     @Override public List<Lane> getLanes() { return lanes; }
 

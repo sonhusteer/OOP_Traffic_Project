@@ -108,6 +108,7 @@ public class FiveWayMap implements MapConfig {
     }
 
     @Override public String getName() { return "Ngã Năm"; }
+    @Override public String getSceneryType() { return "FIVE_WAY"; }
     @Override public List<Lane> getLanes() { return lanes; }
     @Override public List<Intersection> getIntersections() { return intersections; }
 

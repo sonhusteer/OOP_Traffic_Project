@@ -27,7 +27,7 @@ if %ERRORLEVEL% neq 0 (
 echo [OK] Compile successful.
 echo [*] Copying resources...
 copy /Y src\style.css bin\style.css >nul 2>&1
-copy /Y assets\images\*.png bin\images\ >nul 2>&1
+xcopy /E /Y /I assets\images bin\images >nul 2>&1
 copy /Y assets\sounds\*.wav bin\sounds\ >nul 2>&1
 echo [OK] Resources copied.
 
