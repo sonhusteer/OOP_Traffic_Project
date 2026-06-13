@@ -14,7 +14,7 @@ import com.traffic.map.Lane;
  */
 public class TurnManeuver {
 
-    private static final int LENGTH_SAMPLES = 48;
+    private static final int LENGTH_SAMPLES = 72;
 
     private static final double ROUNDABOUT_ROAD_HALF_OFFSET = 40.0;
     private static final double ROUNDABOUT_LANE_RADIUS = 65.0;
@@ -139,43 +139,96 @@ public class TurnManeuver {
      * tangent to the roundabout and prevents them from cutting across the island.
      */
     private Vector2D roundaboutPointAt(double u) {
+        double clamped = MathUtils.clamp(u, 0.0, 1.0);
         double cx = intersection.getCenter().getX();
         double cy = intersection.getCenter().getY();
 
         double theta0 = Math.atan2(p0.getY() - cy, p0.getX() - cx);
         double theta3 = Math.atan2(p3.getY() - cy, p3.getX() - cx);
         double deltaTheta = roundaboutDeltaTheta(theta0, theta3);
-        double theta = theta0 + u * deltaTheta;
+
+        // Smooth angular interpolation avoids a visible heading snap at entry
+        // and exit. Right turns use the shortest slip arc; other movements keep
+        // the circulatory direction around the island.
+        double angularT = smootherStep(clamped);
+        double theta = theta0 + angularT * deltaTheta;
 
         double r0 = Math.hypot(p0.getX() - cx, p0.getY() - cy);
         double r3 = Math.hypot(p3.getX() - cx, p3.getY() - cy);
-        double baseRadius = MathUtils.lerp(r0, r3, u);
+        double baseRadius = MathUtils.lerp(r0, r3, clamped);
 
-        // Ease onto the actual circulatory-lane radius in the middle and blend
-        // back to the exact lane entry/exit points at both ends.
-        double r = baseRadius + Math.sin(Math.PI * u) * (ROUNDABOUT_LANE_RADIUS - baseRadius);
+        // Zero-slope hump: exact endpoints, stable mid-ring radius, no sudden
+        // radial pull when the vehicle first touches the roundabout path. Right
+        // turns run on the outer slip radius so they read as a short, direct exit
+        // instead of a full roundabout circulation.
+        double oneMinus = 1.0 - clamped;
+        double ringBlend = 16.0 * clamped * clamped * oneMinus * oneMinus;
+        double slipRadius = decision == Vehicle.TurnDecision.RIGHT
+                ? ROUNDABOUT_LANE_RADIUS + 9.0
+                : ROUNDABOUT_LANE_RADIUS;
+        double r = baseRadius + ringBlend * (slipRadius - baseRadius);
         return new Vector2D(cx + r * Math.cos(theta), cy + r * Math.sin(theta));
     }
 
     private Vector2D roundaboutTangentAt(double u) {
+        double clamped = MathUtils.clamp(u, 0.0, 1.0);
         double eps = 0.006;
-        double a = MathUtils.clamp(u - eps, 0.0, 1.0);
-        double b = MathUtils.clamp(u + eps, 0.0, 1.0);
+        double a = MathUtils.clamp(clamped - eps, 0.0, 1.0);
+        double b = MathUtils.clamp(clamped + eps, 0.0, 1.0);
         if (Math.abs(b - a) < 1e-6) {
-            b = MathUtils.clamp(u + eps * 2.0, 0.0, 1.0);
+            b = MathUtils.clamp(clamped + eps * 2.0, 0.0, 1.0);
         }
         Vector2D pA = roundaboutPointAt(a);
         Vector2D pB = roundaboutPointAt(b);
-        double dx = pB.getX() - pA.getX();
-        double dy = pB.getY() - pA.getY();
-        double len = Math.hypot(dx, dy);
-        if (len < 1e-6) {
-            return new Vector2D(1.0, 0.0);
+        Vector2D ring = normalized(pB.getX() - pA.getX(), pB.getY() - pA.getY());
+
+        // Blend the rendered heading with the lane tangents at the ends. The
+        // position still follows the ring, but the car nose turns progressively
+        // instead of snapping from lane heading to circular heading.
+        final double blendBand = decision == Vehicle.TurnDecision.RIGHT ? 0.32 : 0.22;
+        if (clamped < blendBand && sourceLane != null) {
+            Vector2D in = sourceLane.getDirectionAt(sourceLane.getProgressOf(p0));
+            double w = smootherStep(clamped / blendBand);
+            return blendDirection(in, ring, w);
         }
-        return new Vector2D(dx / len, dy / len);
+        if (clamped > 1.0 - blendBand && targetLane != null) {
+            Vector2D out = targetLane.getDirectionAt(targetEntryProgress);
+            double w = smootherStep((clamped - (1.0 - blendBand)) / blendBand);
+            return blendDirection(ring, out, w);
+        }
+        return ring;
+    }
+
+    private static double smootherStep(double x) {
+        double t = MathUtils.clamp(x, 0.0, 1.0);
+        return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+    }
+
+    private static Vector2D blendDirection(Vector2D from, Vector2D to, double weight) {
+        if (from == null) return to == null ? new Vector2D(1.0, 0.0) : to.normalized();
+        if (to == null) return from.normalized();
+        double w = smootherStep(weight);
+        return normalized(
+                from.getX() * (1.0 - w) + to.getX() * w,
+                from.getY() * (1.0 - w) + to.getY() * w
+        );
+    }
+
+    private static Vector2D normalized(double x, double y) {
+        double len = Math.hypot(x, y);
+        if (len < 1e-6) return new Vector2D(1.0, 0.0);
+        return new Vector2D(x / len, y / len);
     }
 
     private double roundaboutDeltaTheta(double theta0, double theta3) {
+        if (decision == Vehicle.TurnDecision.RIGHT) {
+            // A right turn in the five-way roundabout is a slip movement to the
+            // nearest exit. Use the shortest angular arc around the island; the
+            // point path still stays on the outer slip radius, so it never cuts
+            // through the center island.
+            return normalizeAngleRadians(theta3 - theta0);
+        }
+
         // The tangent points are offset from the road radial by this angle.
         // Subtracting it before normalization makes exit selection stable for
         // 5-way spacing, then adding it back keeps the actual endpoints exact.
@@ -183,9 +236,8 @@ public class TurnManeuver {
         double roadDiff = theta3 - theta0 - 2.0 * tangentOffset;
         roadDiff = normalizeAngleRadians(roadDiff);
 
-        // Current map geometry uses one consistent circulatory direction. Force
-        // that direction so left/straight/right all travel around the ring rather
-        // than taking the short chord across the island.
+        // Keep the normal circulatory direction for straight/left movements so
+        // they travel around the island instead of taking a chord through it.
         if (roadDiff > 0.0) {
             roadDiff -= 2.0 * Math.PI;
         }

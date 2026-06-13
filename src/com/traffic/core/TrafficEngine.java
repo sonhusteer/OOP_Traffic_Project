@@ -68,10 +68,12 @@ public class TrafficEngine {
     public void setRenderer(IRenderer renderer) { this.renderer = renderer; }
 
     public void tick(double deltaTime) {
+        TrafficDebug.beginTick();
         updateLights(deltaTime);
         PriorityRouteAnalyzer priorityRoutes = PriorityRouteAnalyzer.analyze(vehicles, intersections);
         emergencyManager.update(vehicles, intersections, priorityRoutes);
         turnCoordinator.updateBeforeDrivers(vehicles, intersections, priorityRoutes);
+        logPreparingTurnSlotStalls();
         releaseStaleIntersectionDeadlock(deltaTime);
         updateVehicles(deltaTime, priorityRoutes);
     }
@@ -87,6 +89,21 @@ public class TrafficEngine {
     private void updateLights(double deltaTime) {
         for (TrafficLight light : lights) {
             light.tick(deltaTime);
+        }
+    }
+
+
+    private void logPreparingTurnSlotStalls() {
+        for (Vehicle vehicle : new ArrayList<>(vehicles)) {
+            if (vehicle == null) continue;
+            Vehicle.IntersectionManeuverState state = vehicle.getIntersectionManeuverState();
+            if ((state == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
+                    || state == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT_PAUSED)
+                    && vehicle.getSpeed() < 2.0) {
+                boolean stable = !Vehicle.isActiveLateralManeuverState(vehicle.getManeuverState())
+                        && vehicle.isNearPreferredLateralOffset(6.0);
+                TrafficDebug.logPreparingStuck(vehicle, stable);
+            }
         }
     }
 
@@ -142,7 +159,7 @@ public class TrafficEngine {
         // This is a last-resort airbag for circular target-lane waits. It only
         // applies to vehicles already stuck at the intersection gate, never to
         // red-light or priority-conflict waits.
-        selected.clearPriorityYieldLock();
+        selected.clearPriorityYieldLock("DEADLOCK_FORCED_RELEASE");
         selected.setYieldMode(Vehicle.YieldMode.CLEAR_CONFLICT);
         selected.setManeuverState(Vehicle.ManeuverState.CLEARING_CONFLICT);
         selected.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.CLEARING_FOR_PRIORITY);

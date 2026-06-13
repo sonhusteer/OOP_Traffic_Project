@@ -761,6 +761,10 @@ public abstract class Vehicle {
         }
         if (newLock || sourceChanged || targetChanged) {
             priorityYieldBlockedSeconds = 0.0;
+            TrafficDebug.logYield("LOCK_SET",
+                    "vehicle=%s lockedBy=%s yieldOffset=%.1f duration=%.2fs sourceChanged=%b targetChanged=%b",
+                    TrafficDebug.id(this), TrafficDebug.id(prioritySource), newTargetOffset,
+                    Math.max(0.0, seconds), sourceChanged, targetChanged);
         }
 
         priorityYieldSource = prioritySource;
@@ -790,6 +794,16 @@ public abstract class Vehicle {
     }
 
     public void clearPriorityYieldLock() {
+        clearPriorityYieldLock("MANUAL_CLEAR");
+    }
+
+    public void clearPriorityYieldLock(String reason) {
+        if (hasActivePriorityYieldLock() || priorityYieldSource != null || !Double.isNaN(priorityYieldTargetOffset)) {
+            TrafficDebug.logYield("LOCK_CLEAR",
+                    "vehicle=%s reason=%s lockedBy=%s remaining=%.2fs blocked=%.2fs",
+                    TrafficDebug.id(this), reason == null ? "UNKNOWN" : reason,
+                    TrafficDebug.id(priorityYieldSource), priorityYieldLockSeconds, priorityYieldBlockedSeconds);
+        }
         priorityYieldSource = null;
         priorityYieldLockSeconds = 0.0;
         priorityYieldTargetOffset = Double.NaN;
@@ -808,6 +822,11 @@ public abstract class Vehicle {
                     || maneuverState == ManeuverState.HOLDING_POSITION) {
                 targetLateralOffset = restored;
             }
+        }
+        if (priorityYieldSource != null || !Double.isNaN(priorityYieldTargetOffset)) {
+            TrafficDebug.logYield("LOCK_CLEAR",
+                    "vehicle=%s reason=TIMER_EXPIRED lockedBy=%s blocked=%.2fs",
+                    TrafficDebug.id(this), TrafficDebug.id(priorityYieldSource), priorityYieldBlockedSeconds);
         }
         priorityYieldSource = null;
         priorityYieldTargetOffset = Double.NaN;
