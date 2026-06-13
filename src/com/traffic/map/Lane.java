@@ -266,6 +266,24 @@ public class Lane {
         return byDecision != null ? byDecision.get(decision) : null;
     }
 
+    /**
+     * True when this lane has an explicit routing rule for the given movement.
+     * The target may intentionally be null: that means the movement is blocked
+     * on this map, for example STRAIGHT from the stem of a T-junction.
+     */
+    public boolean hasTurnRule(Intersection intersection, Vehicle.TurnDecision decision) {
+        if (intersection == null || decision == null) return false;
+        EnumMap<Vehicle.TurnDecision, Lane> byDecision = turnTargets.get(intersection);
+        return byDecision != null && byDecision.containsKey(decision);
+    }
+
+    /** True when at least one explicit routing rule exists for this intersection. */
+    public boolean hasAnyTurnRule(Intersection intersection) {
+        if (intersection == null) return false;
+        EnumMap<Vehicle.TurnDecision, Lane> byDecision = turnTargets.get(intersection);
+        return byDecision != null && !byDecision.isEmpty();
+    }
+
     public Set<Vehicle> getReservedVehicles() { return reservedBy; }
 
     public double getLeftmostOffset(Vehicle vehicle) {

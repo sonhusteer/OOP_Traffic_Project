@@ -2,7 +2,6 @@ package com.traffic.core;
 
 import com.traffic.map.Intersection;
 import com.traffic.map.Lane;
-import com.traffic.core.Vector2D;
 import java.util.List;
 
 /** Applies priority-vehicle yielding rules without stopping cars that already cleared conflict. */

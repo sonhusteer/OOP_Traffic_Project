@@ -1,6 +1,5 @@
 package com.traffic.maps;
 
-import com.traffic.core.Vehicle;
 import com.traffic.map.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -72,24 +71,6 @@ public class CrossroadsMap implements MapConfig {
         // ── Ngã tư ──────────────────────────────────────────────────────
         Intersection ngaTu = new Intersection(Intersection.Type.CROSSROADS, 400, 300);
         for (Lane lane : lanes) ngaTu.addLane(lane);
-
-        // Explicit routing avoids angle-guessing chaos at busy intersections.
-        // LEFT/RIGHT are defined relative to the vehicle heading.
-        road1.setTurnTarget(ngaTu, Vehicle.TurnDecision.STRAIGHT, road1);
-        road1.setTurnTarget(ngaTu, Vehicle.TurnDecision.LEFT, road4);
-        road1.setTurnTarget(ngaTu, Vehicle.TurnDecision.RIGHT, road3);
-
-        road2.setTurnTarget(ngaTu, Vehicle.TurnDecision.STRAIGHT, road2);
-        road2.setTurnTarget(ngaTu, Vehicle.TurnDecision.LEFT, road3);
-        road2.setTurnTarget(ngaTu, Vehicle.TurnDecision.RIGHT, road4);
-
-        road3.setTurnTarget(ngaTu, Vehicle.TurnDecision.STRAIGHT, road3);
-        road3.setTurnTarget(ngaTu, Vehicle.TurnDecision.LEFT, road1);
-        road3.setTurnTarget(ngaTu, Vehicle.TurnDecision.RIGHT, road2);
-
-        road4.setTurnTarget(ngaTu, Vehicle.TurnDecision.STRAIGHT, road4);
-        road4.setTurnTarget(ngaTu, Vehicle.TurnDecision.LEFT, road2);
-        road4.setTurnTarget(ngaTu, Vehicle.TurnDecision.RIGHT, road1);
         intersections.add(ngaTu);
     }
 

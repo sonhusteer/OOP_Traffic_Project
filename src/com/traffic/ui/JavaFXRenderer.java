@@ -26,7 +26,6 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
 
     // ── Bảng màu đường & nền ─────────────────────────────────────────────
     private static final Color ASPHALT      = Color.rgb(38, 41, 50);
-    private static final Color ASPHALT_EDGE = Color.rgb(52, 56, 66);
     private static final Color LANE_EDGE    = Color.rgb(255, 210, 50, 0.90);  // vạch mép vàng
     private static final Color LANE_CENTER  = Color.rgb(255, 255, 255, 0.55); // vạch giữa trắng
     private static final Color BG_DARK      = Color.rgb(22, 34, 20);
@@ -385,21 +384,22 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
         String turn = v.getTurnIntentLabel();
         if (turn == null || turn.isBlank()) return;
 
-        double bx = px - 7.0;
-        double by = py - h / 2.0 - 18.0;
+        double badge = 20.0;
+        double bx = px - badge / 2.0;
+        double by = py - Math.max(w, h) / 2.0 - badge - 6.0;
         boolean waiting = v.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION;
         Color bg = waiting ? Color.rgb(255, 170, 35, 225.0 / 255) : Color.rgb(20, 20, 25, 185.0 / 255);
         Color fg = waiting ? Color.rgb(30, 25, 10) : Color.rgb(255, 255, 255, 235.0 / 255);
 
         gc.save();
         gc.setFill(bg);
-        gc.fillRoundRect(bx, by, 14, 14, 4, 4);
+        gc.fillRoundRect(bx, by, badge, badge, 5, 5);
         gc.setStroke(Color.rgb(255, 255, 255, 95.0 / 255));
         gc.setLineWidth(0.8);
-        gc.strokeRoundRect(bx, by, 14, 14, 4, 4);
+        gc.strokeRoundRect(bx, by, badge, badge, 5, 5);
         gc.setFill(fg);
-        gc.setFont(Font.font("SansSerif", FontWeight.BOLD, 10));
-        gc.fillText(turn, bx + 4.0, by + 10.5);
+        gc.setFont(Font.font("SansSerif", FontWeight.BOLD, 13));
+        gc.fillText(turn, bx + 6.0, by + 14.5);
         gc.restore();
     }
 

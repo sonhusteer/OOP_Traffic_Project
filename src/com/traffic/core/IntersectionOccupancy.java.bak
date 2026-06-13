@@ -57,12 +57,9 @@ public class IntersectionOccupancy {
                 return false;
             }
 
-            // Do not block a vehicle merely because another vehicle is approaching
-            // the same intersection from a crossing lane. Traffic lights and explicit
-            // turn rules decide who may enter. Blocking all approaching flows here
-            // creates a 4-way deadlock when several vehicles reach the stop lines
-            // at the same time. Only vehicles that have already committed to the
-            // conflict area are handled above.
+            if (isLikelyConflictingApproach(vehicle, other, intersection)) {
+                return false;
+            }
         }
         return true;
     }
@@ -93,10 +90,7 @@ public class IntersectionOccupancy {
         }
         if (vehicle.getCurrentIntersection() == intersection
                 && vehicle.isCommittedToIntersection()) {
-            // A vehicle that already exited the conflict core should not reserve
-            // the whole intersection until it is 128 px away. Active turns are
-            // handled above; after that, physical distance to the core is enough.
-            return MathUtils.distance(vehicle.getPosition(), intersection.getCenter()) <= radius;
+            return true;
         }
         return MathUtils.distance(vehicle.getPosition(), intersection.getCenter()) <= radius;
     }
@@ -119,5 +113,45 @@ public class IntersectionOccupancy {
         return approaching && notCleared;
     }
 
+    private boolean isLikelyConflictingApproach(Vehicle vehicle,
+                                                Vehicle other,
+                                                Intersection intersection) {
+        if (vehicle == null || other == null || intersection == null
+                || vehicle.getLane() == null || other.getLane() == null) {
+            return false;
+        }
+        if (!intersection.getLanes().contains(vehicle.getLane())
+                || !intersection.getLanes().contains(other.getLane())) {
+            return false;
+        }
+        if (vehicle.getLane() == other.getLane()) {
+            return false;
+        }
 
+        double myConflict = vehicle.getLane().getProgressOf(intersection.getCenter());
+        double otherConflict = other.getLane().getProgressOf(intersection.getCenter());
+        double myDistance = myConflict - vehicle.getFrontProgress();
+        double otherDistance = otherConflict - other.getFrontProgress();
+        if (myDistance < -CENTER_CONFLICT_RADIUS || otherDistance < -CENTER_CONFLICT_RADIUS) {
+            return false;
+        }
+        if (myDistance > APPROACH_HORIZON || otherDistance > APPROACH_HORIZON) {
+            return false;
+        }
+
+        double myAngle = vehicle.getLane().getAngleAt(myConflict);
+        double otherAngle = other.getLane().getAngleAt(otherConflict);
+        double diff = Math.abs(myAngle - otherAngle);
+        if (diff > 180.0) diff = 360.0 - diff;
+
+        // Parallel/opposite directions are less likely to cross in the same center
+        // point unless one vehicle is turning left. Perpendicular/diagonal flows are
+        // treated conservatively.
+        boolean crossing = Math.abs(Math.cos(Math.toRadians(diff))) < 0.70;
+        if (crossing) return true;
+
+        return vehicle.getTurnDecision() == Vehicle.TurnDecision.LEFT
+                && other.getTurnDecision() == Vehicle.TurnDecision.STRAIGHT
+                && otherDistance < APPROACH_HORIZON * 0.75;
+    }
 }

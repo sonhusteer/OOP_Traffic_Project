@@ -1,5 +1,6 @@
 package com.traffic.maps;
 
+import com.traffic.core.Vehicle;
 import com.traffic.map.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -66,6 +67,23 @@ public class TJunctionMap implements MapConfig {
         // ── Ngã ba ──────────────────────────────────────────────────────
         Intersection ngaBa = new Intersection(Intersection.Type.T_JUNCTION, 400, 300);
         for (Lane lane : lanes) ngaBa.addLane(lane);
+
+        // Explicit routing for the T-junction. This is important: road3 is the
+        // vertical stem of the T and does NOT have a straight continuation.
+        // Without these rules, the angle fallback may let a vehicle continue
+        // into the dark intersection area where no outgoing road exists.
+        road1.setTurnTarget(ngaBa, Vehicle.TurnDecision.STRAIGHT, road1);
+        road1.setTurnTarget(ngaBa, Vehicle.TurnDecision.LEFT, road4);
+        road1.setTurnTarget(ngaBa, Vehicle.TurnDecision.RIGHT, null);
+
+        road2.setTurnTarget(ngaBa, Vehicle.TurnDecision.STRAIGHT, road2);
+        road2.setTurnTarget(ngaBa, Vehicle.TurnDecision.RIGHT, road4);
+        road2.setTurnTarget(ngaBa, Vehicle.TurnDecision.LEFT, null);
+
+        road3.setTurnTarget(ngaBa, Vehicle.TurnDecision.STRAIGHT, null);
+        road3.setTurnTarget(ngaBa, Vehicle.TurnDecision.LEFT, road1);
+        road3.setTurnTarget(ngaBa, Vehicle.TurnDecision.RIGHT, road2);
+
         intersections.add(ngaBa);
     }
 

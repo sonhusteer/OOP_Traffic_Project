@@ -4,18 +4,15 @@ import com.traffic.map.Intersection;
 import java.util.List;
 
 /**
- * @deprecated Use {@link EmergencyManager}. This wrapper is kept only so older
- * UI/tests that instantiate EmergencyVehicleCoordinator still compile.
+ * Legacy adapter kept so older UI/tests that instantiate
+ * EmergencyVehicleCoordinator still compile. New code should use
+ * {@link EmergencyManager} directly.
  */
-@Deprecated
 public final class EmergencyVehicleCoordinator {
 
     private final EmergencyManager delegate = new EmergencyManager();
 
-    /**
-     * @deprecated Use {@link EmergencyManager#update(List, List)} instead.
-     */
-    @Deprecated
+    /** Delegates to {@link EmergencyManager#update(List, List)}. */
     public void apply(List<Vehicle> vehicles, List<Intersection> intersections) {
         delegate.update(vehicles, intersections);
     }

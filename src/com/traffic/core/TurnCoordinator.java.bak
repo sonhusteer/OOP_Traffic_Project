@@ -14,17 +14,17 @@ import java.util.List;
  */
 public class TurnCoordinator {
 
-    private static final double TURN_TRIGGER_DISTANCE = 56.0;
-    private static final double RIGHT_TURN_TRIGGER_DISTANCE = 64.0;
+    private static final double TURN_TRIGGER_DISTANCE = 82.0;
+    private static final double RIGHT_TURN_TRIGGER_DISTANCE = 100.0;
     private static final double STRAIGHT_CROSSING_DISTANCE = 52.0;
     private static final double CLEAR_RESET_DISTANCE = 128.0;
-    private static final double CONFLICT_RADIUS = 46.0;
+    private static final double CONFLICT_RADIUS = 52.0;
     private static final double EXIT_DISTANCE_MIN = 58.0;
     private static final double EXIT_DISTANCE_MAX = 108.0;
     private static final double ENTRY_FRONT_GAP = 76.0;
     private static final double ENTRY_REAR_GAP = 44.0;
     private static final double PREFERRED_OFFSET_TOLERANCE = 6.0;
-    private static final double WAITING_DISTANCE = 96.0;
+    private static final double WAITING_DISTANCE = 130.0;
     private static final double STRAIGHT_CONTINUATION_MIN = 92.0;
 
     private final IntersectionOccupancy occupancy = new IntersectionOccupancy();
@@ -34,31 +34,19 @@ public class TurnCoordinator {
             return;
         }
 
-        // Reset old markers first. Do NOT mark a vehicle as CROSSING_STRAIGHT
-        // before its requested turn has been evaluated; doing so makes LEFT/RIGHT
-        // vehicles become "committed" too early and they simply drive straight.
         for (Vehicle vehicle : new ArrayList<>(vehicles)) {
             if (vehicle == null || vehicle.getLane() == null) {
                 continue;
             }
             resetOldIntersectionMarker(vehicle);
+            updateIntersectionState(vehicle, intersections);
         }
 
-        // Start/queue intersection movements before the generic zone update.
         for (Vehicle vehicle : new ArrayList<>(vehicles)) {
             if (vehicle == null || vehicle.getLane() == null || vehicle.isTurning()) {
                 continue;
             }
             tryStartTurn(vehicle, vehicles, intersections);
-        }
-
-        // Finally refresh visual/driver state for vehicles that did not just start
-        // an active turn.
-        for (Vehicle vehicle : new ArrayList<>(vehicles)) {
-            if (vehicle == null || vehicle.getLane() == null) {
-                continue;
-            }
-            updateIntersectionState(vehicle, intersections);
         }
     }
 
@@ -107,20 +95,9 @@ public class TurnCoordinator {
             vehicle.setLastIntersectionTurned(best);
             vehicle.setTurnWaitReason(null);
         } else if (front >= start) {
-            if (vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) {
-                vehicle.setCurrentIntersection(best);
-                return;
-            }
-            if (shouldTreatAsStraightCrossing(vehicle, lane, best)) {
-                vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.CROSSING_STRAIGHT);
-                vehicle.setCurrentIntersection(best);
-                vehicle.setTurnWaitReason(null);
-            } else if (!vehicle.isTurning()) {
-                // A LEFT/RIGHT vehicle reached the intersection edge before it could
-                // obtain a reservation. Stop before entering instead of silently
-                // converting it into a straight crossing.
-                waitBeforeIntersection(vehicle, best, "WAIT_TURN_SLOT");
-            }
+            vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.CROSSING_STRAIGHT);
+            vehicle.setCurrentIntersection(best);
+            vehicle.setTurnWaitReason(null);
         } else if (front >= conflict - TURN_TRIGGER_DISTANCE - 24.0) {
             if (vehicle.getIntersectionManeuverState() != Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) {
                 vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.APPROACHING);
@@ -179,9 +156,7 @@ public class TurnCoordinator {
         Vehicle.TurnDecision requested = vehicle.getTurnDecision();
         TurnCandidate candidate = chooseTurnCandidate(vehicle, vehicles, sourceLane, intersection, requested);
         if (candidate == null) {
-            String reason = vehicle.getTurnWaitReason();
-            waitBeforeIntersection(vehicle, intersection,
-                    reason != null && !reason.isBlank() ? reason : "NO_AVAILABLE_TURN");
+            waitBeforeIntersection(vehicle, intersection, "NO_AVAILABLE_TURN");
             return;
         }
 
@@ -216,20 +191,6 @@ public class TurnCoordinator {
         );
         vehicle.startTurn(maneuver);
         vehicle.setTurnWaitReason(null);
-    }
-
-    private boolean shouldTreatAsStraightCrossing(Vehicle vehicle, Lane lane, Intersection intersection) {
-        if (vehicle == null || lane == null || intersection == null) return false;
-        Vehicle.TurnDecision decision = vehicle.getTurnDecision();
-        if (decision != Vehicle.TurnDecision.STRAIGHT) {
-            return false;
-        }
-        if (lane.hasAnyTurnRule(intersection)) {
-            return lane.hasTurnRule(intersection, Vehicle.TurnDecision.STRAIGHT)
-                    && lane.getTurnTarget(intersection, Vehicle.TurnDecision.STRAIGHT) == lane;
-        }
-        double conflict = lane.getProgressOf(intersection.getCenter());
-        return lane.getLength() - conflict >= STRAIGHT_CONTINUATION_MIN;
     }
 
     private void waitBeforeIntersection(Vehicle vehicle, Intersection intersection, String reason) {
@@ -303,27 +264,17 @@ public class TurnCoordinator {
                                    Vehicle.TurnDecision decision,
                                    double chord,
                                    double angleDelta) {
-        // Cubic Bezier handles must stay much shorter than the chord. The old
-        // chord*0.5+ formula often overshot the corner, making the car swing
-        // wide and then snap back into the exit lane. A quarter-circle-like
-        // curve uses roughly 0.55 * radius; with our entry/exit points the
-        // effective radius is about half the chord, so 0.22-0.32 * chord is a
-        // safer range.
-        double vehicleBonus = vehicle != null ? Math.max(0.0, vehicle.getWidth() - 34.0) * 0.12 : 0.0;
-        double sharpFactor = MathUtils.clamp(angleDelta / 90.0, 0.75, 1.10);
-        double factor = switch (decision) {
-            case RIGHT -> 0.23;
-            case LEFT -> 0.28;
-            case STRAIGHT -> 0.16;
+        double sharpFactor = MathUtils.clamp(angleDelta / 90.0, 0.45, 1.35);
+        double decisionFactor = switch (decision) {
+            case RIGHT -> 0.48;
+            case LEFT -> 0.58;
+            case STRAIGHT -> 0.34;
         };
-        double handle = chord * factor * sharpFactor + vehicleBonus;
-        double min = decision == Vehicle.TurnDecision.STRAIGHT ? 14.0 : 24.0;
-        double max = switch (decision) {
-            case RIGHT -> 46.0;
-            case LEFT -> 58.0;
-            case STRAIGHT -> 34.0;
-        };
-        return MathUtils.clamp(handle, min, max + vehicleBonus);
+        double vehicleBonus = vehicle != null ? Math.max(0.0, vehicle.getWidth() - 34.0) * 0.20 : 0.0;
+        double handle = chord * decisionFactor * sharpFactor + vehicleBonus;
+        double min = decision == Vehicle.TurnDecision.STRAIGHT ? 18.0 : 28.0;
+        double max = Math.max(min, chord * 0.62);
+        return MathUtils.clamp(handle, min, Math.min(max, 86.0 + vehicleBonus));
     }
 
     private boolean isLateralStableForIntersection(Vehicle vehicle) {
@@ -410,7 +361,7 @@ public class TurnCoordinator {
             double exitDistance = exitDistanceFor(vehicle, decision,
                     MathUtils.distance(vehicle.getPosition(), intersection.getCenter()));
             double targetProgress = MathUtils.clamp(targetConflict + exitDistance, 0.0, targetLane.getLength());
-            double targetOffset = chooseEntryOffset(vehicle, targetLane, targetProgress, decision);
+            double targetOffset = chooseEntryOffset(vehicle, targetLane, targetProgress);
             if (Double.isNaN(targetOffset)) {
                 lastReject = "TARGET_ENTRY_FULL_" + decision;
                 continue;
@@ -436,24 +387,18 @@ public class TurnCoordinator {
                 ? Vehicle.TurnDecision.STRAIGHT
                 : requested;
 
-        // If a map provides explicit rules, obey them. If the requested movement
-        // is forbidden on this map (for example RIGHT from the stem-less side of a
-        // T junction), normalize it to a real available movement instead of making
-        // the vehicle wait forever.
+        // If a map provides explicit rules, follow those rules. STRAIGHT may be
+        // explicitly blocked, so fall back to real turn targets instead of
+        // driving into a non-road area.
         if (sourceLane != null && sourceLane.hasAnyTurnRule(intersection)) {
-            boolean requestedAllowed = sourceLane.hasTurnRule(intersection, safeRequested)
-                    && sourceLane.getTurnTarget(intersection, safeRequested) != null;
-            if (requestedAllowed) {
+            if (sourceLane.hasTurnRule(intersection, safeRequested)
+                    && sourceLane.getTurnTarget(intersection, safeRequested) != null) {
                 result.add(safeRequested);
-                return result;
             }
-
-            // Requested movement is impossible. Prefer straight if it exists,
-            // otherwise use left/right in a stable order. This is a map correction,
-            // not a fallback after a blocked but legal turn.
-            addIfAllowed(result, sourceLane, intersection, Vehicle.TurnDecision.STRAIGHT);
-            addIfAllowed(result, sourceLane, intersection, Vehicle.TurnDecision.LEFT);
-            addIfAllowed(result, sourceLane, intersection, Vehicle.TurnDecision.RIGHT);
+            if (safeRequested == Vehicle.TurnDecision.STRAIGHT) {
+                addIfAllowed(result, sourceLane, intersection, Vehicle.TurnDecision.LEFT);
+                addIfAllowed(result, sourceLane, intersection, Vehicle.TurnDecision.RIGHT);
+            }
             return result;
         }
 
@@ -542,25 +487,17 @@ public class TurnCoordinator {
         return progress < lane.getLength() * 0.45;
     }
 
-    private double chooseEntryOffset(Vehicle vehicle, Lane targetLane, double targetProgress,
-                                     Vehicle.TurnDecision decision) {
+    private double chooseEntryOffset(Vehicle vehicle, Lane targetLane, double targetProgress) {
         if (vehicle == null || targetLane == null) {
             return Double.NaN;
         }
         List<Double> candidates = new ArrayList<>();
-
-        if (decision == Vehicle.TurnDecision.STRAIGHT) {
-            // Going straight should preserve the current virtual slot.
-            double preferred = targetLane.clampOffset(vehicle, vehicle.getPreferredLateralOffset());
-            candidates.add(preferred);
-            candidates.add(Math.abs(preferred - Vehicle.LEFT_OFFSET) < Math.abs(preferred - Vehicle.RIGHT_OFFSET)
-                    ? Vehicle.LEFT_OFFSET : Vehicle.RIGHT_OFFSET);
-            candidates.add(Math.abs(preferred - Vehicle.LEFT_OFFSET) < Math.abs(preferred - Vehicle.RIGHT_OFFSET)
-                    ? Vehicle.RIGHT_OFFSET : Vehicle.LEFT_OFFSET);
+        double preferred = targetLane.clampOffset(vehicle, vehicle.getPreferredLateralOffset());
+        candidates.add(preferred);
+        if (Math.abs(preferred - Vehicle.LEFT_OFFSET) < Math.abs(preferred - Vehicle.RIGHT_OFFSET)) {
+            candidates.add(Vehicle.LEFT_OFFSET);
+            candidates.add(Vehicle.RIGHT_OFFSET);
         } else {
-            // For turns, enter the right-hand slot of the target road by default.
-            // Reusing the source-lane offset can send cars to the wrong side of the
-            // destination lane and creates ugly S-shaped curves at corners.
             candidates.add(Vehicle.RIGHT_OFFSET);
             candidates.add(Vehicle.LEFT_OFFSET);
         }
