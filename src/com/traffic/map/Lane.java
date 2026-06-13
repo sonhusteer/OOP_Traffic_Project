@@ -44,6 +44,7 @@ public class Lane {
     private boolean spawnAllowed = true;
     private boolean straightOnly = false;
 
+    @SuppressWarnings("this-escape")
     public Lane(double startX, double startY,
                 double endX, double endY,
                 TrafficLight light) {

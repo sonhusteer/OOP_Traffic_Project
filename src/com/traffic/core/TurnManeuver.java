@@ -35,6 +35,7 @@ public class TurnManeuver {
     private double traveledDistance;
     private double t;
 
+    @SuppressWarnings("this-escape")
     public TurnManeuver(Lane sourceLane,
                         Lane targetLane,
                         Intersection intersection,

@@ -220,9 +220,7 @@ public class MainApp extends Application {
         Spinner<Integer> spinner = new Spinner<>(1, 10, 1);
         spinner.setMaxWidth(Double.MAX_VALUE);
 
-        // Removed Auto spawn controls from Sidebar to move them to Toolbar
 
-        // Spawn button
         Button btnSpawn = new Button("✦ Spawn");
         btnSpawn.getStyleClass().add("btn-spawn");
         btnSpawn.setMaxWidth(Double.MAX_VALUE);
