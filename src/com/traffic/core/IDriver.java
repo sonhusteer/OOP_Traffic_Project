@@ -12,4 +12,11 @@ public interface IDriver {
     default void makeDecision(Vehicle vehicle, TrafficLight nextLight, double deltaTime) {
         makeDecision(vehicle, nextLight);
     }
+
+    // Normal vehicles must stop on yellow unless their driver explicitly accepts
+    // the risk. Emergency vehicles bypass this through Vehicle.isPriority()/
+    // obeyTrafficLight(), not through this normal-traffic permission.
+    default boolean canPassYellowTrafficLight(Vehicle vehicle) {
+        return false;
+    }
 }

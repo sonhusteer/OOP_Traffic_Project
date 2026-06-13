@@ -395,6 +395,10 @@ public abstract class Vehicle {
         if (driver != null) driver.makeDecision(this, nearestLight, deltaTime);
     }
 
+    public boolean canPassYellowTrafficLight() {
+        return driver != null && driver.canPassYellowTrafficLight(this);
+    }
+
     public boolean isSameDirection(Lane otherLane) {
         if (otherLane == null || lane == null) return false;
         double myAngle = lane.getAngleAt(laneProgress);

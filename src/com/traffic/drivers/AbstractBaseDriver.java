@@ -154,7 +154,7 @@ public abstract class AbstractBaseDriver implements IDriver {
                         : 0.0;
             }
             SpeedDecision lightRule = applyTrafficLightRule(vehicle, nextLight);
-            if (lightRule.redLightAhead() && !lightRule.pastStopLine()) {
+            if (lightRule.stopSignalAhead() && !lightRule.pastStopLine()) {
                 yieldSpeed = Math.min(yieldSpeed, lightRule.targetSpeed());
             }
             vehicle.setSpeed(yieldSpeed);
@@ -271,6 +271,7 @@ public abstract class AbstractBaseDriver implements IDriver {
             double targetSpeed,
             boolean stoppingForLight,
             boolean redLightAhead,
+            boolean stopSignalAhead,
             boolean pastStopLine,
             double distanceToStopLine
     ) {}
@@ -279,6 +280,7 @@ public abstract class AbstractBaseDriver implements IDriver {
         double targetSpeed = getMaxSpeed();
         boolean stoppingForLight = false;
         boolean redLightAhead = false;
+        boolean stopSignalAhead = false;
         boolean pastStopLine = false;
         double distanceToStopLine = Double.POSITIVE_INFINITY;
 
@@ -307,21 +309,37 @@ public abstract class AbstractBaseDriver implements IDriver {
             if (!isPastStop) {
                 if (logicalLight.isRed()) {
                     redLightAhead = true;
+                    stopSignalAhead = true;
                     stoppingForLight = true;
-                    if (distToStop <= getStopDistance()) {
-                        targetSpeed = 0.0;
-                    } else if (distToStop <= getBrakeDistance()) {
-                        double ratio = (distToStop - getStopDistance())
-                                / Math.max(1.0, getBrakeDistance() - getStopDistance());
-                        targetSpeed = MathUtils.clamp(getMaxSpeed() * ratio, getMinSpeed(), getMaxSpeed());
+                    targetSpeed = stopForSignalSpeed(distToStop);
+                } else if (logicalLight.isYellow()) {
+                    if (canPassYellowTrafficLight(vehicle)) {
+                        // In normal traffic, only AggressiveDriver opts into
+                        // crossing yellow. Other non-priority drivers treat
+                        // yellow as a stop signal before the line.
+                        targetSpeed = getMaxSpeed() * 1.1;
+                    } else {
+                        stopSignalAhead = true;
+                        stoppingForLight = true;
+                        targetSpeed = stopForSignalSpeed(distToStop);
                     }
-                } else if (logicalLight.isYellow() && this instanceof AggressiveDriver) {
-                    targetSpeed = getMaxSpeed() * 1.1;
                 }
             }
         }
         return new SpeedDecision(targetSpeed, stoppingForLight, redLightAhead,
-                pastStopLine, distanceToStopLine);
+                stopSignalAhead, pastStopLine, distanceToStopLine);
+    }
+
+    private double stopForSignalSpeed(double distToStop) {
+        if (distToStop <= getStopDistance()) {
+            return 0.0;
+        }
+        if (distToStop <= getBrakeDistance()) {
+            double ratio = (distToStop - getStopDistance())
+                    / Math.max(1.0, getBrakeDistance() - getStopDistance());
+            return MathUtils.clamp(getMaxSpeed() * ratio, getMinSpeed(), getMaxSpeed());
+        }
+        return getMaxSpeed();
     }
 
     /**
@@ -377,7 +395,7 @@ public abstract class AbstractBaseDriver implements IDriver {
 
         SpeedDecision lightRule = applyTrafficLightRule(vehicle, nextLight);
         double desired;
-        if (lightRule.redLightAhead() && !lightRule.pastStopLine()) {
+        if (lightRule.stopSignalAhead() && !lightRule.pastStopLine()) {
             if (lightRule.distanceToStopLine() <= getStopDistance() + 4.0) {
                 rampSpeed(vehicle, 0.0);
                 return;
@@ -423,7 +441,7 @@ public abstract class AbstractBaseDriver implements IDriver {
         if (isPriorityYieldWaitingBeforeIntersection(vehicle)) return false;
 
         SpeedDecision lightRule = applyTrafficLightRule(vehicle, nextLight);
-        if (lightRule.redLightAhead() && !lightRule.pastStopLine()
+        if (lightRule.stopSignalAhead() && !lightRule.pastStopLine()
                 && lightRule.distanceToStopLine() <= getBrakeDistance() + 18.0) {
             return false;
         }

@@ -11,4 +11,6 @@ public class AggressiveDriver extends AbstractBaseDriver {
     @Override protected boolean canOvertake()     { return true;  }
     @Override protected boolean canUseMiddleGap() { return true;  }
 
+    @Override public boolean canPassYellowTrafficLight(com.traffic.core.Vehicle vehicle) { return true; }
+
 }

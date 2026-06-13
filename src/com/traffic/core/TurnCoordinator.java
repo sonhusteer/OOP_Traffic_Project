@@ -617,7 +617,13 @@ public class TurnCoordinator {
         if (control.getProgress() > conflictProgress + 10.0) {
             return true;
         }
-        return !(light.isRed() || light.isYellow());
+        if (light.isRed()) {
+            return false;
+        }
+        if (light.isYellow()) {
+            return vehicle.canPassYellowTrafficLight();
+        }
+        return true;
     }
 
     private Intersection nearestRelevantIntersection(Vehicle vehicle,
