@@ -202,6 +202,14 @@ public class MainApp extends Application {
         cmbLateral.setMaxWidth(Double.MAX_VALUE);
         cmbLateral.getStyleClass().add("dark-combo");
 
+        // Turn decision
+        Label lblTurn = makeLabel("Hướng rẽ:");
+        ComboBox<String> cmbTurn = new ComboBox<>();
+        cmbTurn.getItems().addAll("Ngẫu nhiên", "Đi thẳng", "Rẽ trái", "Rẽ phải");
+        cmbTurn.getSelectionModel().selectFirst();
+        cmbTurn.setMaxWidth(Double.MAX_VALUE);
+        cmbTurn.getStyleClass().add("dark-combo");
+
         // Count
         Label lblCount = makeLabel("Số lượng:");
         Spinner<Integer> spinner = new Spinner<>(1, 10, 1);
@@ -247,13 +255,16 @@ public class MainApp extends Application {
                 cmbOffset.getSelectionModel().getSelectedIndex());
             VehicleSpawner.SpawnLateralMode lateralMode = toSpawnLateralMode(
                 cmbLateral.getSelectionModel().getSelectedIndex());
+            VehicleSpawner.SpawnTurnMode turnMode = toSpawnTurnMode(
+                cmbTurn.getSelectionModel().getSelectedIndex());
 
             int spawned = vehicleSpawner.spawn(
-                type, lane, spawnPosition, lateralMode, count);
+                type, lane, spawnPosition, lateralMode, turnMode, count);
 
-            appendSpawnLog(String.format("[+] %d/%d %s → %s (%s)\n",
+            appendSpawnLog(String.format("[+] %d/%d %s → %s (%s, %s)\n",
                 spawned, count, type, laneNames[laneIdx],
-                cmbLateral.getSelectionModel().getSelectedItem()));
+                cmbLateral.getSelectionModel().getSelectedItem(),
+                cmbTurn.getSelectionModel().getSelectedItem()));
         });
 
         // Clear button
@@ -291,6 +302,7 @@ public class MainApp extends Application {
             lblCount, spinner,
             lblAuto, btnAutoSpawn, lblAutoRate, autoRateSlider,
             btnSpawn, btnClear,
+            lblTurn, cmbTurn,
             sep, lblLog, spawnLog
         );
         VBox.setVgrow(spawnLog, Priority.ALWAYS);
@@ -450,6 +462,15 @@ public class MainApp extends Application {
         };
     }
 
+    private static VehicleSpawner.SpawnTurnMode toSpawnTurnMode(int idx) {
+        return switch (idx) {
+            case 1 -> VehicleSpawner.SpawnTurnMode.STRAIGHT;
+            case 2 -> VehicleSpawner.SpawnTurnMode.LEFT;
+            case 3 -> VehicleSpawner.SpawnTurnMode.RIGHT;
+            default -> VehicleSpawner.SpawnTurnMode.RANDOM;
+        };
+    }
+
     private static List<Lane> getSpawnableLanes(MapConfig map) {
         List<Lane> result = new ArrayList<>();
         for (Lane lane : map.getLanes()) {
@@ -506,6 +527,7 @@ public class MainApp extends Application {
                     lane,
                     VehicleSpawner.SpawnPosition.START,
                     VehicleSpawner.SpawnLateralMode.AUTO,
+                    VehicleSpawner.SpawnTurnMode.RANDOM,
                     1
             );
             if (spawned > 0) {

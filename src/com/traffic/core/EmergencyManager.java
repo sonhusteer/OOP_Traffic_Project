@@ -38,6 +38,10 @@ public class EmergencyManager {
             boolean closeEnough = gap < SAME_LANE_YIELD_DISTANCE;
             boolean sameSideOrBlocking = Math.abs(normal.getLateralOffset() - priority.getLateralOffset()) < 34.0;
             if (priorityBehind && closeEnough && sameSideOrBlocking) {
+                if (normal.isCommittedToIntersection()) {
+                    applyHigherPriorityMode(normal, Vehicle.YieldMode.CLEAR_CONFLICT);
+                    continue;
+                }
                 boolean canPullRight = lane.occupancy().hasYieldRightMergeGap(normal, priority);
                 applyHigherPriorityMode(normal, canPullRight
                         ? Vehicle.YieldMode.YIELD_RIGHT
@@ -100,6 +104,12 @@ public class EmergencyManager {
         double conflictProgress = normalLane.getProgressOf(intersection.getCenter());
         double conflictStart = conflictProgress - CONFLICT_RADIUS;
         double conflictEnd = conflictProgress + CONFLICT_RADIUS;
+
+        // Xe đã commit vào giao lộ, kể cả đi thẳng hoặc đang cua Bezier, phải
+        // thoát giao lộ. Không dừng/không né ngang trong vùng xung đột.
+        if (normal.isCommittedToIntersection()) {
+            return Vehicle.YieldMode.CLEAR_CONFLICT;
+        }
 
         // Đuôi xe đã qua vùng xung đột: thả ngay, không đứng khựng sau ngã tư.
         if (normal.getRearProgress() > conflictEnd + CLEAR_MARGIN) {

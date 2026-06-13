@@ -1,5 +1,6 @@
 package com.traffic.core;
 
+import com.traffic.map.Intersection;
 import com.traffic.map.Lane;
 import com.traffic.map.TrafficLight;
 
@@ -34,6 +35,23 @@ public abstract class Vehicle {
         STOPPED_FOR_CONFLICT,
         CLEARING_CONFLICT,
         EMERGENCY_CORRIDOR
+    }
+
+    public enum TurnDecision {
+        STRAIGHT,
+        LEFT,
+        RIGHT
+    }
+
+    public enum IntersectionManeuverState {
+        NONE,
+        APPROACHING,
+        WAITING_BEFORE_INTERSECTION,
+        CROSSING_STRAIGHT,
+        TURNING_LEFT,
+        TURNING_RIGHT,
+        EXITING,
+        CLEARING_FOR_PRIORITY
     }
 
     public static final double LEFT_OFFSET = -18.0;
@@ -77,6 +95,12 @@ public abstract class Vehicle {
 
     protected Vehicle overtakingTarget = null;
     protected double maneuverCooldown = 0.0;
+
+    protected TurnDecision turnDecision = TurnDecision.STRAIGHT;
+    protected TurnManeuver activeTurn = null;
+    protected Intersection lastIntersectionTurned = null;
+    protected Intersection currentIntersection = null;
+    protected IntersectionManeuverState intersectionManeuverState = IntersectionManeuverState.NONE;
 
     // Priority vehicles should give normal vehicles a short chance to yield
     // before committing to aggressive passing or emergency corridor.
@@ -142,6 +166,11 @@ public abstract class Vehicle {
         if (laneChangeCooldown > 0) laneChangeCooldown = Math.max(0.0, laneChangeCooldown - deltaTime);
         if (maneuverCooldown > 0) maneuverCooldown = Math.max(0.0, maneuverCooldown - deltaTime);
 
+        if (activeTurn != null) {
+            updateTurnManeuver(deltaTime);
+            return;
+        }
+
         updateLateralOffset(deltaTime);
 
         if (isChangingLane && targetPosition != null) {
@@ -156,6 +185,19 @@ public abstract class Vehicle {
             double radians = Math.toRadians(angle);
             position.setX(position.getX() + Math.cos(radians) * speed * deltaTime);
             position.setY(position.getY() + Math.sin(radians) * speed * deltaTime);
+        }
+    }
+
+    private void updateTurnManeuver(double deltaTime) {
+        if (activeTurn == null) return;
+        boolean done = activeTurn.advance(speed, deltaTime);
+        Vector2D p = activeTurn.pointAtCurrentT();
+        Vector2D tangent = activeTurn.tangentAtCurrentT();
+        position.setX(p.getX());
+        position.setY(p.getY());
+        angle = Math.toDegrees(Math.atan2(tangent.getY(), tangent.getX()));
+        if (done) {
+            completeActiveTurn();
         }
     }
 
@@ -237,6 +279,7 @@ public abstract class Vehicle {
     }
 
     public void startLaneChange(Lane newLane) {
+        if (isCommittedToIntersection()) return;
         if (newLane == null || lane == null || lane == newLane) return;
         if (isChangingLane || laneChangeCooldown > 0) return;
         if (!lane.isFormalLaneChangeAllowed()) return;
@@ -273,6 +316,7 @@ public abstract class Vehicle {
     }
 
     public void beginInLaneOvertake(Vehicle target) {
+        if (isCommittedToIntersection()) return;
         overtakingTarget = target;
         maneuverState = ManeuverState.OVERTAKE_SHIFT_LEFT;
         setTargetLateralOffset(LEFT_OFFSET);
@@ -280,7 +324,7 @@ public abstract class Vehicle {
 
     /** Compatibility entry point for SideShiftPlanner/LateralManeuver. */
     public boolean requestManeuver(LateralManeuver maneuver) {
-        if (maneuver == null || maneuverCooldown > 0.0) {
+        if (maneuver == null || maneuverCooldown > 0.0 || isCommittedToIntersection()) {
             return false;
         }
         switch (maneuver.getType()) {
@@ -324,6 +368,22 @@ public abstract class Vehicle {
             maneuverState = ManeuverState.NORMAL;
             returnToPreferredSlot();
             maneuverCooldown = Math.max(maneuverCooldown, 0.6);
+        }
+    }
+
+    public void abortLateralManeuverSafely() {
+        if (isOvertaking()) {
+            overtakingTarget = null;
+        }
+        if (maneuverState == ManeuverState.OVERTAKE_SHIFT_LEFT
+                || maneuverState == ManeuverState.OVERTAKE_PASSING
+                || maneuverState == ManeuverState.EMERGENCY_CORRIDOR
+                || maneuverState == ManeuverState.GAP_FILLING
+                || maneuverState == ManeuverState.YIELDING_RIGHT
+                || maneuverState == ManeuverState.URGENT_CLEARING) {
+            maneuverState = ManeuverState.NORMAL;
+            returnToPreferredSlot();
+            maneuverCooldown = Math.max(maneuverCooldown, 0.45);
         }
     }
 
@@ -376,7 +436,58 @@ public abstract class Vehicle {
         return isPriority && maneuverState == ManeuverState.EMERGENCY_CORRIDOR;
     }
 
+    public boolean isTurning() { return activeTurn != null; }
+    public TurnManeuver getActiveTurn() { return activeTurn; }
+
+    public void startTurn(TurnManeuver maneuver) {
+        if (maneuver == null || maneuver.getTargetLane() == null) return;
+        abortLateralManeuverSafely();
+        activeTurn = maneuver;
+        maneuver.getTargetLane().reserve(this);
+        currentIntersection = maneuver.getIntersection();
+        lastIntersectionTurned = maneuver.getIntersection();
+        yieldMode = YieldMode.CLEAR_CONFLICT;
+        maneuverState = ManeuverState.CLEARING_CONFLICT;
+        targetLateralOffset = lateralOffset;
+        preferredLateralOffset = lateralOffset;
+        intersectionManeuverState = switch (maneuver.getDecision()) {
+            case LEFT -> IntersectionManeuverState.TURNING_LEFT;
+            case RIGHT -> IntersectionManeuverState.TURNING_RIGHT;
+            default -> IntersectionManeuverState.CROSSING_STRAIGHT;
+        };
+    }
+
+    private void completeActiveTurn() {
+        if (activeTurn == null) return;
+        TurnManeuver finished = activeTurn;
+        Lane targetLane = finished.getTargetLane();
+        double entryProgress = targetLane.getProgressOf(position);
+        double entryOffset = targetLane.clampOffset(this, targetLane.getSignedLateralOffset(position));
+
+        activeTurn = null;
+        setLanePosition(targetLane, entryProgress, entryOffset);
+        targetLane.release(this);
+        preferredLateralOffset = entryOffset;
+        targetLateralOffset = entryOffset;
+        currentIntersection = finished.getIntersection();
+        lastIntersectionTurned = finished.getIntersection();
+        intersectionManeuverState = IntersectionManeuverState.EXITING;
+        yieldMode = YieldMode.NONE;
+        maneuverState = ManeuverState.NORMAL;
+        turnDecision = TurnDecision.STRAIGHT;
+    }
+
+    public boolean isCommittedToIntersection() {
+        return activeTurn != null
+                || intersectionManeuverState == IntersectionManeuverState.CROSSING_STRAIGHT
+                || intersectionManeuverState == IntersectionManeuverState.TURNING_LEFT
+                || intersectionManeuverState == IntersectionManeuverState.TURNING_RIGHT
+                || intersectionManeuverState == IntersectionManeuverState.EXITING
+                || intersectionManeuverState == IntersectionManeuverState.CLEARING_FOR_PRIORITY;
+    }
+
     public void returnPriorityToCenterIfIdle() {
+        if (isCommittedToIntersection()) return;
         if (isPriority && !isOvertaking()
                 && maneuverState != ManeuverState.YIELDING_RIGHT
                 && maneuverState != ManeuverState.CLEARING_CONFLICT
@@ -400,7 +511,20 @@ public abstract class Vehicle {
     public Lane getLane() { return lane; }
     public YieldMode getYieldMode() { return yieldMode; }
     public void setYieldMode(YieldMode m) {
-        yieldMode = m == null ? YieldMode.NONE : m;
+        YieldMode requested = m == null ? YieldMode.NONE : m;
+
+        // Once the vehicle has committed to the intersection, no external rule
+        // may make it stop or shift sideways in the conflict area. It must clear.
+        if (requested != YieldMode.NONE && isCommittedToIntersection()) {
+            yieldMode = YieldMode.CLEAR_CONFLICT;
+            maneuverState = ManeuverState.CLEARING_CONFLICT;
+            if (intersectionManeuverState == IntersectionManeuverState.CROSSING_STRAIGHT) {
+                intersectionManeuverState = IntersectionManeuverState.CLEARING_FOR_PRIORITY;
+            }
+            return;
+        }
+
+        yieldMode = requested;
 
         // NONE means no new external yield command this frame. It must not
         // cancel an active in-lane maneuver such as GAP_FILLING; the driver
@@ -465,6 +589,22 @@ public abstract class Vehicle {
 
     public double getManeuverCooldown() { return maneuverCooldown; }
     public void setManeuverCooldown(double seconds) { maneuverCooldown = Math.max(0.0, seconds); }
+
+    public TurnDecision getTurnDecision() { return turnDecision; }
+    public void setTurnDecision(TurnDecision decision) {
+        turnDecision = decision == null ? TurnDecision.STRAIGHT : decision;
+    }
+
+    public Intersection getLastIntersectionTurned() { return lastIntersectionTurned; }
+    public void setLastIntersectionTurned(Intersection intersection) { lastIntersectionTurned = intersection; }
+
+    public Intersection getCurrentIntersection() { return currentIntersection; }
+    public void setCurrentIntersection(Intersection intersection) { currentIntersection = intersection; }
+
+    public IntersectionManeuverState getIntersectionManeuverState() { return intersectionManeuverState; }
+    public void setIntersectionManeuverState(IntersectionManeuverState state) {
+        intersectionManeuverState = state == null ? IntersectionManeuverState.NONE : state;
+    }
 
     public abstract String getTypeName();
 }

@@ -60,6 +60,25 @@ public abstract class AbstractBaseDriver implements IDriver {
         if (vehicle == null || vehicle.isChangingLane()) return;
 
         Vehicle.YieldMode mode = vehicle.getYieldMode();
+        if (vehicle.isTurning()) {
+            vehicle.cancelOvertake();
+            vehicle.setManeuverState(Vehicle.ManeuverState.CLEARING_CONFLICT);
+            vehicle.setSpeed(Math.max(vehicle.getSpeed(), turningSpeedLimit(vehicle)));
+            return;
+        }
+
+        if (vehicle.isCommittedToIntersection()
+                && mode != Vehicle.YieldMode.STOP_BEFORE_CONFLICT
+                && mode != Vehicle.YieldMode.STOP
+                && mode != Vehicle.YieldMode.HOLD_POSITION
+                && mode != Vehicle.YieldMode.BLOCKED_YIELD) {
+            vehicle.cancelOvertake();
+            vehicle.setManeuverState(Vehicle.ManeuverState.CLEARING_CONFLICT);
+            vehicle.setTargetLateralOffset(vehicle.getLateralOffset());
+            vehicle.setSpeed(Math.max(vehicle.getSpeed(), getMaxSpeed() * 0.75));
+            return;
+        }
+
         if (mode == Vehicle.YieldMode.STOP_BEFORE_CONFLICT || mode == Vehicle.YieldMode.STOP) {
             vehicle.cancelOvertake();
             vehicle.setManeuverState(Vehicle.ManeuverState.STOPPED_FOR_CONFLICT);
@@ -317,6 +336,11 @@ public abstract class AbstractBaseDriver implements IDriver {
         rampSpeed(vehicle, desired);
     }
 
+    private double turningSpeedLimit(Vehicle vehicle) {
+        double cap = vehicle != null && vehicle.isPriority() ? 72.0 : 62.0;
+        return Math.min(getMaxSpeed() * 0.88, cap);
+    }
+
     private void rampSpeed(Vehicle vehicle, double desiredSpeed) {
         double current = vehicle.getSpeed();
         double step = Math.max(2.0, getMaxSpeed() * 0.07);
@@ -449,6 +473,8 @@ public abstract class AbstractBaseDriver implements IDriver {
         if (vehicle.getLane() == null) return false;
         if (vehicle.getManeuverCooldown() > 0.0) return false;
         if (vehicle.isOvertaking()) return false;
+        if (vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.APPROACHING
+                || vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) return false;
 
         // Gap-fill chi duoc kich hoat khi that su co xe/vat can phia truoc.
         // Khong dung "chay cham", "gan stop line" hoac "dang dung den do" lam ly do rieng,
@@ -475,6 +501,8 @@ public abstract class AbstractBaseDriver implements IDriver {
         if (!canOvertake() || stoppingForLight) return false;
         if (vehicle.getManeuverCooldown() > 0.0) return false;
         if (vehicle.getLane() == null || inFront == null) return false;
+        if (vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.APPROACHING
+                || vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) return false;
 
         // Xe thường không cố vượt xe ưu tiên. Xe ưu tiên vẫn phải có khả năng
         // tránh/vượt cả xe thường lẫn xe ưu tiên khác nếu bị kẹt phía trước.

@@ -6,8 +6,11 @@ import com.traffic.core.Vehicle;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /** Lane geometry plus occupancy helper. */
@@ -24,6 +27,7 @@ public class Lane {
     private final List<Vehicle> vehicles = new ArrayList<>();
     private final Set<Vehicle> reservedBy = new HashSet<>();
     private final LaneOccupancy occupancy = new LaneOccupancy(this);
+    private final Map<Intersection, EnumMap<Vehicle.TurnDecision, Lane>> turnTargets = new HashMap<>();
 
     // Historical neighbor fields are kept for old map/UI code.
     private Lane leftNeighbor;
@@ -249,6 +253,18 @@ public class Lane {
     }
 
     public LaneOccupancy occupancy() { return occupancy; }
+
+    public void setTurnTarget(Intersection intersection, Vehicle.TurnDecision decision, Lane targetLane) {
+        if (intersection == null || decision == null) return;
+        turnTargets.computeIfAbsent(intersection, key -> new EnumMap<>(Vehicle.TurnDecision.class))
+                .put(decision, targetLane);
+    }
+
+    public Lane getTurnTarget(Intersection intersection, Vehicle.TurnDecision decision) {
+        if (intersection == null || decision == null) return null;
+        EnumMap<Vehicle.TurnDecision, Lane> byDecision = turnTargets.get(intersection);
+        return byDecision != null ? byDecision.get(decision) : null;
+    }
 
     public Set<Vehicle> getReservedVehicles() { return reservedBy; }
 

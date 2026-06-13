@@ -11,6 +11,7 @@ public class TrafficEngine {
     private final List<TrafficLight> lights        = new ArrayList<>();
     private final List<Intersection> intersections = new ArrayList<>();
     private final EmergencyManager   emergencyManager = new EmergencyManager();
+    private final TurnCoordinator    turnCoordinator = new TurnCoordinator();
     private IRenderer renderer;
 
     public TrafficEngine(IRenderer renderer) {
@@ -61,6 +62,7 @@ public class TrafficEngine {
     public void tick(double deltaTime) {
         updateLights(deltaTime);
         emergencyManager.update(vehicles, intersections);
+        turnCoordinator.updateBeforeDrivers(vehicles, intersections);
         updateVehicles(deltaTime);
     }
 
@@ -82,7 +84,7 @@ public class TrafficEngine {
         List<Vehicle> toRemove = new ArrayList<>();
         for (Vehicle vehicle : new ArrayList<>(vehicles)) {
             TrafficLight targetLight = vehicle.getLane() != null
-                    ? vehicle.getLane().getLight()
+                    ? vehicle.getLane().getNextLight(vehicle.getFrontProgress())
                     : null;
 
             vehicle.makeDecision(targetLight);

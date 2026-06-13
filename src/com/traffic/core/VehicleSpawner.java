@@ -3,6 +3,7 @@ package com.traffic.core;
 import com.traffic.map.Lane;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Random;
 
 /** Creates vehicles safely and keeps spawn logic out of the JavaFX UI. */
 public class VehicleSpawner {
@@ -20,10 +21,18 @@ public class VehicleSpawner {
         RIGHT
     }
 
+    public enum SpawnTurnMode {
+        STRAIGHT,
+        LEFT,
+        RIGHT,
+        RANDOM
+    }
+
     private static final double SPAWN_GAP = 58.0;
 
     private final TrafficEngine engine;
     private final Map<Lane, Double> lastAutoOffsetByLane = new HashMap<>();
+    private final Random random = new Random();
 
     public VehicleSpawner(TrafficEngine engine) {
         this.engine = engine;
@@ -31,6 +40,11 @@ public class VehicleSpawner {
 
     public int spawn(String type, Lane lane, SpawnPosition position,
                      SpawnLateralMode lateralMode, int count) {
+        return spawn(type, lane, position, lateralMode, SpawnTurnMode.RANDOM, count);
+    }
+
+    public int spawn(String type, Lane lane, SpawnPosition position,
+                     SpawnLateralMode lateralMode, SpawnTurnMode turnMode, int count) {
         if (lane == null || !lane.isUsableForSpawn() || count <= 0) return 0;
 
         int created = 0;
@@ -43,7 +57,7 @@ public class VehicleSpawner {
             boolean spawned = false;
 
             for (double offset : candidates) {
-                if (createIfPossible(type, lane, progress, offset)) {
+                if (createIfPossible(type, lane, progress, offset, turnMode)) {
                     created++;
                     spawned = true;
                     break;
@@ -53,7 +67,7 @@ public class VehicleSpawner {
             if (!spawned && position == SpawnPosition.START) {
                 double fallbackProgress = baseProgress - (i + 1) * SPAWN_GAP;
                 for (double offset : candidates) {
-                    if (createIfPossible(type, lane, fallbackProgress, offset)) {
+                    if (createIfPossible(type, lane, fallbackProgress, offset, turnMode)) {
                         created++;
                         break;
                     }
@@ -73,7 +87,8 @@ public class VehicleSpawner {
         lastAutoOffsetByLane.clear();
     }
 
-    private boolean createIfPossible(String type, Lane lane, double progress, double offset) {
+    private boolean createIfPossible(String type, Lane lane, double progress, double offset,
+                                     SpawnTurnMode turnMode) {
         Vehicle v = VehicleFactory.create(type, 0, 0);
         if (lane == null || !lane.isSpawnSpaceFree(progress, offset, v.getWidth(), v.getHeight())) {
             return false;
@@ -81,9 +96,25 @@ public class VehicleSpawner {
         v.setLanePosition(lane, progress, offset);
         v.setPreferredLateralOffset(offset);
         v.setTargetLateralOffset(offset);
+        v.setTurnDecision(toTurnDecision(turnMode));
         engine.addVehicle(v);
         lastAutoOffsetByLane.put(lane, offset);
         return true;
+    }
+
+    private Vehicle.TurnDecision toTurnDecision(SpawnTurnMode mode) {
+        SpawnTurnMode safe = mode == null ? SpawnTurnMode.RANDOM : mode;
+        return switch (safe) {
+            case STRAIGHT -> Vehicle.TurnDecision.STRAIGHT;
+            case LEFT -> Vehicle.TurnDecision.LEFT;
+            case RIGHT -> Vehicle.TurnDecision.RIGHT;
+            case RANDOM -> {
+                int r = random.nextInt(100);
+                if (r < 58) yield Vehicle.TurnDecision.STRAIGHT;
+                if (r < 80) yield Vehicle.TurnDecision.LEFT;
+                yield Vehicle.TurnDecision.RIGHT;
+            }
+        };
     }
 
     private double baseProgress(Lane lane, SpawnPosition position) {
