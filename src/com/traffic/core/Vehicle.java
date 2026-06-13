@@ -276,7 +276,7 @@ public abstract class Vehicle {
         if (Math.abs(diff) <= 0.25) {
             lateralOffset = targetLateralOffset;
             if (maneuverState == ManeuverState.GAP_FILLING) {
-                preferredLateralOffset = isPriority ? CENTER_OFFSET : targetLateralOffset;
+                preferredLateralOffset = targetLateralOffset;
                 maneuverState = ManeuverState.NORMAL;
                 maneuverCooldown = Math.max(maneuverCooldown, 0.8);
             }
@@ -300,7 +300,7 @@ public abstract class Vehicle {
         if (maneuverState == ManeuverState.GAP_FILLING && isNearTargetLateralOffset(1.2)) {
             // Gap filling is not an overtake. The new slot becomes the temporary
             // natural slot so the car does not immediately drift back.
-            preferredLateralOffset = isPriority ? CENTER_OFFSET : targetLateralOffset;
+            preferredLateralOffset = targetLateralOffset;
             maneuverState = ManeuverState.NORMAL;
             maneuverCooldown = Math.max(maneuverCooldown, 0.8);
         }
@@ -571,8 +571,9 @@ public abstract class Vehicle {
                 && maneuverState != ManeuverState.CLEARING_CONFLICT
                 && maneuverState != ManeuverState.HOLDING_POSITION
                 && maneuverState != ManeuverState.STOPPED_FOR_CONFLICT) {
-            preferredLateralOffset = CENTER_OFFSET;
-            setTargetLateralOffset(CENTER_OFFSET);
+            // Do not drift to the center by default. The center corridor is a
+            // committed emergency maneuver, not an idle cruising lane.
+            setTargetLateralOffset(preferredLateralOffset);
         }
     }
 

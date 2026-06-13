@@ -34,8 +34,15 @@ public class TurnCoordinator {
     private static final double TURN_SLOT_TARGET_TOLERANCE = 7.0;
 
     private final IntersectionOccupancy occupancy = new IntersectionOccupancy();
+    private PriorityRouteAnalyzer priorityRoutes = PriorityRouteAnalyzer.empty();
 
     public void updateBeforeDrivers(List<Vehicle> vehicles, List<Intersection> intersections) {
+        updateBeforeDrivers(vehicles, intersections, PriorityRouteAnalyzer.getCurrent());
+    }
+
+    public void updateBeforeDrivers(List<Vehicle> vehicles, List<Intersection> intersections,
+                                    PriorityRouteAnalyzer priorityRoutes) {
+        this.priorityRoutes = priorityRoutes == null ? PriorityRouteAnalyzer.empty() : priorityRoutes;
         if (vehicles == null || intersections == null || intersections.isEmpty()) {
             return;
         }
@@ -222,10 +229,10 @@ public class TurnCoordinator {
         }
 
         if (!vehicle.isPriority()
-                && occupancy.hasPriorityVehicleApproaching(intersection, vehicles)
+                && priorityRoutes.hasBlockingPriorityFor(vehicle, intersection)
                 && !vehicle.isCommittedToIntersection()) {
             vehicle.setYieldMode(Vehicle.YieldMode.STOP_BEFORE_CONFLICT);
-            waitBeforeIntersection(vehicle, intersection, "PRIORITY_VEHICLE");
+            waitBeforeIntersection(vehicle, intersection, "PRIORITY_ROUTE_CONFLICT");
             return;
         }
 
@@ -827,8 +834,12 @@ public class TurnCoordinator {
             // target lane.
             candidates.add(targetLane.getRightmostOffset(vehicle));
         }
-        // Center is only an emergency last-resort buffer for priority vehicles.
-        if (vehicle.isPriority()) {
+        // Center is not a normal turn-entry slot. Priority vehicles may use it
+        // only when they are going straight and are already in an explicit
+        // emergency-corridor maneuver; never use it as a fallback for L/R turns.
+        if (vehicle.isPriority()
+                && decision == Vehicle.TurnDecision.STRAIGHT
+                && vehicle.getManeuverState() == Vehicle.ManeuverState.EMERGENCY_CORRIDOR) {
             candidates.add(Vehicle.CENTER_OFFSET);
         }
 

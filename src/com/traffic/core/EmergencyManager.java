@@ -8,24 +8,30 @@ import java.util.List;
 public class EmergencyManager {
 
     private static final double SAME_LANE_YIELD_DISTANCE = 205.0;
-    private static final double EMERGENCY_LOOKAHEAD = 220.0;
-    private static final double NORMAL_LOOKAHEAD = 160.0;
-    private static final double STOP_ASSIGN_DISTANCE = 120.0;
+    private static final double EMERGENCY_LOOKAHEAD = 185.0;
+    private static final double NORMAL_LOOKAHEAD = 145.0;
+    private static final double STOP_ASSIGN_DISTANCE = 112.0;
     private static final double CONFLICT_RADIUS = 42.0;
     private static final double CLEAR_MARGIN = 28.0;
     private static final double COMFORTABLE_BRAKE = 120.0;
     private static final double STOP_BUFFER = 10.0;
-    private static final double PRIORITY_YIELD_LOCK_SECONDS = 1.35;
+    private static final double PRIORITY_YIELD_LOCK_SECONDS = 1.15;
 
     public void update(List<Vehicle> vehicles, List<Intersection> intersections) {
+        update(vehicles, intersections, PriorityRouteAnalyzer.analyze(vehicles, intersections));
+    }
+
+    public void update(List<Vehicle> vehicles, List<Intersection> intersections,
+                       PriorityRouteAnalyzer priorityRoutes) {
+        PriorityRouteAnalyzer routes = priorityRoutes == null
+                ? PriorityRouteAnalyzer.analyze(vehicles, intersections)
+                : priorityRoutes;
+
         for (Vehicle v : vehicles) {
             if (v == null || v.isPriority()) {
                 continue;
             }
             if (v.hasActivePriorityYieldLock()) {
-                // Keep the same-side yield intent alive for a short grace period.
-                // This prevents the turn planner from pulling the vehicle back
-                // across the ambulance/firetruck path immediately after it yielded.
                 v.setYieldMode(v.getYieldMode() == Vehicle.YieldMode.URGENT_CLEAR_PATH
                         ? Vehicle.YieldMode.URGENT_CLEAR_PATH
                         : Vehicle.YieldMode.YIELD_RIGHT);
@@ -36,56 +42,101 @@ public class EmergencyManager {
 
         for (Vehicle priority : vehicles) {
             if (!priority.isPriority() || priority.getLane() == null) continue;
-            applySameLaneYield(priority, vehicles);
-            applyIntersectionYield(priority, vehicles, intersections);
+            applySameLaneYield(priority, vehicles, routes);
+            applyIntersectionYield(priority, vehicles, intersections, routes);
         }
     }
 
-    private void applySameLaneYield(Vehicle priority, List<Vehicle> vehicles) {
+    private void applySameLaneYield(Vehicle priority, List<Vehicle> vehicles,
+                                    PriorityRouteAnalyzer routes) {
         Lane lane = priority.getLane();
         for (Vehicle normal : vehicles) {
             if (normal.isPriority() || normal.getLane() != lane) continue;
             double gap = normal.getRearProgress() - priority.getFrontProgress();
             boolean priorityBehind = gap > 0.0;
             boolean closeEnough = gap < SAME_LANE_YIELD_DISTANCE;
-            if (priorityBehind && closeEnough) {
-                if (normal.isCommittedToIntersection()) {
-                    applyHigherPriorityMode(normal, Vehicle.YieldMode.CLEAR_CONFLICT);
-                    continue;
+            if (!priorityBehind || !closeEnough) {
+                continue;
+            }
+
+            if (normal.isCommittedToIntersection()) {
+                applyHigherPriorityMode(normal, Vehicle.YieldMode.CLEAR_CONFLICT);
+                continue;
+            }
+
+            PriorityRouteContext ctx = routes.get(priority, normal);
+            YieldDirective directive = chooseSameLaneYieldDirective(priority, normal, lane, ctx);
+
+            switch (directive.getType()) {
+                case NONE -> {
+                    normal.clearPriorityYieldLock();
+                    normal.setYieldMode(Vehicle.YieldMode.NONE);
                 }
-
-                // Use one consistent side for the whole priority event.
-                // Normally cars pull to the right so the priority vehicle can use
-                // the center/left corridor. If the priority vehicle itself intends
-                // to turn RIGHT, pulling all cars to the right blocks exactly the
-                // exit it needs; in that case affected cars pull LEFT and hold.
-                double yieldOffset = chooseSameLaneYieldOffset(priority, normal, lane);
-                normal.lockPriorityYield(priority, yieldOffset, PRIORITY_YIELD_LOCK_SECONDS);
-
-                boolean sideGap = lane.occupancy().isSideSpaceFree(
-                        normal, yieldOffset, 82.0, 48.0);
-                applyHigherPriorityMode(normal, sideGap
-                        ? Vehicle.YieldMode.YIELD_RIGHT
-                        : Vehicle.YieldMode.URGENT_CLEAR_PATH);
+                case FOLLOW_QUEUE -> {
+                    // This is a route-order relationship, not a side-yield.
+                    // Do not write a YieldMode signal; the priority driver will read
+                    // PriorityRouteAnalyzer and follow/wait.
+                    normal.clearPriorityYieldLock();
+                    normal.setYieldMode(Vehicle.YieldMode.NONE);
+                }
+                case CLEAR_INTERSECTION -> applyHigherPriorityMode(normal, Vehicle.YieldMode.CLEAR_CONFLICT);
+                case HOLD_POSITION -> applyHigherPriorityMode(normal, Vehicle.YieldMode.HOLD_POSITION);
+                case SIDE_SHIFT -> {
+                    double yieldOffset = directive.getTargetOffset();
+                    normal.lockPriorityYield(priority, yieldOffset, PRIORITY_YIELD_LOCK_SECONDS);
+                    boolean sideGap = lane.occupancy().isSideSpaceFree(
+                            normal, yieldOffset, 82.0, 48.0);
+                    applyHigherPriorityMode(normal, sideGap
+                            ? Vehicle.YieldMode.YIELD_RIGHT
+                            : Vehicle.YieldMode.URGENT_CLEAR_PATH);
+                }
             }
         }
     }
 
-
-    private double chooseSameLaneYieldOffset(Vehicle priority, Vehicle normal, Lane lane) {
+    private YieldDirective chooseSameLaneYieldDirective(Vehicle priority,
+                                                        Vehicle normal,
+                                                        Lane lane,
+                                                        PriorityRouteContext ctx) {
         if (priority == null || normal == null || lane == null) {
-            return 0.0;
+            return YieldDirective.none();
         }
-        // If the emergency vehicle plans a right turn, keep the right-turn path
-        // free. Otherwise use the conventional right-side yield.
+
+        PriorityRouteRelation relation = ctx != null
+                ? ctx.getRelation()
+                : PriorityRouteRelation.UNRELATED;
+
+        if (relation == PriorityRouteRelation.SAME_QUEUE
+                || relation == PriorityRouteRelation.PRIORITY_STRAIGHT_NORMAL_TURNING_AHEAD) {
+            return YieldDirective.followQueue();
+        }
+
+        if (relation == PriorityRouteRelation.PRIORITY_STRAIGHT_NORMAL_STRAIGHT_AHEAD) {
+            double left = lane.getLeftmostOffset(normal);
+            double right = lane.getRightmostOffset(normal);
+            double offset = Math.abs(normal.getLateralOffset() - left)
+                    <= Math.abs(normal.getLateralOffset() - right) ? left : right;
+            return YieldDirective.sideShift(offset, "SPLIT_TO_EDGE_FOR_PRIORITY_STRAIGHT");
+        }
+
+        // If the priority vehicle is turning, avoid the near turn slot unless this
+        // pair is a same-route queue (handled above). That keeps the priority turn
+        // path open without forcing all unrelated cars to move.
         if (priority.getTurnDecision() == Vehicle.TurnDecision.RIGHT) {
-            return lane.getLeftmostOffset(normal);
+            return YieldDirective.sideShift(lane.getLeftmostOffset(normal), "KEEP_RIGHT_TURN_EXIT_CLEAR");
         }
-        return lane.getRightmostOffset(normal);
+        if (priority.getTurnDecision() == Vehicle.TurnDecision.LEFT) {
+            return YieldDirective.sideShift(lane.getRightmostOffset(normal), "KEEP_LEFT_TURN_ARC_CLEAR");
+        }
+
+        // Conventional fallback for straight priority vehicle when the relation is
+        // not specifically classified but the normal vehicle is physically ahead.
+        return YieldDirective.sideShift(lane.getRightmostOffset(normal), "DEFAULT_PRIORITY_YIELD");
     }
 
     private void applyIntersectionYield(Vehicle priority, List<Vehicle> vehicles,
-                                        List<Intersection> intersections) {
+                                        List<Intersection> intersections,
+                                        PriorityRouteAnalyzer routes) {
         Lane priorityLane = priority.getLane();
         for (Intersection intersection : intersections) {
             if (!intersection.getLanes().contains(priorityLane)) continue;
@@ -95,7 +146,11 @@ public class EmergencyManager {
                 if (normal.isPriority() || normal.getLane() == null) continue;
                 if (normal.getLane() == priorityLane) continue;
                 if (!intersection.getLanes().contains(normal.getLane())) continue;
-                if (!lanesCanConflict(priorityLane, normal.getLane(), intersection)) continue;
+
+                PriorityRouteContext ctx = routes.get(priority, normal);
+                if (ctx == null || ctx.getIntersection() != intersection || !ctx.requiresIntersectionBlock()) {
+                    continue;
+                }
 
                 Vehicle.YieldMode mode = decideIntersectionMode(normal, intersection);
                 applyHigherPriorityMode(normal, mode);
@@ -111,46 +166,20 @@ public class EmergencyManager {
         return approachingOrInside && notCleared;
     }
 
-    /**
-     * Chi nhung lane cat nhau that su moi can dung de nhuong xe uu tien.
-     * Cac lane song song/nguoc chieu tren cung mot mat duong khong bi dung,
-     * vi chung khong cat duong di cua xe uu tien trong mo phong di thang nay.
-     */
-    private boolean lanesCanConflict(Lane priorityLane, Lane normalLane, Intersection intersection) {
-        if (priorityLane == null || normalLane == null || priorityLane == normalLane) {
-            return false;
-        }
-
-        double priorityConflict = priorityLane.getProgressOf(intersection.getCenter());
-        double normalConflict = normalLane.getProgressOf(intersection.getCenter());
-
-        Vector2D pDir = priorityLane.getDirectionAt(priorityConflict);
-        Vector2D nDir = normalLane.getDirectionAt(normalConflict);
-        double dot = Math.abs(pDir.getX() * nDir.getX() + pDir.getY() * nDir.getY());
-
-        // dot gan 1: cung huong/nguoc huong -> khong cat nhau.
-        // dot nho: gan vuong goc/cheo -> co kha nang xung dot tai giao lo.
-        return dot < 0.70;
-    }
-
     private Vehicle.YieldMode decideIntersectionMode(Vehicle normal, Intersection intersection) {
         Lane normalLane = normal.getLane();
         double conflictProgress = normalLane.getProgressOf(intersection.getCenter());
         double conflictStart = conflictProgress - CONFLICT_RADIUS;
         double conflictEnd = conflictProgress + CONFLICT_RADIUS;
 
-        // Xe đã commit vào giao lộ, kể cả đi thẳng hoặc đang cua Bezier, phải
-        // thoát giao lộ. Không dừng/không né ngang trong vùng xung đột.
         if (normal.isCommittedToIntersection()) {
             return Vehicle.YieldMode.CLEAR_CONFLICT;
         }
 
-        // Đuôi xe đã qua vùng xung đột: thả ngay, không đứng khựng sau ngã tư.
         if (normal.getRearProgress() > conflictEnd + CLEAR_MARGIN) {
             return Vehicle.YieldMode.NONE;
         }
 
-        // Đầu xe đã chạm vùng xung đột: phải đi tiếp để thoát, không phanh giữa ngã tư.
         if (normal.getFrontProgress() >= conflictStart) {
             return Vehicle.YieldMode.CLEAR_CONFLICT;
         }
@@ -160,25 +189,16 @@ public class EmergencyManager {
             return Vehicle.YieldMode.NONE;
         }
 
-        // Chỉ xe đầu hàng trước vùng xung đột mới bị đánh dấu STOP.
-        // Các xe phía sau sẽ tự follow xe trước, tránh viền vàng/STOP chồng lên nhau.
         if (!isLeadVehicleBeforeConflict(normal, conflictStart)) {
             return Vehicle.YieldMode.NONE;
         }
 
         double stopProgress = normalLane.getStopProgressBefore(conflictProgress);
         double distanceToStop = stopProgress - normal.getFrontProgress();
-
-        // Xe còn quá xa vạch dừng thì chưa cần bị gán STOP vì xe ưu tiên.
-        // Nếu gán quá sớm, xe sẽ dừng giữa đường và làm nghẽn đoàn phía sau.
         if (distanceToStop > STOP_ASSIGN_DISTANCE) {
             return Vehicle.YieldMode.NONE;
         }
 
-        // Nếu xe vẫn chưa vào vùng xung đột thì không được thúc nó vượt đèn đỏ.
-        // Dù xe đang sát vạch dừng, nó vẫn phải dừng trước conflict thay vì bị
-        // CLEAR_CONFLICT đẩy qua ngã tư. Chỉ khi đầu xe đã vào conflictStart
-        // mới xử lý CLEAR_CONFLICT ở nhánh phía trên.
         if (distanceToStop <= 4.0) {
             return Vehicle.YieldMode.STOP_BEFORE_CONFLICT;
         }

@@ -61,9 +61,10 @@ public class TrafficEngine {
 
     public void tick(double deltaTime) {
         updateLights(deltaTime);
-        emergencyManager.update(vehicles, intersections);
-        turnCoordinator.updateBeforeDrivers(vehicles, intersections);
-        updateVehicles(deltaTime);
+        PriorityRouteAnalyzer priorityRoutes = PriorityRouteAnalyzer.analyze(vehicles, intersections);
+        emergencyManager.update(vehicles, intersections, priorityRoutes);
+        turnCoordinator.updateBeforeDrivers(vehicles, intersections, priorityRoutes);
+        updateVehicles(deltaTime, priorityRoutes);
     }
 
     public void render() {
@@ -80,7 +81,7 @@ public class TrafficEngine {
         }
     }
 
-    private void updateVehicles(double deltaTime) {
+    private void updateVehicles(double deltaTime, PriorityRouteAnalyzer priorityRoutes) {
         List<Vehicle> toRemove = new ArrayList<>();
         for (Vehicle vehicle : new ArrayList<>(vehicles)) {
             TrafficLight targetLight = vehicle.getLane() != null
@@ -88,6 +89,8 @@ public class TrafficEngine {
                     : null;
 
             vehicle.makeDecision(targetLight);
+            VehicleDecisionMerger.resolve(vehicle, targetLight, priorityRoutes, vehicles, intersections)
+                    .applyTo(vehicle);
             vehicle.update(deltaTime);
 
             double x = vehicle.getPosition().getX();

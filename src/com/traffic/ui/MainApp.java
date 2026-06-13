@@ -43,7 +43,7 @@ public class MainApp extends Application {
     private AbstractBaseRenderer basicRenderer;
     private AbstractBaseRenderer graphicRenderer;
     private AbstractBaseRenderer activeRenderer;
-    private boolean isBasicMode = false;
+    private boolean isBasicMode = true;
     private boolean paused = false;
     private double simSpeed = 1.0;
 
@@ -51,7 +51,6 @@ public class MainApp extends Application {
     private boolean autoSpawnEnabled = false;
     private long lastAutoSpawnNanos = 0L;
     private double autoSpawnIntervalSeconds = 0.75;
-    private VehicleSpawner.SpawnTurnMode autoSpawnTurnMode = VehicleSpawner.SpawnTurnMode.RANDOM;
 
     private Canvas canvas;
     private Label lblVehicles;
@@ -71,7 +70,7 @@ public class MainApp extends Application {
         currentMap = ALL_MAPS[0];
         basicRenderer   = new BasicRenderer(currentMap.getLanes());
         graphicRenderer = new JavaFXRenderer(currentMap.getLanes());
-        activeRenderer  = graphicRenderer;
+        activeRenderer  = basicRenderer;
 
         engine = new TrafficEngine(activeRenderer);
         vehicleSpawner = new VehicleSpawner(engine);
@@ -203,24 +202,36 @@ public class MainApp extends Application {
         cmbLateral.setMaxWidth(Double.MAX_VALUE);
         cmbLateral.getStyleClass().add("dark-combo");
 
-        // Turn decision
-        Label lblTurn = makeLabel("Hướng rẽ:");
-        ComboBox<String> cmbTurn = new ComboBox<>();
-        cmbTurn.getItems().addAll("Ngẫu nhiên", "Đi thẳng", "Rẽ trái", "Rẽ phải");
-        cmbTurn.getSelectionModel().selectFirst();
-        cmbTurn.setMaxWidth(Double.MAX_VALUE);
-        cmbTurn.getStyleClass().add("dark-combo");
-        cmbTurn.valueProperty().addListener((obs, oldValue, newValue) -> {
-            autoSpawnTurnMode = toSpawnTurnMode(cmbTurn.getSelectionModel().getSelectedIndex());
-            appendSpawnLog("[T] Auto spawn hướng rẽ: " + newValue + "\n");
-        });
-
         // Count
         Label lblCount = makeLabel("Số lượng:");
         Spinner<Integer> spinner = new Spinner<>(1, 10, 1);
         spinner.setMaxWidth(Double.MAX_VALUE);
 
+        // Auto spawn controls
+        Label lblAuto = makeLabel("Tự động:");
+        ToggleButton btnAutoSpawn = new ToggleButton(autoSpawnEnabled ? "⏸ Auto Spawn: ON" : "▶ Auto Spawn: OFF");
+        btnAutoSpawn.getStyleClass().add("btn-action");
+        btnAutoSpawn.setMaxWidth(Double.MAX_VALUE);
+        btnAutoSpawn.setSelected(autoSpawnEnabled);
+        btnAutoSpawn.setOnAction(e -> {
+            autoSpawnEnabled = btnAutoSpawn.isSelected();
+            lastAutoSpawnNanos = 0L;
+            btnAutoSpawn.setText(autoSpawnEnabled ? "⏸ Auto Spawn: ON" : "▶ Auto Spawn: OFF");
+            appendSpawnLog(autoSpawnEnabled
+                    ? "[A] Auto spawn bật: sinh xe ngẫu nhiên trái/phải\n"
+                    : "[A] Auto spawn tắt\n");
+        });
 
+        Slider autoRateSlider = new Slider(0.15, 2.0, autoSpawnIntervalSeconds);
+        autoRateSlider.setShowTickMarks(true);
+        autoRateSlider.setMajorTickUnit(0.5);
+        Label lblAutoRate = makeLabel(String.format("Nhịp: %.2fs", autoSpawnIntervalSeconds));
+        autoRateSlider.valueProperty().addListener((obs, oldV, newV) -> {
+            autoSpawnIntervalSeconds = newV.doubleValue();
+            lblAutoRate.setText(String.format("Nhịp: %.2fs", autoSpawnIntervalSeconds));
+        });
+
+        // Spawn button
         Button btnSpawn = new Button("✦ Spawn");
         btnSpawn.getStyleClass().add("btn-spawn");
         btnSpawn.setMaxWidth(Double.MAX_VALUE);
@@ -236,16 +247,13 @@ public class MainApp extends Application {
                 cmbOffset.getSelectionModel().getSelectedIndex());
             VehicleSpawner.SpawnLateralMode lateralMode = toSpawnLateralMode(
                 cmbLateral.getSelectionModel().getSelectedIndex());
-            VehicleSpawner.SpawnTurnMode turnMode = toSpawnTurnMode(
-                cmbTurn.getSelectionModel().getSelectedIndex());
 
             int spawned = vehicleSpawner.spawn(
-                type, lane, spawnPosition, lateralMode, turnMode, count);
+                type, lane, spawnPosition, lateralMode, count);
 
-            appendSpawnLog(String.format("[+] %d/%d %s → %s (%s, %s)\n",
+            appendSpawnLog(String.format("[+] %d/%d %s → %s (%s)\n",
                 spawned, count, type, laneNames[laneIdx],
-                cmbLateral.getSelectionModel().getSelectedItem(),
-                cmbTurn.getSelectionModel().getSelectedItem()));
+                cmbLateral.getSelectionModel().getSelectedItem()));
         });
 
         // Clear button
@@ -257,47 +265,6 @@ public class MainApp extends Application {
             vehicleSpawner.clearState();
             appendSpawnLog("[!] Đã xóa tất cả xe\n");
         });
-
-        // Traffic Light Controls
-        Label lblLightTitle = new Label("🚥 Điều khiển Đèn");
-        lblLightTitle.setFont(Font.font("SansSerif", FontWeight.BOLD, 14));
-        lblLightTitle.setTextFill(Color.rgb(180, 255, 200));
-
-        HBox hboxGreen = new HBox(5);
-        hboxGreen.setAlignment(Pos.CENTER_LEFT);
-        Label lblGreen = makeLabel("Xanh (s):");
-        Spinner<Integer> spinGreen = new Spinner<>(5, 120, 10);
-        spinGreen.setPrefWidth(70);
-        hboxGreen.getChildren().addAll(lblGreen, spinGreen);
-
-        HBox hboxRed = new HBox(5);
-        hboxRed.setAlignment(Pos.CENTER_LEFT);
-        Label lblRed = makeLabel("Đỏ (s):");
-        Spinner<Integer> spinRed = new Spinner<>(5, 120, 14);
-        spinRed.setPrefWidth(70);
-        hboxRed.getChildren().addAll(lblRed, spinRed);
-
-        Button btnApplyLight = new Button("✔ Áp dụng Đèn");
-        btnApplyLight.getStyleClass().add("btn-action");
-        btnApplyLight.setMaxWidth(Double.MAX_VALUE);
-        btnApplyLight.setOnAction(e -> {
-            int g = spinGreen.getValue();
-            int r = spinRed.getValue();
-            int count = 0;
-            if (engine != null && engine.getLights() != null) {
-                for (TrafficLight light : engine.getLights()) {
-                    if (light != null) {
-                        light.setGreenTime(g);
-                        light.setRedTime(r);
-                        count++;
-                    }
-                }
-            }
-            appendSpawnLog(String.format("[L] Cập nhật %d đèn: Xanh %ds, Đỏ %ds\n", count, g, r));
-        });
-
-        VBox boxLights = new VBox(5, lblLightTitle, hboxGreen, hboxRed, btnApplyLight);
-        boxLights.setPadding(new Insets(10, 0, 5, 0));
 
         // Separator
         Separator sep = new Separator();
@@ -322,9 +289,9 @@ public class MainApp extends Application {
             lblOffset, cmbOffset,
             lblLateral, cmbLateral,
             lblCount, spinner,
+            lblAuto, btnAutoSpawn, lblAutoRate, autoRateSlider,
             btnSpawn, btnClear,
-            lblTurn, cmbTurn,
-            sep, boxLights, lblLog, spawnLog
+            sep, lblLog, spawnLog
         );
         VBox.setVgrow(spawnLog, Priority.ALWAYS);
         return sidebar;
@@ -379,7 +346,7 @@ public class MainApp extends Application {
             btnPause.setText(paused ? "▶ Resume" : "⏸ Pause");
         });
 
-        Button btnMode = new Button("📐 Basic");
+        Button btnMode = new Button("🎨 Graphic");
         btnMode.getStyleClass().add("btn-action");
         btnMode.setOnAction(e -> {
             if (isBasicMode) {
@@ -412,20 +379,6 @@ public class MainApp extends Application {
             btnRain.setText(r ? "🌧 Mưa" : "🌤 Tạnh");
         });
 
-        // Global Auto Spawn Button
-        ToggleButton btnGlobalAutoSpawn = new ToggleButton(autoSpawnEnabled ? "⏸ Auto Spawn: ON" : "▶ Auto Spawn: OFF");
-        btnGlobalAutoSpawn.setStyle("-fx-font-weight: bold; -fx-text-fill: #fff; -fx-background-color: " + (autoSpawnEnabled ? "#e74c3c" : "#2ecc71") + "; -fx-background-radius: 4; -fx-padding: 5 15;");
-        btnGlobalAutoSpawn.setSelected(autoSpawnEnabled);
-        btnGlobalAutoSpawn.setOnAction(e -> {
-            autoSpawnEnabled = btnGlobalAutoSpawn.isSelected();
-            lastAutoSpawnNanos = 0L;
-            btnGlobalAutoSpawn.setText(autoSpawnEnabled ? "⏸ Auto Spawn: ON" : "▶ Auto Spawn: OFF");
-            btnGlobalAutoSpawn.setStyle("-fx-font-weight: bold; -fx-text-fill: #fff; -fx-background-color: " + (autoSpawnEnabled ? "#e74c3c" : "#2ecc71") + "; -fx-background-radius: 4; -fx-padding: 5 15;");
-            appendSpawnLog(autoSpawnEnabled
-                    ? "[A] Auto spawn bật: sinh xe ngẫu nhiên trái/phải\n"
-                    : "[A] Auto spawn tắt\n");
-        });
-
         // Vehicle count
         lblVehicles = new Label("🚗 0");
         lblVehicles.setFont(Font.font("SansSerif", FontWeight.BOLD, 12));
@@ -442,7 +395,7 @@ public class MainApp extends Application {
             new Label("⚡") {{ setFont(Font.font(14)); }},
             speedSlider, lblSpeed,
             sp3,
-            btnGlobalAutoSpawn, btnPause, btnMode, btnMute, btnRain,
+            btnPause, btnMode, btnMute, btnRain,
             sp1,
             lblVehicles
         );
@@ -494,15 +447,6 @@ public class MainApp extends Application {
             case 2 -> VehicleSpawner.SpawnLateralMode.CENTER;
             case 3 -> VehicleSpawner.SpawnLateralMode.RIGHT;
             default -> VehicleSpawner.SpawnLateralMode.AUTO;
-        };
-    }
-
-    private static VehicleSpawner.SpawnTurnMode toSpawnTurnMode(int idx) {
-        return switch (idx) {
-            case 1 -> VehicleSpawner.SpawnTurnMode.STRAIGHT;
-            case 2 -> VehicleSpawner.SpawnTurnMode.LEFT;
-            case 3 -> VehicleSpawner.SpawnTurnMode.RIGHT;
-            default -> VehicleSpawner.SpawnTurnMode.RANDOM;
         };
     }
 
@@ -562,7 +506,6 @@ public class MainApp extends Application {
                     lane,
                     VehicleSpawner.SpawnPosition.START,
                     VehicleSpawner.SpawnLateralMode.AUTO,
-                    autoSpawnTurnMode,
                     1
             );
             if (spawned > 0) {

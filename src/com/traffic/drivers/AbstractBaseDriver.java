@@ -2,6 +2,8 @@ package com.traffic.drivers;
 
 import com.traffic.core.IDriver;
 import com.traffic.core.MathUtils;
+import com.traffic.core.PriorityRouteAnalyzer;
+import com.traffic.core.PriorityRouteContext;
 import com.traffic.core.Vehicle;
 import com.traffic.map.Lane;
 import com.traffic.map.LaneControlPoint;
@@ -410,6 +412,10 @@ public abstract class AbstractBaseDriver implements IDriver {
     }
 
     private boolean handleActiveLateralManeuver(Vehicle vehicle) {
+        if (shouldAbortCurrentLateralForIntersection(vehicle)) {
+            vehicle.abortLateralManeuverSafely();
+            return false;
+        }
         if (vehicle.getManeuverState() == Vehicle.ManeuverState.GAP_FILLING) {
             if (vehicle.isNearTargetLateralOffset(1.5)) {
                 vehicle.setPreferredLateralOffset(vehicle.getTargetLateralOffset());
@@ -474,6 +480,21 @@ public abstract class AbstractBaseDriver implements IDriver {
     }
 
 
+    private boolean shouldAbortCurrentLateralForIntersection(Vehicle vehicle) {
+        if (vehicle == null) return false;
+        Vehicle.ManeuverState ms = vehicle.getManeuverState();
+        boolean activeLateral = ms == Vehicle.ManeuverState.GAP_FILLING
+                || ms == Vehicle.ManeuverState.OVERTAKE_SHIFT_LEFT
+                || ms == Vehicle.ManeuverState.OVERTAKE_PASSING
+                || ms == Vehicle.ManeuverState.OVERTAKE_RETURNING
+                || ms == Vehicle.ManeuverState.EMERGENCY_CORRIDOR;
+        if (!activeLateral) return false;
+        Vehicle.IntersectionManeuverState is = vehicle.getIntersectionManeuverState();
+        return is == Vehicle.IntersectionManeuverState.APPROACHING
+                || is == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
+                || is == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION;
+    }
+
     private boolean isPriorityYieldWaitingBeforeIntersection(Vehicle vehicle) {
         if (vehicle == null) return false;
         if (vehicle.getIntersectionManeuverState() != Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) {
@@ -507,6 +528,23 @@ public abstract class AbstractBaseDriver implements IDriver {
         if (priority == null || inFront == null || !priority.isPriority()) {
             return false;
         }
+
+        PriorityRouteContext ctx = PriorityRouteAnalyzer.getCurrent().get(priority, inFront);
+        if (ctx.isQueueLike()) {
+            // Same-route / route-ordered vehicles are not expected to side-yield.
+            // The priority vehicle should follow and wait, not escalate into the
+            // center corridor just because YieldMode is NONE.
+            if (!isBlockingCurrentPath(priority, inFront)) {
+                priority.resetPriorityWait();
+                return false;
+            }
+            if (longitudinalGap <= PRIORITY_CRITICAL_GAP) {
+                return true;
+            }
+            priority.addPriorityWaitFor(inFront, PRIORITY_PATIENCE_TICK);
+            return true;
+        }
+
         if (!isMeaningfulYieldMode(inFront.getYieldMode())) {
             priority.resetPriorityWait();
             return false;
@@ -530,6 +568,10 @@ public abstract class AbstractBaseDriver implements IDriver {
     private boolean hasPriorityWaitExpiredOrCritical(Vehicle priority, Vehicle inFront, double longitudinalGap) {
         if (priority == null || !priority.isPriority()) {
             return true;
+        }
+        if (inFront != null && PriorityRouteAnalyzer.getCurrent().get(priority, inFront).isQueueLike()) {
+            // Route queue is not an emergency-corridor escalation condition.
+            return false;
         }
         if (longitudinalGap <= PRIORITY_CRITICAL_GAP) {
             return true;
@@ -586,7 +628,10 @@ public abstract class AbstractBaseDriver implements IDriver {
             nearStopLine = distToStop > -8.0 && distToStop < 145.0;
         }
 
-        return frontIsSlow || movingSlowly || nearStopLine || stoppingForLight;
+        if (stoppingForLight || nearStopLine) {
+            return false;
+        }
+        return frontIsSlow || movingSlowly;
     }
 
     private boolean shouldStartOvertake(Vehicle vehicle, Vehicle inFront, boolean stoppingForLight) {
@@ -600,6 +645,11 @@ public abstract class AbstractBaseDriver implements IDriver {
         // Xe thường không cố vượt xe ưu tiên. Xe ưu tiên vẫn phải có khả năng
         // tránh/vượt cả xe thường lẫn xe ưu tiên khác nếu bị kẹt phía trước.
         if (inFront.isPriority() && !vehicle.isPriority()) return false;
+
+        if (vehicle.isPriority()
+                && PriorityRouteAnalyzer.getCurrent().get(vehicle, inFront).isQueueLike()) {
+            return false;
+        }
 
         Lane lane = vehicle.getLane();
         if (!lane.isInLaneOvertakeAllowed()) return false;
