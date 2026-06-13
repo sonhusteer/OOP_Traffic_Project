@@ -7,7 +7,7 @@ import java.util.List;
 /** Applies priority-vehicle yielding rules without stopping cars that already cleared conflict. */
 public class EmergencyManager {
 
-    private static final double SAME_LANE_YIELD_DISTANCE = 155.0;
+    private static final double SAME_LANE_YIELD_DISTANCE = 205.0;
     private static final double EMERGENCY_LOOKAHEAD = 220.0;
     private static final double NORMAL_LOOKAHEAD = 160.0;
     private static final double STOP_ASSIGN_DISTANCE = 120.0;
@@ -15,10 +15,23 @@ public class EmergencyManager {
     private static final double CLEAR_MARGIN = 28.0;
     private static final double COMFORTABLE_BRAKE = 120.0;
     private static final double STOP_BUFFER = 10.0;
+    private static final double PRIORITY_YIELD_LOCK_SECONDS = 1.35;
 
     public void update(List<Vehicle> vehicles, List<Intersection> intersections) {
         for (Vehicle v : vehicles) {
-            if (!v.isPriority()) v.setYieldMode(Vehicle.YieldMode.NONE);
+            if (v == null || v.isPriority()) {
+                continue;
+            }
+            if (v.hasActivePriorityYieldLock()) {
+                // Keep the same-side yield intent alive for a short grace period.
+                // This prevents the turn planner from pulling the vehicle back
+                // across the ambulance/firetruck path immediately after it yielded.
+                v.setYieldMode(v.getYieldMode() == Vehicle.YieldMode.URGENT_CLEAR_PATH
+                        ? Vehicle.YieldMode.URGENT_CLEAR_PATH
+                        : Vehicle.YieldMode.YIELD_RIGHT);
+            } else {
+                v.setYieldMode(Vehicle.YieldMode.NONE);
+            }
         }
 
         for (Vehicle priority : vehicles) {
@@ -35,12 +48,19 @@ public class EmergencyManager {
             double gap = normal.getRearProgress() - priority.getFrontProgress();
             boolean priorityBehind = gap > 0.0;
             boolean closeEnough = gap < SAME_LANE_YIELD_DISTANCE;
-            boolean sameSideOrBlocking = Math.abs(normal.getLateralOffset() - priority.getLateralOffset()) < 34.0;
-            if (priorityBehind && closeEnough && sameSideOrBlocking) {
+            if (priorityBehind && closeEnough) {
                 if (normal.isCommittedToIntersection()) {
                     applyHigherPriorityMode(normal, Vehicle.YieldMode.CLEAR_CONFLICT);
                     continue;
                 }
+
+                // One consistent policy for same-lane emergency yielding:
+                // affected normal vehicles move toward the right edge and keep
+                // that intent briefly. They must not immediately prepare a left
+                // turn or drift back into the emergency corridor.
+                double rightOffset = lane.getRightmostOffset(normal);
+                normal.lockPriorityYield(priority, rightOffset, PRIORITY_YIELD_LOCK_SECONDS);
+
                 boolean canPullRight = lane.occupancy().hasYieldRightMergeGap(normal, priority);
                 applyHigherPriorityMode(normal, canPullRight
                         ? Vehicle.YieldMode.YIELD_RIGHT

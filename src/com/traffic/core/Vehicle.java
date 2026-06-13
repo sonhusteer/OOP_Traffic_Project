@@ -118,6 +118,13 @@ public abstract class Vehicle {
     protected Vehicle priorityWaitTarget = null;
     protected double priorityWaitSeconds = 0.0;
 
+    // Normal vehicles keep a short lock after detecting a priority vehicle.
+    // This prevents a car from pulling right for an ambulance and then
+    // immediately being pulled left again by turn-slot preparation.
+    protected Vehicle priorityYieldSource = null;
+    protected double priorityYieldLockSeconds = 0.0;
+    protected double priorityYieldTargetOffset = Double.NaN;
+
     public Vehicle(double x, double y, double speed, IDriver driver) {
         this.position = new Vector2D(x, y);
         this.speed = speed;
@@ -154,6 +161,7 @@ public abstract class Vehicle {
         this.lateralOffset = clampLateralForLane(lateralOffset);
         this.targetLateralOffset = this.lateralOffset;
         this.preferredLateralOffset = this.lateralOffset;
+        clearPriorityYieldLock();
         if (lane != null) {
             lane.addVehicle(this);
             syncPositionFromLane();
@@ -177,6 +185,13 @@ public abstract class Vehicle {
     public final void update(double deltaTime) {
         if (laneChangeCooldown > 0) laneChangeCooldown = Math.max(0.0, laneChangeCooldown - deltaTime);
         if (maneuverCooldown > 0) maneuverCooldown = Math.max(0.0, maneuverCooldown - deltaTime);
+        if (priorityYieldLockSeconds > 0.0) {
+            priorityYieldLockSeconds = Math.max(0.0, priorityYieldLockSeconds - deltaTime);
+            if (priorityYieldLockSeconds == 0.0) {
+                priorityYieldSource = null;
+                priorityYieldTargetOffset = Double.NaN;
+            }
+        }
 
         if (activeTurn != null) {
             updateTurnManeuver(deltaTime);
@@ -587,6 +602,17 @@ public abstract class Vehicle {
             return;
         }
 
+        if (requested == YieldMode.NONE && hasActivePriorityYieldLock()) {
+            if (yieldMode == YieldMode.NONE
+                    || yieldMode == YieldMode.STOP_BEFORE_CONFLICT
+                    || yieldMode == YieldMode.STOP
+                    || yieldMode == YieldMode.HOLD_POSITION
+                    || yieldMode == YieldMode.BLOCKED_YIELD) {
+                yieldMode = YieldMode.YIELD_RIGHT;
+            }
+            return;
+        }
+
         yieldMode = requested;
 
         // NONE means no new external yield command this frame. It must not
@@ -649,6 +675,29 @@ public abstract class Vehicle {
 
     public double getPriorityWaitSeconds() { return priorityWaitSeconds; }
     public Vehicle getPriorityWaitTarget() { return priorityWaitTarget; }
+
+    public void lockPriorityYield(Vehicle prioritySource, double targetOffset, double seconds) {
+        if (isPriority || isCommittedToIntersection()) {
+            return;
+        }
+        priorityYieldSource = prioritySource;
+        priorityYieldLockSeconds = Math.max(priorityYieldLockSeconds, Math.max(0.0, seconds));
+        priorityYieldTargetOffset = clampLateralForLane(targetOffset);
+    }
+
+    public boolean hasActivePriorityYieldLock() {
+        return priorityYieldLockSeconds > 0.0;
+    }
+
+    public Vehicle getPriorityYieldSource() { return priorityYieldSource; }
+    public double getPriorityYieldTargetOffset() { return priorityYieldTargetOffset; }
+    public double getPriorityYieldLockSeconds() { return priorityYieldLockSeconds; }
+
+    public void clearPriorityYieldLock() {
+        priorityYieldSource = null;
+        priorityYieldLockSeconds = 0.0;
+        priorityYieldTargetOffset = Double.NaN;
+    }
 
     public double getManeuverCooldown() { return maneuverCooldown; }
     public void setManeuverCooldown(double seconds) { maneuverCooldown = Math.max(0.0, seconds); }

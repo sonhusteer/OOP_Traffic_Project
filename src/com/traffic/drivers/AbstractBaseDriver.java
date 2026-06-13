@@ -33,10 +33,10 @@ public abstract class AbstractBaseDriver implements IDriver {
     private static final double URGENT_SPEED_FACTOR = 1.18;
     private static final double URGENT_MIN_FACTOR = 0.72;
 
-    private static final double PRIORITY_PATIENCE_SECONDS = 0.75;
+    private static final double PRIORITY_PATIENCE_SECONDS = 1.25;
     private static final double PRIORITY_PATIENCE_TICK = 0.035;
-    private static final double PRIORITY_WAIT_LOOKAHEAD = 95.0;
-    private static final double PRIORITY_CRITICAL_GAP = 22.0;
+    private static final double PRIORITY_WAIT_LOOKAHEAD = 130.0;
+    private static final double PRIORITY_CRITICAL_GAP = 18.0;
 
     private final SideShiftPlanner sideShiftPlanner = new SideShiftPlanner();
 
@@ -79,28 +79,6 @@ public abstract class AbstractBaseDriver implements IDriver {
             return;
         }
 
-        if (!vehicle.isCommittedToIntersection()
-                && vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT) {
-            vehicle.cancelOvertake();
-            vehicle.setManeuverState(Vehicle.ManeuverState.NORMAL);
-            // Do not stop here. PREPARING_TURN_SLOT means the vehicle is gently
-            // aligning to the correct virtual slot before the turn. Stopping in
-            // this state is what caused the visible one-frame stutter.
-            double prepareSpeed = Math.min(getMaxSpeed() * 0.35, 24.0);
-            vehicle.setSpeed(Math.max(10.0, prepareSpeed));
-            return;
-        }
-
-        if (!vehicle.isCommittedToIntersection()
-                && vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) {
-            vehicle.cancelOvertake();
-            vehicle.setManeuverState(Vehicle.ManeuverState.HOLDING_POSITION);
-            // Keep the target offset that TurnCoordinator selected. Calling
-            // returnToPreferredSlot() here can pull the vehicle away from the
-            // correct turn slot if a previous maneuver changed preferred offset.
-            vehicle.setSpeed(0.0);
-            return;
-        }
 
         if (mode == Vehicle.YieldMode.STOP_BEFORE_CONFLICT || mode == Vehicle.YieldMode.STOP) {
             vehicle.cancelOvertake();
@@ -139,19 +117,61 @@ public abstract class AbstractBaseDriver implements IDriver {
         if (mode == Vehicle.YieldMode.YIELD_RIGHT || mode == Vehicle.YieldMode.PULL_RIGHT) {
             vehicle.cancelOvertake();
             Lane lane = vehicle.getLane();
-            boolean canReallyPullRight = lane != null
-                    && lane.occupancy().hasYieldRightMergeGap(vehicle, null);
+            if (lane == null) {
+                vehicle.setSpeed(Math.min(vehicle.getSpeed(), getMaxSpeed() * 0.35));
+                return;
+            }
+
+            double rightOffset = priorityYieldOffset(vehicle, lane);
+            if (vehicle.hasActivePriorityYieldLock()) {
+                // During an emergency-yield lock, make the right side the natural
+                // temporary slot. That prevents normal return-to-slot/turn prep
+                // code from pulling the vehicle back left in the next frame.
+                vehicle.setPreferredLateralOffset(rightOffset);
+            }
+
+            boolean canReallyPullRight = lane.occupancy().isSideSpaceFree(
+                    vehicle, rightOffset, URGENT_FRONT_GAP, URGENT_REAR_GAP);
             if (canReallyPullRight) {
                 vehicle.setManeuverState(Vehicle.ManeuverState.YIELDING_RIGHT);
-                vehicle.setTargetLateralOffset(lane.getRightmostOffset(vehicle));
-                vehicle.setSpeed(Math.min(getMaxSpeed() * 0.55,
-                        vehicle.getSpeed() > 0.0 ? vehicle.getSpeed() : getMaxSpeed() * 0.45));
+                vehicle.setTargetLateralOffset(rightOffset);
             } else {
-                // Ben phai da kin. Xe khong duoc ep chen phai, ma chuyen sang
-                // trang thai "bi voi" de tu tien len tim khoang trong. Trang thai
-                // nay van ton trong den do/vach dung, khong duoc thuc xe qua den.
-                handleUrgentClearPath(vehicle, nextLight);
+                // Right side is occupied. Keep the yield intent but do not drift
+                // to center/left because that blocks the emergency corridor.
+                vehicle.setManeuverState(Vehicle.ManeuverState.YIELDING_RIGHT);
+                vehicle.setTargetLateralOffset(vehicle.getLateralOffset());
             }
+
+            double yieldSpeed = Math.min(getMaxSpeed() * 0.50,
+                    vehicle.getSpeed() > 0.0 ? vehicle.getSpeed() : getMaxSpeed() * 0.40);
+            SpeedDecision lightRule = applyTrafficLightRule(vehicle, nextLight);
+            if (lightRule.redLightAhead() && !lightRule.pastStopLine()) {
+                yieldSpeed = Math.min(yieldSpeed, lightRule.targetSpeed());
+            }
+            vehicle.setSpeed(yieldSpeed);
+            return;
+        }
+
+        if (!vehicle.isCommittedToIntersection()
+                && vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT) {
+            vehicle.cancelOvertake();
+            vehicle.setManeuverState(Vehicle.ManeuverState.NORMAL);
+            // Do not stop here. PREPARING_TURN_SLOT means the vehicle is gently
+            // aligning to the correct virtual slot before the turn. Stopping in
+            // this state is what caused the visible one-frame stutter.
+            double prepareSpeed = Math.min(getMaxSpeed() * 0.35, 24.0);
+            vehicle.setSpeed(Math.max(10.0, prepareSpeed));
+            return;
+        }
+
+        if (!vehicle.isCommittedToIntersection()
+                && vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) {
+            vehicle.cancelOvertake();
+            vehicle.setManeuverState(Vehicle.ManeuverState.HOLDING_POSITION);
+            // Keep the target offset that TurnCoordinator selected. Calling
+            // returnToPreferredSlot() here can pull the vehicle away from the
+            // correct turn slot if a previous maneuver changed preferred offset.
+            vehicle.setSpeed(0.0);
             return;
         }
 
@@ -308,21 +328,30 @@ public abstract class AbstractBaseDriver implements IDriver {
         }
 
         Lane lane = vehicle.getLane();
+        boolean activePriorityYield = vehicle.hasActivePriorityYieldLock();
         if (lane != null) {
-            boolean canPullRight = lane.occupancy().hasYieldRightMergeGap(vehicle, null)
-                    && lane.occupancy().isSideSpaceFree(
-                            vehicle,
-                            lane.getRightmostOffset(vehicle),
-                            URGENT_FRONT_GAP,
-                            URGENT_REAR_GAP
-                    );
-            if (continuingGapFill) {
-                // Let the committed gap-fill finish; do not rewrite its target every frame.
+            double rightOffset = priorityYieldOffset(vehicle, lane);
+            if (activePriorityYield) {
+                vehicle.setPreferredLateralOffset(rightOffset);
+            }
+
+            boolean canPullRight = lane.occupancy().isSideSpaceFree(
+                    vehicle,
+                    rightOffset,
+                    URGENT_FRONT_GAP,
+                    URGENT_REAR_GAP
+            );
+            if (continuingGapFill && !activePriorityYield) {
+                // Let normal committed gap-fill finish. Emergency-yield locks are
+                // stricter: no center/left gap-fill while an ambulance/firetruck
+                // is asking for a corridor.
             } else if (canPullRight) {
-                vehicle.setTargetLateralOffset(lane.getRightmostOffset(vehicle));
+                vehicle.setTargetLateralOffset(rightOffset);
+            } else if (activePriorityYield) {
+                // Keep one consistent side-yield policy. If right is blocked,
+                // creep/hold until a right gap opens; do not fill center/left.
+                vehicle.setTargetLateralOffset(vehicle.getLateralOffset());
             } else if (!vehicle.isOvertaking()) {
-                // Ben phai dang co xe: khong ep chen. Thu tim mot slot trong
-                // ve phia phai/giua lane de xe tu dien vao cho trong.
                 if (!sideShiftPlanner.tryYieldGapFill(vehicle, URGENT_FRONT_GAP, URGENT_REAR_GAP)
                         && Math.abs(vehicle.getTargetLateralOffset() - vehicle.getPreferredLateralOffset()) < 2.0) {
                     vehicle.returnToPreferredSlot();
@@ -342,6 +371,12 @@ public abstract class AbstractBaseDriver implements IDriver {
             desired = Math.min(getMaxSpeed() * 1.05, lightRule.targetSpeed());
         } else {
             desired = Math.max(lightRule.targetSpeed(), getMaxSpeed() * URGENT_SPEED_FACTOR);
+        }
+        if (activePriorityYield && lane != null
+                && Math.abs(vehicle.getTargetLateralOffset() - vehicle.getLateralOffset()) < 1.0) {
+            // No safe right opening yet: leave room predictably and avoid rushing
+            // into the junction while still blocking the emergency path.
+            desired = Math.min(desired, getMaxSpeed() * 0.45);
         }
 
         if (lane != null) {
@@ -440,6 +475,27 @@ public abstract class AbstractBaseDriver implements IDriver {
         }
     }
 
+
+    private double priorityYieldOffset(Vehicle vehicle, Lane lane) {
+        double locked = vehicle.getPriorityYieldTargetOffset();
+        if (vehicle.hasActivePriorityYieldLock() && !Double.isNaN(locked)) {
+            return lane.clampOffset(vehicle, locked);
+        }
+        return lane.getRightmostOffset(vehicle);
+    }
+
+    private boolean isNearPriorityYieldTarget(Vehicle vehicle) {
+        if (vehicle == null || !vehicle.hasActivePriorityYieldLock()) {
+            return true;
+        }
+        double target = vehicle.getPriorityYieldTargetOffset();
+        if (Double.isNaN(target)) {
+            return true;
+        }
+        return Math.abs(vehicle.getLateralOffset() - target) <= 3.0
+                && Math.abs(vehicle.getTargetLateralOffset() - target) <= 4.5;
+    }
+
     private boolean shouldPriorityWaitForYield(Vehicle priority, Vehicle inFront, double longitudinalGap) {
         if (priority == null || inFront == null || !priority.isPriority()) {
             return false;
@@ -456,6 +512,11 @@ public abstract class AbstractBaseDriver implements IDriver {
             return false;
         }
         double waited = priority.addPriorityWaitFor(inFront, PRIORITY_PATIENCE_TICK);
+        if (inFront.hasActivePriorityYieldLock()
+                && inFront.getPriorityYieldSource() == priority
+                && !isNearPriorityYieldTarget(inFront)) {
+            return waited < PRIORITY_PATIENCE_SECONDS + 0.45;
+        }
         return waited < PRIORITY_PATIENCE_SECONDS;
     }
 

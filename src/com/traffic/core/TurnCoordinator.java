@@ -169,6 +169,13 @@ public class TurnCoordinator {
         boolean isPhysicalTurn = requested == Vehicle.TurnDecision.LEFT
                 || requested == Vehicle.TurnDecision.RIGHT;
 
+        // Priority yielding always wins over turn-slot preparation. Without this
+        // guard a car that was pulled right for an ambulance could immediately
+        // rewrite its target back to the left-turn slot in the same tick.
+        if (handlePriorityYieldBeforeTurn(vehicle, sourceLane, intersection, requested, distanceToConflict)) {
+            return;
+        }
+
         // Stage 1: prepare the correct side slot while still rolling. This is
         // the key fix for the one-frame stutter: preparation must not be treated
         // as WAITING_BEFORE_INTERSECTION.
@@ -502,6 +509,82 @@ public class TurnCoordinator {
             return false;
         }
         return vehicle.isNearPreferredLateralOffset(PREFERRED_OFFSET_TOLERANCE);
+    }
+
+    private boolean handlePriorityYieldBeforeTurn(Vehicle vehicle,
+                                                  Lane lane,
+                                                  Intersection intersection,
+                                                  Vehicle.TurnDecision requested,
+                                                  double distanceToConflict) {
+        if (vehicle == null || lane == null || intersection == null) {
+            return false;
+        }
+
+        Vehicle.YieldMode mode = vehicle.getYieldMode();
+        if (mode == null || mode == Vehicle.YieldMode.NONE) {
+            return false;
+        }
+
+        // If the vehicle has already been told to clear the conflict area, never
+        // convert that into a left/right turn reservation. It should simply leave
+        // the intersection first.
+        if (mode == Vehicle.YieldMode.CLEAR_CONFLICT
+                || mode == Vehicle.YieldMode.CLEAR_INTERSECTION) {
+            vehicle.cancelOvertake();
+            vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.CLEARING_FOR_PRIORITY);
+            vehicle.setCurrentIntersection(intersection);
+            vehicle.setTurnWaitReason("CLEAR_PRIORITY_FIRST");
+            return true;
+        }
+
+        // Hard priority stops keep the original turn intent but prevent any new
+        // turn preparation/reservation while the priority vehicle controls the
+        // junction.
+        if (mode == Vehicle.YieldMode.STOP_BEFORE_CONFLICT
+                || mode == Vehicle.YieldMode.STOP
+                || mode == Vehicle.YieldMode.HOLD_POSITION
+                || mode == Vehicle.YieldMode.BLOCKED_YIELD) {
+            vehicle.cancelOvertake();
+            if (distanceToConflict <= WAITING_DISTANCE) {
+                waitBeforeIntersection(vehicle, intersection, "PRIORITY_WAIT_" + mode);
+            } else if (vehicle.getIntersectionManeuverState()
+                    == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT) {
+                vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.APPROACHING);
+                vehicle.setTurnWaitReason("PRIORITY_SUSPEND_TURN");
+            }
+            return true;
+        }
+
+        // Side-yield modes are the inconsistent case reported in the demo:
+        // a vehicle moves right to open the path, then the turn planner pulls it
+        // left for a left turn. While side-yield is active, do not rewrite the
+        // turn intent and do not start any turn reservation. The vehicle keeps
+        // yielding first; after the priority lock expires, the normal turn logic
+        // may prepare the original L/R/S movement again.
+        if (isSideYieldMode(mode)) {
+            vehicle.cancelOvertake();
+            if (distanceToConflict <= WAITING_DISTANCE) {
+                waitBeforeIntersection(vehicle, intersection, "YIELD_PRIORITY_BEFORE_TURN");
+            } else if (vehicle.getIntersectionManeuverState()
+                    == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
+                    || vehicle.getIntersectionManeuverState()
+                    == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) {
+                vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.APPROACHING);
+                vehicle.setTurnWaitReason("YIELD_PRIORITY_BEFORE_TURN");
+            } else {
+                vehicle.setTurnWaitReason("YIELD_PRIORITY_BEFORE_TURN");
+            }
+            return true;
+        }
+
+        return false;
+    }
+
+    private boolean isSideYieldMode(Vehicle.YieldMode mode) {
+        return mode == Vehicle.YieldMode.YIELD_RIGHT
+                || mode == Vehicle.YieldMode.PULL_RIGHT
+                || mode == Vehicle.YieldMode.CLEAR_PATH
+                || mode == Vehicle.YieldMode.URGENT_CLEAR_PATH;
     }
 
     private boolean isBlockedByYieldMode(Vehicle vehicle) {
