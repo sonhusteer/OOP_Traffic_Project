@@ -46,6 +46,16 @@ public abstract class Vehicle {
     public enum IntersectionManeuverState {
         NONE,
         APPROACHING,
+        /**
+         * The vehicle has a valid turn ahead and is gently moving into the
+         * required virtual slot. It must keep rolling; this is not a hard stop.
+         */
+        PREPARING_TURN_SLOT,
+        /**
+         * The vehicle is actually blocked before the intersection: red light,
+         * priority vehicle, full target lane, busy intersection, or it reached
+         * the commit zone before it could align with the required turn slot.
+         */
         WAITING_BEFORE_INTERSECTION,
         CROSSING_STRAIGHT,
         TURNING_LEFT,
@@ -507,8 +517,14 @@ public abstract class Vehicle {
         if (activeTurn == null) return;
         TurnManeuver finished = activeTurn;
         Lane targetLane = finished.getTargetLane();
-        double entryProgress = targetLane.getProgressOf(position);
-        double entryOffset = targetLane.clampOffset(this, targetLane.getSignedLateralOffset(position));
+
+        // Finish at the exact merge point that TurnCoordinator reserved when it
+        // built the curve. Recomputing progress/offset from the current pixel
+        // position can introduce a visible snap at the end of the turn because
+        // the rendered heading is smoothed and may lag behind the Bezier tangent.
+        double entryProgress = MathUtils.clamp(
+                finished.getTargetEntryProgress(), 0.0, targetLane.getLength());
+        double entryOffset = targetLane.clampOffset(this, finished.getTargetEntryOffset());
 
         activeTurn = null;
         setLanePosition(targetLane, entryProgress, entryOffset);

@@ -387,8 +387,11 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
         double badge = 20.0;
         double bx = px - badge / 2.0;
         double by = py - Math.max(w, h) / 2.0 - badge - 6.0;
+        boolean preparing = v.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT;
         boolean waiting = v.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION;
-        Color bg = waiting ? Color.rgb(255, 170, 35, 225.0 / 255) : Color.rgb(20, 20, 25, 185.0 / 255);
+        Color bg = waiting ? Color.rgb(255, 170, 35, 225.0 / 255)
+                : preparing ? Color.rgb(80, 170, 255, 210.0 / 255)
+                : Color.rgb(20, 20, 25, 185.0 / 255);
         Color fg = waiting ? Color.rgb(30, 25, 10) : Color.rgb(255, 255, 255, 235.0 / 255);
 
         gc.save();

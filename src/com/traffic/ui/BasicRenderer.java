@@ -324,8 +324,11 @@ public class BasicRenderer extends AbstractBaseRenderer {
         double badge = 20.0;
         double bx = vx - badge / 2.0;
         double by = vy - Math.max(w, h) / 2.0 - badge - 6.0;
+        boolean preparing = v.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT;
         boolean waiting = v.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION;
-        Color bg = waiting ? Color.rgb(255, 170, 35, 0.88) : Color.rgb(20, 20, 25, 0.70);
+        Color bg = waiting ? Color.rgb(255, 170, 35, 0.88)
+                : preparing ? Color.rgb(80, 170, 255, 0.82)
+                : Color.rgb(20, 20, 25, 0.70);
         Color fg = waiting ? Color.rgb(30, 25, 10) : Color.rgb(255, 255, 255, 0.92);
 
         gc.save();

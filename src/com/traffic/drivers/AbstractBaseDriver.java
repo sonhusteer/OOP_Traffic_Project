@@ -80,10 +80,24 @@ public abstract class AbstractBaseDriver implements IDriver {
         }
 
         if (!vehicle.isCommittedToIntersection()
+                && vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT) {
+            vehicle.cancelOvertake();
+            vehicle.setManeuverState(Vehicle.ManeuverState.NORMAL);
+            // Do not stop here. PREPARING_TURN_SLOT means the vehicle is gently
+            // aligning to the correct virtual slot before the turn. Stopping in
+            // this state is what caused the visible one-frame stutter.
+            double prepareSpeed = Math.min(getMaxSpeed() * 0.35, 24.0);
+            vehicle.setSpeed(Math.max(10.0, prepareSpeed));
+            return;
+        }
+
+        if (!vehicle.isCommittedToIntersection()
                 && vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) {
             vehicle.cancelOvertake();
             vehicle.setManeuverState(Vehicle.ManeuverState.HOLDING_POSITION);
-            vehicle.returnToPreferredSlot();
+            // Keep the target offset that TurnCoordinator selected. Calling
+            // returnToPreferredSlot() here can pull the vehicle away from the
+            // correct turn slot if a previous maneuver changed preferred offset.
             vehicle.setSpeed(0.0);
             return;
         }
@@ -483,6 +497,7 @@ public abstract class AbstractBaseDriver implements IDriver {
         if (vehicle.getManeuverCooldown() > 0.0) return false;
         if (vehicle.isOvertaking()) return false;
         if (vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.APPROACHING
+                || vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
                 || vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) return false;
 
         // Gap-fill chi duoc kich hoat khi that su co xe/vat can phia truoc.
@@ -511,6 +526,7 @@ public abstract class AbstractBaseDriver implements IDriver {
         if (vehicle.getManeuverCooldown() > 0.0) return false;
         if (vehicle.getLane() == null || inFront == null) return false;
         if (vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.APPROACHING
+                || vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
                 || vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) return false;
 
         // Xe thường không cố vượt xe ưu tiên. Xe ưu tiên vẫn phải có khả năng

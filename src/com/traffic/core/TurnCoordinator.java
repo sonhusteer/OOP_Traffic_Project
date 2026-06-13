@@ -14,9 +14,13 @@ import java.util.List;
  */
 public class TurnCoordinator {
 
-    private static final double TURN_TRIGGER_DISTANCE = 56.0;
-    private static final double RIGHT_TURN_TRIGGER_DISTANCE = 64.0;
-    private static final double STRAIGHT_CROSSING_DISTANCE = 52.0;
+    // Two-stage turn handling:
+    // 1) far enough from the junction, LEFT/RIGHT vehicles prepare their
+    //    required virtual slot while still rolling;
+    // 2) only inside the commit band may they reserve and start the Bezier turn.
+    private static final double TURN_PREPARE_DISTANCE = 190.0;
+    private static final double TURN_COMMIT_DISTANCE = 62.0;
+    private static final double STRAIGHT_CROSSING_DISTANCE = 54.0;
     private static final double CLEAR_RESET_DISTANCE = 128.0;
     private static final double CONFLICT_RADIUS = 46.0;
     private static final double EXIT_DISTANCE_MIN = 58.0;
@@ -87,6 +91,7 @@ public class TurnCoordinator {
         Intersection best = nearestRelevantIntersection(vehicle, intersections, STRAIGHT_CROSSING_DISTANCE + 44.0);
         if (best == null) {
             if (vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.APPROACHING
+                    || vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
                     || vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION
                     || vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.CROSSING_STRAIGHT) {
                 vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.NONE);
@@ -123,8 +128,9 @@ public class TurnCoordinator {
                 // converting it into a straight crossing.
                 waitBeforeIntersection(vehicle, best, "WAIT_TURN_SLOT");
             }
-        } else if (front >= conflict - TURN_TRIGGER_DISTANCE - 24.0) {
-            if (vehicle.getIntersectionManeuverState() != Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) {
+        } else if (front >= conflict - TURN_PREPARE_DISTANCE) {
+            if (vehicle.getIntersectionManeuverState() != Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION
+                    && vehicle.getIntersectionManeuverState() != Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT) {
                 vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.APPROACHING);
             }
             vehicle.setCurrentIntersection(best);
@@ -139,17 +145,18 @@ public class TurnCoordinator {
             return;
         }
 
-        Intersection intersection = nearestRelevantIntersection(vehicle, intersections,
-                vehicle.getTurnDecision() == Vehicle.TurnDecision.RIGHT
-                        ? RIGHT_TURN_TRIGGER_DISTANCE
-                        : TURN_TRIGGER_DISTANCE);
+        // Scan a longer distance for all vehicles so T-junction STRAIGHT intents
+        // can be normalized into LEFT/RIGHT early, and turning vehicles can move
+        // into the correct virtual slot without stopping at the last frame.
+        Intersection intersection = nearestRelevantIntersection(
+                vehicle, intersections, TURN_PREPARE_DISTANCE);
         if (intersection == null) {
             return;
         }
 
         double conflict = sourceLane.getProgressOf(intersection.getCenter());
         double distanceToConflict = conflict - vehicle.getFrontProgress();
-        if (distanceToConflict < -CONFLICT_RADIUS || distanceToConflict > RIGHT_TURN_TRIGGER_DISTANCE) {
+        if (distanceToConflict < -CONFLICT_RADIUS || distanceToConflict > TURN_PREPARE_DISTANCE) {
             return;
         }
 
@@ -159,12 +166,34 @@ public class TurnCoordinator {
             vehicle.setTurnDecision(requested);
         }
 
-        // Tight-turn rule: a RIGHT turn may only start from the right virtual
-        // slot, and a LEFT turn may only start from the left virtual slot. If the
-        // car is on the wrong side, it must prepare/stop before the junction;
-        // never create a wide looping turn through the far side of the road.
+        boolean isPhysicalTurn = requested == Vehicle.TurnDecision.LEFT
+                || requested == Vehicle.TurnDecision.RIGHT;
+
+        // Stage 1: prepare the correct side slot while still rolling. This is
+        // the key fix for the one-frame stutter: preparation must not be treated
+        // as WAITING_BEFORE_INTERSECTION.
+        if (isPhysicalTurn && distanceToConflict > TURN_COMMIT_DISTANCE) {
+            if (!isInRequiredTurnSlot(vehicle, sourceLane, requested)) {
+                prepareVehicleForTightTurnSlot(vehicle, sourceLane, intersection, requested, false);
+            } else if (vehicle.getIntersectionManeuverState()
+                    == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT) {
+                vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.APPROACHING);
+                vehicle.setTurnWaitReason(null);
+            }
+            return;
+        }
+
+        // Straight vehicles should only be committed when they are close enough
+        // to the conflict band. Farther away, the normal driver keeps control.
+        if (!isPhysicalTurn && distanceToConflict > STRAIGHT_CROSSING_DISTANCE) {
+            return;
+        }
+
+        // Stage 2: inside the commit band. A turn from the wrong slot would be a
+        // wide looping turn across the intersection, so it must now stop and wait
+        // instead of starting a bad curve.
         if (!isInRequiredTurnSlot(vehicle, sourceLane, requested)) {
-            prepareVehicleForTightTurnSlot(vehicle, sourceLane, intersection, requested);
+            prepareVehicleForTightTurnSlot(vehicle, sourceLane, intersection, requested, true);
             return;
         }
 
@@ -311,7 +340,8 @@ public class TurnCoordinator {
     private void prepareVehicleForTightTurnSlot(Vehicle vehicle,
                                                 Lane lane,
                                                 Intersection intersection,
-                                                Vehicle.TurnDecision decision) {
+                                                Vehicle.TurnDecision decision,
+                                                boolean hardWait) {
         if (vehicle == null || lane == null || decision == null
                 || decision == Vehicle.TurnDecision.STRAIGHT) {
             return;
@@ -320,10 +350,21 @@ public class TurnCoordinator {
         vehicle.abortLateralManeuverSafely();
         vehicle.setPreferredLateralOffset(required);
         vehicle.setTargetLateralOffset(required);
-        vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION);
         vehicle.setCurrentIntersection(intersection);
+
+        if (hardWait) {
+            vehicle.setIntersectionManeuverState(
+                    Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION);
+            vehicle.setTurnWaitReason("TURN_SLOT_BLOCKED_" + decision);
+            vehicle.setSpeed(0.0);
+            return;
+        }
+
+        vehicle.setIntersectionManeuverState(
+                Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT);
         vehicle.setTurnWaitReason("PREPARE_" + decision + "_SLOT");
-        vehicle.setSpeed(Math.min(vehicle.getSpeed(), 10.0));
+        double rollingSpeed = MathUtils.clamp(vehicle.getSpeed(), 10.0, 24.0);
+        vehicle.setSpeed(rollingSpeed);
     }
 
     private boolean shouldTreatAsStraightCrossing(Vehicle vehicle, Lane lane, Intersection intersection) {
@@ -356,6 +397,10 @@ public class TurnCoordinator {
                                         Vehicle.TurnDecision decision,
                                         double targetProgress,
                                         double targetOffset) {
+        // Start from the current lane-derived position. By the time this is
+        // called, the car is inside the commit band and already aligned to the
+        // correct virtual slot, so p0 is stable and does not produce a visible
+        // snap.
         Vector2D p0 = new Vector2D(vehicle.getPosition().getX(), vehicle.getPosition().getY());
         Vector2D p3 = targetLane.getPositionAt(targetProgress, targetOffset);
 
@@ -366,15 +411,16 @@ public class TurnCoordinator {
         double chord = Math.max(10.0, MathUtils.distance(p0, p3));
         double angleDelta = Math.abs(normalizeAngle(targetLane.getAngleAt(targetProgress)
                 - sourceLane.getAngleAt(sourceProgress)));
-        double handle = handleLengthFor(vehicle, decision, chord, angleDelta);
+        double inHandle = handleInFor(vehicle, decision, chord, angleDelta);
+        double outHandle = handleOutFor(vehicle, decision, chord, angleDelta);
 
         Vector2D p1 = new Vector2D(
-                p0.getX() + dirIn.getX() * handle,
-                p0.getY() + dirIn.getY() * handle
+                p0.getX() + dirIn.getX() * inHandle,
+                p0.getY() + dirIn.getY() * inHandle
         );
         Vector2D p2 = new Vector2D(
-                p3.getX() - dirOut.getX() * handle,
-                p3.getY() - dirOut.getY() * handle
+                p3.getX() - dirOut.getX() * outHandle,
+                p3.getY() - dirOut.getY() * outHandle
         );
 
         return new TurnManeuver(
@@ -407,31 +453,44 @@ public class TurnCoordinator {
         return MathUtils.clamp(desired, EXIT_DISTANCE_MIN, EXIT_DISTANCE_MAX + vehicleBonus);
     }
 
-    private double handleLengthFor(Vehicle vehicle,
-                                   Vehicle.TurnDecision decision,
-                                   double chord,
-                                   double angleDelta) {
-        // Cubic Bezier handles must stay much shorter than the chord. The old
-        // chord*0.5+ formula often overshot the corner, making the car swing
-        // wide and then snap back into the exit lane. A quarter-circle-like
-        // curve uses roughly 0.55 * radius; with our entry/exit points the
-        // effective radius is about half the chord, so 0.22-0.32 * chord is a
-        // safer range.
-        double vehicleBonus = vehicle != null ? Math.max(0.0, vehicle.getWidth() - 34.0) * 0.12 : 0.0;
-        double sharpFactor = MathUtils.clamp(angleDelta / 90.0, 0.75, 1.10);
+    private double handleInFor(Vehicle vehicle,
+                               Vehicle.TurnDecision decision,
+                               double chord,
+                               double angleDelta) {
+        double vehicleBonus = vehicle != null ? Math.max(0.0, vehicle.getWidth() - 34.0) * 0.10 : 0.0;
+        double sharpFactor = MathUtils.clamp(angleDelta / 90.0, 0.78, 1.08);
         double factor = switch (decision) {
-            case RIGHT -> 0.23;
-            case LEFT -> 0.28;
+            case RIGHT -> 0.24;
+            case LEFT -> 0.30;
             case STRAIGHT -> 0.16;
         };
-        double handle = chord * factor * sharpFactor + vehicleBonus;
         double min = decision == Vehicle.TurnDecision.STRAIGHT ? 14.0 : 24.0;
         double max = switch (decision) {
-            case RIGHT -> 46.0;
-            case LEFT -> 58.0;
+            case RIGHT -> 48.0;
+            case LEFT -> 62.0;
             case STRAIGHT -> 34.0;
         };
-        return MathUtils.clamp(handle, min, max + vehicleBonus);
+        return MathUtils.clamp(chord * factor * sharpFactor + vehicleBonus, min, max + vehicleBonus);
+    }
+
+    private double handleOutFor(Vehicle vehicle,
+                                Vehicle.TurnDecision decision,
+                                double chord,
+                                double angleDelta) {
+        double vehicleBonus = vehicle != null ? Math.max(0.0, vehicle.getWidth() - 34.0) * 0.12 : 0.0;
+        double sharpFactor = MathUtils.clamp(angleDelta / 90.0, 0.78, 1.12);
+        double factor = switch (decision) {
+            case RIGHT -> 0.31;
+            case LEFT -> 0.35;
+            case STRAIGHT -> 0.16;
+        };
+        double min = decision == Vehicle.TurnDecision.STRAIGHT ? 14.0 : 28.0;
+        double max = switch (decision) {
+            case RIGHT -> 58.0;
+            case LEFT -> 74.0;
+            case STRAIGHT -> 34.0;
+        };
+        return MathUtils.clamp(chord * factor * sharpFactor + vehicleBonus, min, max + vehicleBonus);
     }
 
     private boolean isLateralStableForIntersection(Vehicle vehicle) {
