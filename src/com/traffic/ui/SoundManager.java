@@ -2,6 +2,7 @@ package com.traffic.ui;
 
 import javax.sound.sampled.*;
 import java.io.InputStream;
+import java.io.ByteArrayInputStream;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -80,20 +81,92 @@ public class SoundManager {
         if (cache.containsKey(filename)) return cache.get(filename);
 
         try {
-            InputStream is = getClass().getResourceAsStream("/sounds/" + filename);
+            InputStream is = openAudioResource(filename);
+            Clip clip;
             if (is == null) {
-                System.out.println("[Sound] Không tìm thấy: " + filename);
-                return null;
+                clip = createSyntheticClip(filename);
+                if (clip == null) {
+                    System.out.println("[Sound] Không tìm thấy: " + filename);
+                    return null;
+                }
+            } else {
+                AudioInputStream audio = AudioSystem.getAudioInputStream(
+                        new java.io.BufferedInputStream(is));
+                clip = AudioSystem.getClip();
+                clip.open(audio);
             }
-            AudioInputStream audio = AudioSystem.getAudioInputStream(
-                    new java.io.BufferedInputStream(is));
-            Clip clip = AudioSystem.getClip();
-            clip.open(audio);
             cache.put(filename, clip);
             return clip;
         } catch (Exception e) {
             System.out.println("[Sound] Lỗi load: " + filename + " — " + e.getMessage());
             return null;
         }
+    }
+
+    private InputStream openAudioResource(String filename) {
+        if (filename == null || filename.isBlank()) return null;
+        String normalized = filename.startsWith("/") ? filename.substring(1) : filename;
+        String[] candidates = {
+                "/sounds/" + normalized,
+                "/assets/" + normalized,
+                "/audio/" + normalized,
+                "/" + normalized
+        };
+        for (String path : candidates) {
+            InputStream is = getClass().getResourceAsStream(path);
+            if (is != null) return is;
+        }
+        return null;
+    }
+
+
+    /**
+     * Small built-in fallback sounds. This keeps the simulation audible even when
+     * the IDE does not copy /sounds/*.wav into the runtime classpath.
+     */
+    private Clip createSyntheticClip(String filename) {
+        try {
+            String f = filename == null ? "" : filename.toLowerCase();
+            if (f.contains("horn") || f.contains("beep")) {
+                return createToneClip(0.18, 760.0, 0.75, false);
+            }
+            if (f.contains("siren")) {
+                return createToneClip(1.2, 620.0, 0.55, true);
+            }
+            return null;
+        } catch (Exception e) {
+            System.out.println("[Sound] Lỗi tạo âm thanh nội bộ: " + filename + " — " + e.getMessage());
+            return null;
+        }
+    }
+
+    private Clip createToneClip(double seconds, double baseFrequency, double volume, boolean sweep) throws Exception {
+        float sampleRate = 22050f;
+        int frames = Math.max(1, (int) (seconds * sampleRate));
+        byte[] data = new byte[frames * 2];
+        for (int i = 0; i < frames; i++) {
+            double t = i / sampleRate;
+            double env = envelope(i, frames);
+            double freq = sweep
+                    ? baseFrequency + 260.0 * (0.5 + 0.5 * Math.sin(2.0 * Math.PI * 2.0 * t))
+                    : baseFrequency;
+            double sample = Math.sin(2.0 * Math.PI * freq * t) * env * Math.max(0.0, Math.min(1.0, volume));
+            short pcm = (short) Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, sample * 32767.0));
+            data[i * 2] = (byte) (pcm & 0xff);
+            data[i * 2 + 1] = (byte) ((pcm >> 8) & 0xff);
+        }
+        AudioFormat format = new AudioFormat(sampleRate, 16, 1, true, false);
+        AudioInputStream audio = new AudioInputStream(new ByteArrayInputStream(data), format, frames);
+        Clip clip = AudioSystem.getClip();
+        clip.open(audio);
+        return clip;
+    }
+
+    private double envelope(int index, int total) {
+        if (total <= 1) return 1.0;
+        double x = index / (double) (total - 1);
+        double attack = Math.min(1.0, x / 0.08);
+        double release = Math.min(1.0, (1.0 - x) / 0.18);
+        return Math.max(0.0, Math.min(1.0, Math.min(attack, release)));
     }
 }

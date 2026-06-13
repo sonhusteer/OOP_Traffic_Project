@@ -521,5 +521,149 @@ public abstract class AbstractBaseRenderer implements IRenderer {
         return new double[] { minX, minY, maxX, maxY };
     }
 
+
+    // =========================================================================
+    // Hiệu ứng đèn xe dùng chung: xi nhan, đèn ưu tiên và strobe khẩn cấp
+    // =========================================================================
+
+    protected void drawVehicleLightEffects(GraphicsContext gc, Vehicle v, double w, double h) {
+        if (v == null) return;
+        drawTurnSignalLights(gc, v, w, h);
+        if (v.isPriority()) {
+            drawEmergencyVehicleStrobes(gc, v, w, h);
+        }
+    }
+
+    protected Vehicle.TurnDecision getActiveTurnSignal(Vehicle v) {
+        if (v == null) return null;
+        Vehicle.TurnDecision decision = v.getDisplayedTurnDecision();
+        if (decision == null || decision == Vehicle.TurnDecision.STRAIGHT) return null;
+
+        Vehicle.IntersectionManeuverState state = v.getIntersectionManeuverState();
+        if (v.isTurning()
+                || state == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
+                || state == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT_PAUSED
+                || state == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION
+                || state == Vehicle.IntersectionManeuverState.TURNING_LEFT
+                || state == Vehicle.IntersectionManeuverState.TURNING_RIGHT) {
+            return decision;
+        }
+        return null;
+    }
+
+    private void drawTurnSignalLights(GraphicsContext gc, Vehicle v, double w, double h) {
+        Vehicle.TurnDecision signal = getActiveTurnSignal(v);
+        if (signal == null) return;
+        if (!isBlinkOn(v, 760, 0.52, 73)) return;
+
+        double side = signal == Vehicle.TurnDecision.LEFT ? -1.0 : 1.0;
+        double y = side * (h / 2.0 + 2.2);
+        Color amber = Color.rgb(255, 185, 30, 0.96);
+        Color glow = Color.rgb(255, 180, 30, 0.28);
+
+        gc.save();
+        gc.setFill(glow);
+        gc.fillOval(w / 2.0 - 8.0, y - 6.0, 13.0, 12.0);
+        gc.fillOval(-w / 2.0 - 5.0, y - 6.0, 13.0, 12.0);
+
+        gc.setFill(amber);
+        gc.fillOval(w / 2.0 - 5.5, y - 3.2, 7.0, 6.4);
+        gc.fillOval(-w / 2.0 - 1.5, y - 3.2, 7.0, 6.4);
+
+        // A small side marker makes the signal visible even on sprite vehicles.
+        gc.fillRoundRect(-3.0, y - 2.0, 6.0, 4.0, 2.0, 2.0);
+        gc.restore();
+    }
+
+    private void drawEmergencyVehicleStrobes(GraphicsContext gc, Vehicle v, double w, double h) {
+        String type = v.getTypeName();
+        if ("ambulance".equals(type)) {
+            drawAmbulanceStrobes(gc, v, w, h);
+        } else if ("firetruck".equals(type)) {
+            drawFireTruckStrobes(gc, v, w, h);
+        } else {
+            drawGenericPriorityStrobes(gc, v, w, h);
+        }
+    }
+
+    private void drawAmbulanceStrobes(GraphicsContext gc, Vehicle v, double w, double h) {
+        long phase = flashPhase(v, 250, 0);
+        boolean redOn = phase % 2 == 0;
+        boolean blueOn = !redOn;
+        drawLightBar(gc, w, h,
+                redOn ? Color.rgb(255, 35, 35, 0.98) : Color.rgb(95, 15, 15, 0.45),
+                blueOn ? Color.rgb(35, 105, 255, 0.98) : Color.rgb(15, 35, 95, 0.45),
+                1.0);
+        Color halo = redOn ? Color.rgb(255, 35, 35, 0.16) : Color.rgb(35, 105, 255, 0.16);
+        drawEmergencyHalo(gc, w, h, halo, 1.0);
+    }
+
+    private void drawFireTruckStrobes(GraphicsContext gc, Vehicle v, double w, double h) {
+        long phase = flashPhase(v, 165, 41) % 6;
+        boolean redLeft = phase == 0 || phase == 2;
+        boolean redRight = phase == 1 || phase == 3;
+        boolean amberPulse = phase == 4;
+        Color left = redLeft ? Color.rgb(255, 25, 25, 0.98)
+                : amberPulse ? Color.rgb(255, 150, 20, 0.92)
+                : Color.rgb(90, 12, 12, 0.45);
+        Color right = redRight ? Color.rgb(255, 25, 25, 0.98)
+                : amberPulse ? Color.rgb(255, 150, 20, 0.92)
+                : Color.rgb(90, 12, 12, 0.45);
+        drawLightBar(gc, w, h, left, right, 1.15);
+        if (redLeft || redRight || amberPulse) {
+            drawEmergencyHalo(gc, w, h,
+                    amberPulse ? Color.rgb(255, 150, 20, 0.14) : Color.rgb(255, 35, 35, 0.14),
+                    1.12);
+        }
+    }
+
+    private void drawGenericPriorityStrobes(GraphicsContext gc, Vehicle v, double w, double h) {
+        boolean on = isBlinkOn(v, 360, 0.5, 0);
+        drawLightBar(gc, w, h,
+                on ? Color.rgb(255, 30, 30, 0.95) : Color.rgb(80, 15, 15, 0.45),
+                on ? Color.rgb(30, 110, 255, 0.95) : Color.rgb(15, 35, 95, 0.45),
+                1.0);
+    }
+
+    private void drawLightBar(GraphicsContext gc, double w, double h, Color left, Color right, double scale) {
+        double barW = Math.max(14.0, w * 0.52 * scale);
+        double barH = Math.max(4.0, Math.min(7.0, h * 0.22 * scale));
+        double y = -h / 2.0 - barH - 1.5;
+        double half = barW / 2.0;
+
+        gc.save();
+        gc.setFill(Color.rgb(8, 8, 12, 0.74));
+        gc.fillRoundRect(-half - 1.5, y - 1.0, barW + 3.0, barH + 2.0, 3.0, 3.0);
+        gc.setFill(left);
+        gc.fillRoundRect(-half, y, half, barH, 2.5, 2.5);
+        gc.setFill(right);
+        gc.fillRoundRect(0, y, half, barH, 2.5, 2.5);
+        gc.setFill(Color.rgb(255, 255, 255, 0.22));
+        gc.fillRoundRect(-half + 1.0, y + 0.8, barW - 2.0, Math.max(1.0, barH * 0.33), 2.0, 2.0);
+        gc.restore();
+    }
+
+    private void drawEmergencyHalo(GraphicsContext gc, double w, double h, Color color, double scale) {
+        gc.save();
+        gc.setFill(color);
+        gc.fillOval(-w / 2.0 - 9.0 * scale, -h / 2.0 - 9.0 * scale,
+                w + 18.0 * scale, h + 18.0 * scale);
+        gc.restore();
+    }
+
+    protected boolean isBlinkOn(Vehicle v, long periodMs, double duty, long phaseShiftMs) {
+        if (periodMs <= 0) return true;
+        long seed = v == null ? 0L : Math.abs(v.getName() == null ? v.hashCode() : v.getName().hashCode());
+        long t = System.currentTimeMillis() + seed % periodMs + phaseShiftMs;
+        long m = Math.floorMod(t, periodMs);
+        return m < Math.max(1L, Math.round(periodMs * duty));
+    }
+
+    private long flashPhase(Vehicle v, long stepMs, long phaseShiftMs) {
+        long seed = v == null ? 0L : Math.abs(v.getName() == null ? v.hashCode() : v.getName().hashCode());
+        return Math.floorDiv(System.currentTimeMillis() + seed % Math.max(1L, stepMs) + phaseShiftMs,
+                Math.max(1L, stepMs));
+    }
+
     public abstract void draw(GraphicsContext gc, double width, double height);
 }

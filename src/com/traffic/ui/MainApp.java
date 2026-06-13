@@ -36,7 +36,7 @@ public class MainApp extends Application {
         new HighwayMap()
     };
 
-    private static final int MAX_AUTO_SPAWN_BURSTS_PER_FRAME = 2;
+    private static final int MAX_AUTO_SPAWN_BURSTS_PER_FRAME = 4;
 
     // ── State ────────────────────────────────────────────────────────────
     private MapConfig currentMap;
@@ -52,7 +52,7 @@ public class MainApp extends Application {
     private final Random random = new Random();
     private boolean autoSpawnEnabled = false;
     private double autoSpawnTimerSeconds = 0.0;
-    private double autoSpawnIntervalSeconds = 1.15;
+    private double autoSpawnIntervalSeconds = 0.75;
 
     private Canvas canvas;
     private Label lblVehicles;
@@ -139,6 +139,11 @@ public class MainApp extends Application {
                     } else {
                         SoundManager.getInstance().stop("siren.wav");
                     }
+
+                    updatePassingHornAudio();
+                } else {
+                    // A looping horn should not keep playing while the simulation is paused.
+                    SoundManager.getInstance().stop("horn.wav");
                 }
 
                 // Draw
@@ -150,6 +155,29 @@ public class MainApp extends Application {
             }
         };
         timer.start();
+    }
+
+    private void updatePassingHornAudio() {
+        if (engine == null || engine.getVehicles() == null) {
+            SoundManager.getInstance().stop("horn.wav");
+            return;
+        }
+
+        boolean anyVehicleRequestingHorn = false;
+        for (Vehicle v : engine.getVehicles()) {
+            if (v != null && v.isRequestingPassHorn()) {
+                anyVehicleRequestingHorn = true;
+                break;
+            }
+        }
+
+        if (anyVehicleRequestingHorn) {
+            // Use the real horn asset when present. SoundManager also falls back
+            // to a generated tone if /assets/horn.wav or /sounds/horn.wav is missing.
+            SoundManager.getInstance().loop("horn.wav");
+        } else {
+            SoundManager.getInstance().stop("horn.wav");
+        }
     }
 
     // ── Sidebar ──────────────────────────────────────────────────────────
@@ -206,7 +234,7 @@ public class MainApp extends Application {
 
         // Count
         Label lblCount = makeLabel("Số lượng:");
-        Spinner<Integer> spinner = new Spinner<>(1, 6, 1);
+        Spinner<Integer> spinner = new Spinner<>(1, 10, 1);
         spinner.setMaxWidth(Double.MAX_VALUE);
 
         // Auto spawn controls
@@ -224,7 +252,7 @@ public class MainApp extends Application {
                     : "[A] Auto spawn tắt\n");
         });
 
-        Slider autoRateSlider = new Slider(0.45, 3.0, autoSpawnIntervalSeconds);
+        Slider autoRateSlider = new Slider(0.15, 2.0, autoSpawnIntervalSeconds);
         autoRateSlider.setShowTickMarks(true);
         autoRateSlider.setMajorTickUnit(0.5);
         Label lblAutoRate = makeLabel(String.format("Nhịp: %.2fs", autoSpawnIntervalSeconds));
@@ -552,12 +580,12 @@ public class MainApp extends Application {
     ) {}
 
     private SpawnProfile getSpawnProfile(MapConfig map) {
-        if (map instanceof CrossroadsMap) return new SpawnProfile(20, 5, 7);
-        if (map instanceof TJunctionMap) return new SpawnProfile(14, 4, 6);
-        if (map instanceof FiveWayMap) return new SpawnProfile(20, 4, 5);
-        if (map instanceof NetworkMap) return new SpawnProfile(28, 5, 7);
-        if (map instanceof HighwayMap) return new SpawnProfile(54, 14, 5);
-        return new SpawnProfile(22, 5, 6);
+        if (map instanceof CrossroadsMap) return new SpawnProfile(26, 7, 7);
+        if (map instanceof TJunctionMap) return new SpawnProfile(18, 5, 7);
+        if (map instanceof FiveWayMap) return new SpawnProfile(30, 7, 5);
+        if (map instanceof NetworkMap) return new SpawnProfile(36, 7, 7);
+        if (map instanceof HighwayMap) return new SpawnProfile(70, 18, 8);
+        return new SpawnProfile(28, 7, 7);
     }
 
     private int countVehiclesOnLane(Lane lane) {
@@ -571,7 +599,7 @@ public class MainApp extends Application {
     }
 
     private String randomAutoType(SpawnProfile profile) {
-        // Uu tien xe thuong de quan sat dong giao thong; xe uu tien xuat hien it hon.
+        // Uu tien xe thuong de quan sat dong giao thong; xe uu tien xuat hien thap de tranh nhieu.
         int r = random.nextInt(100);
         int emergencyRate = profile != null ? profile.emergencyRatePercent() : 8;
         if (r >= 100 - emergencyRate) {

@@ -14,7 +14,7 @@ import com.traffic.map.Lane;
  */
 public class TurnManeuver {
 
-    private static final int LENGTH_SAMPLES = 72;
+    private static final int LENGTH_SAMPLES = 48;
 
     private static final double ROUNDABOUT_ROAD_HALF_OFFSET = 40.0;
     private static final double ROUNDABOUT_LANE_RADIUS = 65.0;
@@ -148,11 +148,8 @@ public class TurnManeuver {
         double deltaTheta = roundaboutDeltaTheta(theta0, theta3);
 
         // Smooth angular interpolation avoids a visible heading snap at entry
-        // and exit. Right turns use the shortest slip arc; other movements keep
-        // the circulatory direction around the island.
-        double angularT = decision == Vehicle.TurnDecision.RIGHT
-                ? clamped
-                : smootherStep(clamped);
+        // and exit. Arc-length traversal still keeps physical speed stable.
+        double angularT = smootherStep(clamped);
         double theta = theta0 + angularT * deltaTheta;
 
         double r0 = Math.hypot(p0.getX() - cx, p0.getY() - cy);
@@ -160,15 +157,10 @@ public class TurnManeuver {
         double baseRadius = MathUtils.lerp(r0, r3, clamped);
 
         // Zero-slope hump: exact endpoints, stable mid-ring radius, no sudden
-        // radial pull when the vehicle first touches the roundabout path. Right
-        // turns run on the outer slip radius so they read as a short, direct exit
-        // instead of a full roundabout circulation.
+        // radial pull when the vehicle first touches the roundabout path.
         double oneMinus = 1.0 - clamped;
         double ringBlend = 16.0 * clamped * clamped * oneMinus * oneMinus;
-        double slipRadius = decision == Vehicle.TurnDecision.RIGHT
-                ? ROUNDABOUT_LANE_RADIUS + 18.0
-                : ROUNDABOUT_LANE_RADIUS;
-        double r = baseRadius + ringBlend * (slipRadius - baseRadius);
+        double r = baseRadius + ringBlend * (ROUNDABOUT_LANE_RADIUS - baseRadius);
         return new Vector2D(cx + r * Math.cos(theta), cy + r * Math.sin(theta));
     }
 
@@ -187,7 +179,7 @@ public class TurnManeuver {
         // Blend the rendered heading with the lane tangents at the ends. The
         // position still follows the ring, but the car nose turns progressively
         // instead of snapping from lane heading to circular heading.
-        final double blendBand = decision == Vehicle.TurnDecision.RIGHT ? 0.24 : 0.22;
+        final double blendBand = 0.22;
         if (clamped < blendBand && sourceLane != null) {
             Vector2D in = sourceLane.getDirectionAt(sourceLane.getProgressOf(p0));
             double w = smootherStep(clamped / blendBand);
@@ -223,14 +215,6 @@ public class TurnManeuver {
     }
 
     private double roundaboutDeltaTheta(double theta0, double theta3) {
-        if (decision == Vehicle.TurnDecision.RIGHT) {
-            // A right turn in the five-way roundabout is a slip movement to the
-            // nearest exit. Use the shortest angular arc around the island; the
-            // point path still stays on the outer slip radius, so it never cuts
-            // through the center island.
-            return normalizeAngleRadians(theta3 - theta0);
-        }
-
         // The tangent points are offset from the road radial by this angle.
         // Subtracting it before normalization makes exit selection stable for
         // 5-way spacing, then adding it back keeps the actual endpoints exact.
@@ -238,8 +222,9 @@ public class TurnManeuver {
         double roadDiff = theta3 - theta0 - 2.0 * tangentOffset;
         roadDiff = normalizeAngleRadians(roadDiff);
 
-        // Keep the normal circulatory direction for straight/left movements so
-        // they travel around the island instead of taking a chord through it.
+        // Current map geometry uses one consistent circulatory direction. Force
+        // that direction so left/straight/right all travel around the ring rather
+        // than taking the short chord across the island.
         if (roadDiff > 0.0) {
             roadDiff -= 2.0 * Math.PI;
         }

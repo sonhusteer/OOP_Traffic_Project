@@ -109,21 +109,22 @@ public class FiveWayMap implements MapConfig {
     }
 
     /**
-     * Ngã 5 không có hướng đối diện tuyệt đối như ngã tư, nên target lane phải
-     * được khai báo rõ. Mapping này giữ xe chạy theo vòng xuyến thay vì để
-     * TurnCoordinator suy đoán bằng hình học và cắt qua đảo giữa.
+     * Ngã 5 hiện được vận hành như vòng xuyến một luồng đơn giản: xe không
+     * chọn LEFT/RIGHT tại giao lộ này nữa, mà luôn đi theo tuyến chính qua
+     * vòng xuyến rồi thoát ở exit đối diện hợp lý nhất.
+     *
+     * Vẫn khai báo LEFT/RIGHT với target null để các lớp spawn/normalize hiểu
+     * đây là movement bị khóa có chủ đích, không phải thiếu dữ liệu map.
      */
     private void configureRoundaboutTurnTargets(Intersection ix, Lane[] inLanes, Lane[] outLanes) {
         for (int i = 0; i < 5; i++) {
-            inLanes[i].setTurnTarget(ix, Vehicle.TurnDecision.RIGHT, outLanes[rightExit(i)]);
+            inLanes[i].setTurnTarget(ix, Vehicle.TurnDecision.RIGHT, null);
             inLanes[i].setTurnTarget(ix, Vehicle.TurnDecision.STRAIGHT, outLanes[straightExit(i)]);
-            inLanes[i].setTurnTarget(ix, Vehicle.TurnDecision.LEFT, outLanes[leftExit(i)]);
+            inLanes[i].setTurnTarget(ix, Vehicle.TurnDecision.LEFT, null);
         }
     }
 
-    private int rightExit(int i) { return Math.floorMod(i + 4, 5); }
     private int straightExit(int i) { return Math.floorMod(i + 2, 5); }
-    private int leftExit(int i) { return Math.floorMod(i + 1, 5); }
 
     @Override public String getName() { return "Ngã Năm"; }
     @Override public List<Lane> getLanes() { return lanes; }

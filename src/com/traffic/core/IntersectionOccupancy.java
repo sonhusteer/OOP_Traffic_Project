@@ -13,7 +13,6 @@ public class IntersectionOccupancy {
 
     private static final double CENTER_CONFLICT_RADIUS = 58.0;
     private static final double PRIORITY_HORIZON = 230.0;
-    private static final double FIVE_WAY_PRIORITY_HORIZON = 122.0;
     private static final double ENTRY_FRONT_GAP = 72.0;
     private static final double ENTRY_REAR_GAP = 42.0;
 
@@ -114,10 +113,7 @@ public class IntersectionOccupancy {
         Lane lane = priority.getLane();
         double conflict = lane.getProgressOf(intersection.getCenter());
         double distanceToConflict = conflict - priority.getFrontProgress();
-        double horizon = intersection.getType() == Intersection.Type.FIVE_WAY
-                ? FIVE_WAY_PRIORITY_HORIZON
-                : PRIORITY_HORIZON;
-        boolean approaching = distanceToConflict <= horizon;
+        boolean approaching = distanceToConflict <= PRIORITY_HORIZON;
         boolean notCleared = priority.getRearProgress() <= conflict + CENTER_CONFLICT_RADIUS + 32.0;
         return approaching && notCleared;
     }

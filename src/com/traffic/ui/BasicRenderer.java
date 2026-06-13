@@ -243,7 +243,6 @@ public class BasicRenderer extends AbstractBaseRenderer {
     private void drawVehicles(GraphicsContext gc) {
         for (Vehicle v : vehicles) {
             if (v == null || v.getPosition() == null) continue;
-            if (v.isPriority()) drawBlink(gc, v);
             drawVehicle(gc, v);
         }
     }
@@ -287,6 +286,9 @@ public class BasicRenderer extends AbstractBaseRenderer {
         gc.fillOval(w/2 - 6,  h/2 - 1, 5, 4);
         gc.fillOval(-w/2 + 1, -h/2 - 3, 5, 4);
         gc.fillOval(-w/2 + 1,  h/2 - 1, 5, 4);
+
+        // Turn signals + emergency strobes are drawn on top of both normal and priority vehicles.
+        drawVehicleLightEffects(gc, v, w, h);
 
         gc.restore();
         drawTurnIntentBadge(gc, v, vx, vy, w, h);
@@ -377,20 +379,6 @@ public class BasicRenderer extends AbstractBaseRenderer {
         gc.setFill(fg);
         gc.setFont(Font.font("SansSerif", FontWeight.BOLD, 13));
         gc.fillText(turn, bx + 6.0, by + 14.5);
-        gc.restore();
-    }
-
-    private void drawBlink(GraphicsContext gc, Vehicle v) {
-        long t = System.currentTimeMillis() + v.hashCode();
-        boolean on = (t % 500) < 250;
-        Color c = on ? Color.rgb(255, 0, 0, 0.35) : Color.rgb(0, 100, 255, 0.35);
-        double w = v.getWidth(), h = v.getHeight();
-
-        gc.save();
-        gc.translate(v.getPosition().getX(), v.getPosition().getY());
-        gc.rotate(v.getAngle());
-        gc.setFill(c);
-        gc.fillOval(-w/2 - 6, -h/2 - 6, w + 12, h + 12);
         gc.restore();
     }
 

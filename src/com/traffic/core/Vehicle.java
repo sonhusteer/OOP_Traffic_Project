@@ -135,6 +135,10 @@ public abstract class Vehicle {
     protected double priorityYieldOriginalPreferredOffset = Double.NaN;
     protected double priorityYieldBlockedSeconds = 0.0;
 
+    // Short horn cue used by the UI when a vehicle starts/continues a pass.
+    // Kept in Vehicle so both render modes and future UIs share the same cooldown.
+    protected double passingHornCooldownSeconds = 0.0;
+
     public Vehicle(double x, double y, double speed, IDriver driver) {
         this.position = new Vector2D(x, y);
         this.speed = speed;
@@ -195,6 +199,9 @@ public abstract class Vehicle {
     public final void update(double deltaTime) {
         if (laneChangeCooldown > 0) laneChangeCooldown = Math.max(0.0, laneChangeCooldown - deltaTime);
         if (maneuverCooldown > 0) maneuverCooldown = Math.max(0.0, maneuverCooldown - deltaTime);
+        if (passingHornCooldownSeconds > 0.0) {
+            passingHornCooldownSeconds = Math.max(0.0, passingHornCooldownSeconds - deltaTime);
+        }
         if (priorityYieldLockSeconds > 0.0) {
             priorityYieldLockSeconds = Math.max(0.0, priorityYieldLockSeconds - deltaTime);
             if (priorityYieldLockSeconds == 0.0) {
@@ -489,6 +496,34 @@ public abstract class Vehicle {
     }
 
     public boolean isOvertakingInLane() { return isOvertaking(); }
+
+    public boolean isRequestingPassHorn() {
+        // Xe ưu tiên đã có còi hụ riêng; horn.wav chỉ là còi xin vượt
+        // cho xe thường khi vượt và quay lại slot cũ.
+        if (isPriority) {
+            return false;
+        }
+        // Keep the horn active for the whole pass: move out, pass, and return
+        // to the preferred/original lateral slot. It stops naturally once the
+        // state machine leaves OVERTAKE_RETURNING.
+        return isOvertaking() && !isCommittedToIntersection();
+    }
+
+    public boolean consumePassHornRequest() {
+        if (!isRequestingPassHorn()) {
+            return false;
+        }
+        if (passingHornCooldownSeconds > 0.0) {
+            return false;
+        }
+        // Compatibility for older one-shot horn callers. The JavaFX UI now loops
+        // horn.wav while isRequestingPassHorn() is true, so this cooldown is only
+        // used by legacy callers.
+        passingHornCooldownSeconds = isPriority ? 0.95 : 1.45;
+        return true;
+    }
+
+    public double getPassingHornCooldownSeconds() { return passingHornCooldownSeconds; }
 
     public void returnToPreferredSlot() {
         setTargetLateralOffset(preferredLateralOffset);

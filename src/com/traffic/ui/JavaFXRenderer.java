@@ -573,20 +573,6 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
         double py = v.getPosition().getY();
         DebugVisualState debugState = VehicleDebugClassifier.classify(v);
 
-        // Đèn nhấp nháy đỏ/xanh cho xe ưu tiên (vẽ ngoài transform)
-        if (v.isPriority()) {
-            long t = System.currentTimeMillis() / 250;
-            Color blinkColor = (t % 2 == 0)
-                ? Color.rgb(255, 20, 20, 220.0 / 255)
-                : Color.rgb(20, 100, 255, 220.0 / 255);
-            gc.save();
-            gc.translate(px, py);
-            gc.rotate(v.getAngle());
-            gc.setFill(blinkColor);
-            gc.fillRoundRect(-w / 2, -h / 2 - 4, w, 4, 2, 2);
-            gc.restore();
-        }
-
         gc.save();
         gc.translate(px, py);
         gc.rotate(v.getAngle());   // Removed +90 offset because the new images point East (Right)
@@ -685,6 +671,9 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
             gc.setFill(Color.rgb(255, 255, 200, 180.0 / 255));
             gc.fillRect(w / 2 - 3, -h / 2, 3, h);
         }
+
+        // Overlay visual signals on top of sprites/fallback body.
+        drawVehicleLightEffects(gc, v, w, h);
 
         gc.restore();
         drawTurnIntentBadge(gc, v, px, py, w, h);

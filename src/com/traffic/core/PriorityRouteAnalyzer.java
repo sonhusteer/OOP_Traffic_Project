@@ -15,7 +15,6 @@ public final class PriorityRouteAnalyzer {
     private static final double SAME_LANE_HORIZON = 235.0;
     private static final double INTERSECTION_HORIZON = 210.0;
     private static final double ETA_WINDOW_SECONDS = 1.85;
-    private static final double FIVE_WAY_RIGHT_ETA_WINDOW_SECONDS = 0.95;
     private static final double MIN_SPEED_FOR_ETA = 22.0;
 
     private static PriorityRouteAnalyzer current = empty();
@@ -142,11 +141,7 @@ public final class PriorityRouteAnalyzer {
         if (Double.isInfinite(pEta) || Double.isInfinite(nEta)) {
             return PriorityRouteContext.unrelated(priority, normal);
         }
-        double etaWindow = ix.getType() == Intersection.Type.FIVE_WAY
-                && normal.getTurnDecision() == Vehicle.TurnDecision.RIGHT
-                ? FIVE_WAY_RIGHT_ETA_WINDOW_SECONDS
-                : ETA_WINDOW_SECONDS;
-        if (Math.abs(pEta - nEta) > etaWindow && !normal.isCommittedToIntersection()) {
+        if (Math.abs(pEta - nEta) > ETA_WINDOW_SECONDS && !normal.isCommittedToIntersection()) {
             return PriorityRouteContext.unrelated(priority, normal);
         }
 
@@ -229,12 +224,6 @@ public final class PriorityRouteAnalyzer {
         if (priority == null || normal == null || ix == null) return PriorityRouteRelation.UNRELATED;
         if (pTarget != null && nTarget != null && pTarget == nTarget) {
             return PriorityRouteRelation.SHARED_EXIT_CONFLICT;
-        }
-
-        if (ix.getType() == Intersection.Type.FIVE_WAY
-                && normal.getTurnDecision() == Vehicle.TurnDecision.RIGHT
-                && pTarget != nTarget) {
-            return PriorityRouteRelation.UNRELATED;
         }
 
         Lane pLane = priority.getLane();

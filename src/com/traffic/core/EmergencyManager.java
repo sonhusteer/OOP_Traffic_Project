@@ -16,8 +16,6 @@ public class EmergencyManager {
     private static final double COMFORTABLE_BRAKE = 120.0;
     private static final double STOP_BUFFER = 10.0;
     private static final double PRIORITY_YIELD_LOCK_SECONDS = 1.15;
-    private static final double FIVE_WAY_PRIORITY_LOOKAHEAD = 122.0;
-    private static final double FIVE_WAY_PRIORITY_RIGHT_MARGIN_SECONDS = 0.45;
 
     public void update(List<Vehicle> vehicles, List<Intersection> intersections) {
         update(vehicles, intersections, PriorityRouteAnalyzer.analyze(vehicles, intersections));
@@ -194,9 +192,6 @@ public class EmergencyManager {
                     continue;
                 }
 
-                if (shouldLetRoundaboutRightSlipClear(priority, normal, intersection, ctx)) {
-                    continue;
-                }
                 Vehicle.YieldMode mode = decideIntersectionMode(normal, intersection);
                 applyHigherPriorityMode(normal, mode);
             }
@@ -206,35 +201,9 @@ public class EmergencyManager {
     private boolean isPriorityRelevantForIntersection(Vehicle priority, Intersection intersection) {
         double conflictProgress = priority.getLane().getProgressOf(intersection.getCenter());
         double distanceToConflict = conflictProgress - priority.getFrontProgress();
-        double lookAhead = intersection != null && intersection.getType() == Intersection.Type.FIVE_WAY
-                ? FIVE_WAY_PRIORITY_LOOKAHEAD
-                : EMERGENCY_LOOKAHEAD;
-        boolean approachingOrInside = distanceToConflict <= lookAhead;
+        boolean approachingOrInside = distanceToConflict <= EMERGENCY_LOOKAHEAD;
         boolean notCleared = priority.getRearProgress() <= conflictProgress + CONFLICT_RADIUS + CLEAR_MARGIN;
         return approachingOrInside && notCleared;
-    }
-
-    private boolean shouldLetRoundaboutRightSlipClear(Vehicle priority,
-                                                      Vehicle normal,
-                                                      Intersection intersection,
-                                                      PriorityRouteContext ctx) {
-        if (priority == null || normal == null || intersection == null) return false;
-        if (intersection.getType() != Intersection.Type.FIVE_WAY) return false;
-        if (normal.getTurnDecision() != Vehicle.TurnDecision.RIGHT) return false;
-        if (normal.isCommittedToIntersection()) return false;
-
-        double priorityEta = ctx != null ? ctx.getPriorityEta() : priority.estimateETAToIntersection(intersection);
-        if (Double.isInfinite(priorityEta)) {
-            priorityEta = priority.estimateETAToIntersection(intersection);
-        }
-        double normalEta = ctx != null ? ctx.getNormalEta() : normal.estimateETAToIntersection(intersection);
-        if (Double.isInfinite(normalEta)) {
-            normalEta = normal.estimateETAToIntersection(intersection);
-        }
-        // Right turns clear the five-way roundabout quickly. Do not stop them for
-        // a priority vehicle that is still far enough away; letting the short slip
-        // finish usually clears the approach faster than creating a yield queue.
-        return priorityEta > normalEta + FIVE_WAY_PRIORITY_RIGHT_MARGIN_SECONDS;
     }
 
     private Vehicle.YieldMode decideIntersectionMode(Vehicle normal, Intersection intersection) {
