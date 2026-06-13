@@ -141,9 +141,11 @@ public class MainApp extends Application {
                     }
 
                     updatePassingHornAudio();
+                    updateRedLightEngineAudio();
                 } else {
-                    // A looping horn should not keep playing while the simulation is paused.
+                    // Looping sounds should not keep playing while the simulation is paused.
                     SoundManager.getInstance().stop("horn.wav");
+                    SoundManager.getInstance().stop("engine.wav");
                 }
 
                 // Draw
@@ -178,6 +180,58 @@ public class MainApp extends Application {
         } else {
             SoundManager.getInstance().stop("horn.wav");
         }
+    }
+
+
+    private void updateRedLightEngineAudio() {
+        if (engine == null || engine.getVehicles() == null) {
+            SoundManager.getInstance().stop("engine.wav");
+            return;
+        }
+
+        boolean anyIdlingAtRed = false;
+        for (Vehicle v : engine.getVehicles()) {
+            if (isEngineVehicleStoppedAtRed(v)) {
+                anyIdlingAtRed = true;
+                break;
+            }
+        }
+
+        if (anyIdlingAtRed) {
+            SoundManager.getInstance().loop("engine.wav");
+        } else {
+            SoundManager.getInstance().stop("engine.wav");
+        }
+    }
+
+    private boolean isEngineVehicleStoppedAtRed(Vehicle vehicle) {
+        if (vehicle == null || vehicle.getLane() == null) return false;
+        if (vehicle.getSpeed() > 1.5) return false;
+
+        String type = vehicle.getTypeName();
+        if ("bicycle".equalsIgnoreCase(type)) return false;
+
+        Lane logicalLane = vehicle.getOriginalLane() != null ? vehicle.getOriginalLane() : vehicle.getLane();
+        if (logicalLane == null) return false;
+
+        double frontProgress;
+        if (vehicle.getLane() == logicalLane) {
+            frontProgress = vehicle.getFrontProgress();
+        } else {
+            frontProgress = logicalLane.getProgressOf(vehicle.getPosition())
+                    + vehicle.getLongitudinalLength() / 2.0;
+        }
+
+        for (LaneControlPoint control : logicalLane.getControlPoints()) {
+            if (control == null || control.getLight() == null || !control.getLight().isRed()) {
+                continue;
+            }
+            double distanceToStop = control.getProgress() - frontProgress;
+            if (distanceToStop >= -12.0 && distanceToStop <= 72.0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ── Sidebar ──────────────────────────────────────────────────────────
@@ -293,6 +347,7 @@ public class MainApp extends Application {
         btnClear.setOnAction(e -> {
             engine.clearVehicles();
             vehicleSpawner.clearState();
+            SoundManager.getInstance().stopAll();
             appendSpawnLog("[!] Đã xóa tất cả xe\n");
         });
 
@@ -439,6 +494,7 @@ public class MainApp extends Application {
         engine.getLights().clear();
         engine.getIntersections().clear();
         vehicleSpawner.clearState();
+        SoundManager.getInstance().stopAll();
 
         currentMap = newMap;
         registerMap(engine, newMap);

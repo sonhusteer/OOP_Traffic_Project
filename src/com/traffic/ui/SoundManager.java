@@ -1,28 +1,28 @@
 package com.traffic.ui;
 
 import javax.sound.sampled.*;
-import java.io.InputStream;
+import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStream;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
- * Quản lý âm thanh — Singleton, dùng chung toàn project.
+ * Central sound manager for the simulation.
  *
- * Hỗ trợ: play, loop, stop từng file.
- * Cache clip đã load để không đọc file lại mỗi lần.
- *
- * Cách dùng:
- *   SoundManager.getInstance().play("siren.wav");
- *   SoundManager.getInstance().loop("engine.wav");
- *   SoundManager.getInstance().stop("siren.wav");
- *
- * Đặt file .wav vào: src/main/resources/sounds/
+ * Important: Java Clip often cannot open 24-bit PCM WAV files directly.
+ * The bundled horn/engine/siren assets may be 24-bit, so every real WAV is
+ * decoded and converted to 16-bit PCM before opening the Clip.
  */
 public class SoundManager {
 
     private static SoundManager instance;
     private final Map<String, Clip> cache = new HashMap<>();
+    private final Set<String> failedLoads = new HashSet<>();
     private boolean muted = false;
 
     private SoundManager() {}
@@ -32,9 +32,6 @@ public class SoundManager {
         return instance;
     }
 
-    // ── Phát âm thanh ────────────────────────────────────────────────────
-
-    /** Phát 1 lần */
     public void play(String filename) {
         if (muted) return;
         Clip clip = getClip(filename);
@@ -43,30 +40,28 @@ public class SoundManager {
         clip.start();
     }
 
-    /** Phát lặp liên tục (VD: còi xe chạy) */
     public void loop(String filename) {
         if (muted) return;
         Clip clip = getClip(filename);
         if (clip == null) return;
-        if (clip.isRunning()) return; // đang loop rồi, không cần start lại
+        if (clip.isRunning()) return;
         clip.setFramePosition(0);
         clip.loop(Clip.LOOP_CONTINUOUSLY);
     }
 
-    /** Dừng âm thanh */
     public void stop(String filename) {
         Clip clip = cache.get(filename);
-        if (clip != null && clip.isRunning()) clip.stop();
+        if (clip != null && clip.isRunning()) {
+            clip.stop();
+        }
     }
 
-    /** Dừng tất cả âm thanh */
     public void stopAll() {
         cache.values().forEach(clip -> {
             if (clip.isRunning()) clip.stop();
         });
     }
 
-    /** Tắt/bật âm thanh toàn bộ */
     public void setMuted(boolean muted) {
         this.muted = muted;
         if (muted) stopAll();
@@ -74,56 +69,95 @@ public class SoundManager {
 
     public boolean isMuted() { return muted; }
 
-    // ── Load và cache clip ────────────────────────────────────────────────
-
     private Clip getClip(String filename) {
-        // Đã cache thì dùng lại
+        if (filename == null || filename.isBlank()) return null;
         if (cache.containsKey(filename)) return cache.get(filename);
+        if (failedLoads.contains(filename)) return null;
 
         try {
-            InputStream is = openAudioResource(filename);
             Clip clip;
+            InputStream is = openAudioResource(filename);
             if (is == null) {
                 clip = createSyntheticClip(filename);
                 if (clip == null) {
-                    System.out.println("[Sound] Không tìm thấy: " + filename);
+                    System.out.println("[Sound] Missing: " + filename);
+                    failedLoads.add(filename);
                     return null;
                 }
             } else {
-                AudioInputStream audio = AudioSystem.getAudioInputStream(
-                        new java.io.BufferedInputStream(is));
-                clip = AudioSystem.getClip();
-                clip.open(audio);
+                clip = openConvertedClip(is);
             }
             cache.put(filename, clip);
             return clip;
         } catch (Exception e) {
-            System.out.println("[Sound] Lỗi load: " + filename + " — " + e.getMessage());
+            System.out.println("[Sound] Load failed: " + filename + " - " + e.getMessage());
+            failedLoads.add(filename);
             return null;
         }
     }
 
+    private Clip openConvertedClip(InputStream rawStream) throws Exception {
+        try (BufferedInputStream buffered = new BufferedInputStream(rawStream);
+             AudioInputStream decoded = AudioSystem.getAudioInputStream(buffered)) {
+            AudioFormat source = decoded.getFormat();
+            AudioFormat target = toClipFriendlyFormat(source);
+            try (AudioInputStream converted = AudioSystem.getAudioInputStream(target, decoded)) {
+                Clip clip = AudioSystem.getClip();
+                clip.open(converted);
+                return clip;
+            }
+        }
+    }
+
+    private AudioFormat toClipFriendlyFormat(AudioFormat source) {
+        int channels = Math.max(1, source.getChannels());
+        float sampleRate = source.getSampleRate() > 0 ? source.getSampleRate() : 44100f;
+        return new AudioFormat(
+                AudioFormat.Encoding.PCM_SIGNED,
+                sampleRate,
+                16,
+                channels,
+                channels * 2,
+                sampleRate,
+                false
+        );
+    }
+
     private InputStream openAudioResource(String filename) {
-        if (filename == null || filename.isBlank()) return null;
         String normalized = filename.startsWith("/") ? filename.substring(1) : filename;
-        String[] candidates = {
+        String[] resourceCandidates = {
                 "/sounds/" + normalized,
                 "/assets/" + normalized,
                 "/audio/" + normalized,
                 "/" + normalized
         };
-        for (String path : candidates) {
+        for (String path : resourceCandidates) {
             InputStream is = getClass().getResourceAsStream(path);
             if (is != null) return is;
+        }
+
+        String[] fileCandidates = {
+                "sounds/" + normalized,
+                "assets/" + normalized,
+                "audio/" + normalized,
+                "src/sounds/" + normalized,
+                "src/assets/" + normalized,
+                "src/audio/" + normalized,
+                "src/main/resources/sounds/" + normalized,
+                "src/main/resources/assets/" + normalized,
+                normalized
+        };
+        for (String path : fileCandidates) {
+            try {
+                File f = new File(path);
+                if (f.isFile()) {
+                    return new FileInputStream(f);
+                }
+            } catch (Exception ignored) {}
         }
         return null;
     }
 
-
-    /**
-     * Small built-in fallback sounds. This keeps the simulation audible even when
-     * the IDE does not copy /sounds/*.wav into the runtime classpath.
-     */
     private Clip createSyntheticClip(String filename) {
         try {
             String f = filename == null ? "" : filename.toLowerCase();
@@ -133,11 +167,37 @@ public class SoundManager {
             if (f.contains("siren")) {
                 return createToneClip(1.2, 620.0, 0.55, true);
             }
+            if (f.contains("engine")) {
+                return createEngineIdleClip();
+            }
             return null;
         } catch (Exception e) {
-            System.out.println("[Sound] Lỗi tạo âm thanh nội bộ: " + filename + " — " + e.getMessage());
+            System.out.println("[Sound] Synthetic sound failed: " + filename + " - " + e.getMessage());
             return null;
         }
+    }
+
+    private Clip createEngineIdleClip() throws Exception {
+        float sampleRate = 22050f;
+        double seconds = 1.0;
+        int frames = Math.max(1, (int) (seconds * sampleRate));
+        byte[] data = new byte[frames * 2];
+        for (int i = 0; i < frames; i++) {
+            double t = i / sampleRate;
+            double rumble = 0.55 * Math.sin(2.0 * Math.PI * 82.0 * t)
+                    + 0.25 * Math.sin(2.0 * Math.PI * 123.0 * t)
+                    + 0.12 * Math.sin(2.0 * Math.PI * 41.0 * t);
+            double pulse = 0.72 + 0.28 * Math.sin(2.0 * Math.PI * 7.0 * t);
+            short pcm = (short) Math.max(Short.MIN_VALUE,
+                    Math.min(Short.MAX_VALUE, rumble * pulse * 0.32 * 32767.0));
+            data[i * 2] = (byte) (pcm & 0xff);
+            data[i * 2 + 1] = (byte) ((pcm >> 8) & 0xff);
+        }
+        AudioFormat format = new AudioFormat(sampleRate, 16, 1, true, false);
+        AudioInputStream audio = new AudioInputStream(new ByteArrayInputStream(data), format, frames);
+        Clip clip = AudioSystem.getClip();
+        clip.open(audio);
+        return clip;
     }
 
     private Clip createToneClip(double seconds, double baseFrequency, double volume, boolean sweep) throws Exception {
