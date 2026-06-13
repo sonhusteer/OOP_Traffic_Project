@@ -723,10 +723,4 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
             gc.fillRoundRect(px + 26, ry + 11, Math.max(barW, 2), 3, 2, 2);
         }
     }
-    private boolean isUrgentYield(Vehicle v) {
-        return v != null && (v.getYieldMode() == Vehicle.YieldMode.URGENT_CLEAR_PATH
-                || v.getYieldMode() == Vehicle.YieldMode.CLEAR_PATH
-                || v.getManeuverState() == Vehicle.ManeuverState.URGENT_CLEARING);
-    }
-
 }

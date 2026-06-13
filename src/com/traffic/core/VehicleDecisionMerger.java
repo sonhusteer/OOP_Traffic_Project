@@ -16,12 +16,14 @@ import java.util.List;
  * lateral/turn/priority conflicts are resolved in one place.
  */
 public final class VehicleDecisionMerger {
-    private static final double CLEARING_MIN_SPEED = 15.0;
-    private static final double CLEARING_SPEED_CAP = 46.0;
-    private static final double PRIORITY_CLEARING_SPEED_CAP = 58.0;
-    private static final double ACTIVE_TURN_MIN_SPEED = 18.0;
-    private static final double ACTIVE_TURN_SPEED_CAP = 62.0;
-    private static final double PRIORITY_ACTIVE_TURN_SPEED_CAP = 72.0;
+    private static final double CLEARING_MIN_SPEED = 26.0;
+    private static final double CLEARING_SPEED_CAP = 64.0;
+    private static final double PRIORITY_CLEARING_SPEED_CAP = 88.0;
+    private static final double CLEARING_CAUTION_CAP = 48.0;
+    private static final double PRIORITY_CLEARING_CAUTION_CAP = 64.0;
+    private static final double ACTIVE_TURN_MIN_SPEED = 32.0;
+    private static final double ACTIVE_TURN_SPEED_CAP = 70.0;
+    private static final double PRIORITY_ACTIVE_TURN_SPEED_CAP = 88.0;
     private static final double PRIORITY_QUEUE_FOLLOW_FACTOR = 0.86;
     private static final double PRIORITY_QUEUE_FOLLOW_DISTANCE = 82.0;
     private static final double PRIORITY_QUEUE_FOLLOW_EXIT_DISTANCE = 96.0;
@@ -61,7 +63,7 @@ public final class VehicleDecisionMerger {
         }
 
         if (vehicle.isCommittedToIntersection()) {
-            return mergeCommittedClear(vehicle, decision);
+            return mergeCommittedClear(vehicle, decision, vehicles, intersections);
         }
 
         applyPriorityRoutePolicy(vehicle, decision, routes);
@@ -71,10 +73,18 @@ public final class VehicleDecisionMerger {
         return decision;
     }
 
-    private static VehicleDecision mergeCommittedClear(Vehicle vehicle, VehicleDecision decision) {
+    private static VehicleDecision mergeCommittedClear(Vehicle vehicle,
+                                                       VehicleDecision decision,
+                                                       List<Vehicle> vehicles,
+                                                       List<Intersection> intersections) {
         double cap = vehicle != null && vehicle.isPriority()
                 ? PRIORITY_CLEARING_SPEED_CAP
                 : CLEARING_SPEED_CAP;
+        if (hasCommittedConflictNearby(vehicle, vehicles, intersections)) {
+            cap = vehicle != null && vehicle.isPriority()
+                    ? PRIORITY_CLEARING_CAUTION_CAP
+                    : CLEARING_CAUTION_CAP;
+        }
         return decision.cancelOvertake()
                 .yieldMode(Vehicle.YieldMode.CLEAR_CONFLICT)
                 .maneuverState(Vehicle.ManeuverState.CLEARING_CONFLICT)
@@ -88,6 +98,36 @@ public final class VehicleDecisionMerger {
         double lo = Math.max(0.0, minSpeed);
         double hi = Math.max(lo, maxSpeed);
         return Math.min(hi, Math.max(lo, current));
+    }
+
+    private static boolean hasCommittedConflictNearby(Vehicle vehicle,
+                                                      List<Vehicle> vehicles,
+                                                      List<Intersection> intersections) {
+        if (vehicle == null || vehicle.getLane() == null || vehicles == null || intersections == null) {
+            return false;
+        }
+        Intersection ix = nearestRelevantIntersection(vehicle, intersections);
+        if (ix == null && vehicle.getCurrentIntersection() != null) {
+            ix = vehicle.getCurrentIntersection();
+        }
+        if (ix == null) return false;
+
+        double selfDistance = MathUtils.distance(vehicle.getPosition(), ix.getCenter());
+        for (Vehicle other : vehicles) {
+            if (other == null || other == vehicle || !other.isCommittedToIntersection()) continue;
+            if (other.getLane() == null || !ix.getLanes().contains(other.getLane())) continue;
+            if (other.getCurrentIntersection() != null
+                    && other.getCurrentIntersection() != ix
+                    && other.getActiveTurn() == null) {
+                continue;
+            }
+            double otherDistance = MathUtils.distance(other.getPosition(), ix.getCenter());
+            if (otherDistance <= CENTER_CONFLICT_RADIUS + 34.0
+                    && selfDistance <= CENTER_CONFLICT_RADIUS + 56.0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void applyPriorityRoutePolicy(Vehicle vehicle,

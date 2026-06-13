@@ -245,15 +245,15 @@ public abstract class Vehicle {
     }
 
     private double minCommittedTurnSpeed() {
-        if (isPriority) return 44.0;
-        return 32.0;
+        if (isPriority) return 52.0;
+        return 38.0;
     }
 
     private double maxCommittedTurnSpeed() {
         String type = getTypeName();
-        if ("firetruck".equals(type)) return 58.0;
-        if ("ambulance".equals(type)) return 66.0;
-        return 60.0;
+        if ("firetruck".equals(type)) return 74.0;
+        if ("ambulance".equals(type)) return 88.0;
+        return 72.0;
     }
 
     private double maxHeadingTurnRate() {
@@ -728,15 +728,24 @@ public abstract class Vehicle {
         if (isPriority || isCommittedToIntersection()) {
             return;
         }
-        if (!hasActivePriorityYieldLock() || Double.isNaN(priorityYieldOriginalPreferredOffset)) {
+
+        double newTargetOffset = clampLateralForLane(targetOffset);
+        boolean newLock = !hasActivePriorityYieldLock()
+                || Double.isNaN(priorityYieldOriginalPreferredOffset);
+        boolean sourceChanged = priorityYieldSource != prioritySource;
+        boolean targetChanged = Double.isNaN(priorityYieldTargetOffset)
+                || Math.abs(priorityYieldTargetOffset - newTargetOffset) > 4.0;
+
+        if (newLock) {
             priorityYieldOriginalPreferredOffset = preferredLateralOffset;
-            priorityYieldBlockedSeconds = 0.0;
-        } else if (priorityYieldSource != prioritySource) {
+        }
+        if (newLock || sourceChanged || targetChanged) {
             priorityYieldBlockedSeconds = 0.0;
         }
+
         priorityYieldSource = prioritySource;
         priorityYieldLockSeconds = Math.max(priorityYieldLockSeconds, Math.max(0.0, seconds));
-        priorityYieldTargetOffset = clampLateralForLane(targetOffset);
+        priorityYieldTargetOffset = newTargetOffset;
     }
 
     public boolean hasActivePriorityYieldLock() {

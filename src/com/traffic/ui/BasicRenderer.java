@@ -412,10 +412,4 @@ public class BasicRenderer extends AbstractBaseRenderer {
         gc.setFont(Font.font("SansSerif", 11));
         gc.fillText(vehicles.size() + " vehicles", 22, 48);
     }
-    private boolean isUrgentYield(Vehicle v) {
-        return v != null && (v.getYieldMode() == Vehicle.YieldMode.URGENT_CLEAR_PATH
-                || v.getYieldMode() == Vehicle.YieldMode.CLEAR_PATH
-                || v.getManeuverState() == Vehicle.ManeuverState.URGENT_CLEARING);
-    }
-
 }

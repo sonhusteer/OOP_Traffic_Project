@@ -27,7 +27,6 @@ public class FiveWayMap implements MapConfig {
 
         double CX = 400;
         double CY = 300;
-        double R = 85.0; // Roundabout radius
         double stopDist = 115.0; // Đẩy ra xa (115) để các vạch dừng không đè lên nhau
         double lightDist = 125.0; // Đèn giao thông đặt ngoài vạch dừng
         double L = 500.0; // Distance to lane start/end

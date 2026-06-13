@@ -12,17 +12,16 @@ import java.util.List;
 public class IntersectionOccupancy {
 
     private static final double CENTER_CONFLICT_RADIUS = 58.0;
-    private static final double APPROACH_HORIZON = 170.0;
     private static final double PRIORITY_HORIZON = 230.0;
     private static final double ENTRY_FRONT_GAP = 72.0;
     private static final double ENTRY_REAR_GAP = 42.0;
 
     public boolean canEnterIntersection(Vehicle vehicle,
-                                        Intersection intersection,
-                                        Lane targetLane,
-                                        double targetProgress,
-                                        double targetOffset,
-                                        List<Vehicle> vehicles) {
+            Intersection intersection,
+            Lane targetLane,
+            double targetProgress,
+            double targetOffset,
+            List<Vehicle> vehicles) {
         if (vehicle == null || intersection == null || vehicles == null) {
             return false;
         }
@@ -68,7 +67,7 @@ public class IntersectionOccupancy {
     }
 
     public boolean hasPriorityVehicleApproaching(Intersection intersection,
-                                                 List<Vehicle> vehicles) {
+            List<Vehicle> vehicles) {
         if (intersection == null || vehicles == null) {
             return false;
         }
@@ -82,8 +81,8 @@ public class IntersectionOccupancy {
     }
 
     public boolean isVehicleInIntersection(Vehicle vehicle,
-                                           Intersection intersection,
-                                           double radius) {
+            Intersection intersection,
+            double radius) {
         if (vehicle == null || intersection == null) {
             return false;
         }
@@ -102,7 +101,7 @@ public class IntersectionOccupancy {
     }
 
     public boolean priorityVehicleControlsIntersection(Vehicle priority,
-                                                       Intersection intersection) {
+            Intersection intersection) {
         if (priority == null || !priority.isPriority() || priority.getLane() == null
                 || intersection == null || !intersection.getLanes().contains(priority.getLane())) {
             return false;
@@ -120,4 +119,3 @@ public class IntersectionOccupancy {
     }
 
 
-}

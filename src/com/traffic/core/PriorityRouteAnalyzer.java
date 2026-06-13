@@ -3,7 +3,6 @@ package com.traffic.core;
 import com.traffic.map.Intersection;
 import com.traffic.map.Lane;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
