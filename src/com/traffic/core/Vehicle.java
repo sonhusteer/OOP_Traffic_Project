@@ -54,6 +54,12 @@ public abstract class Vehicle {
          */
         PREPARING_TURN_SLOT,
         /**
+         * Turn-slot preparation has been temporarily paused because a priority
+         * yield owns the lateral offset this tick. The turn intent is kept and
+         * will resume when the priority-yield lock clears.
+         */
+        PREPARING_TURN_SLOT_PAUSED,
+        /**
          * The vehicle is actually blocked before the intersection: red light,
          * priority vehicle, full target lane, busy intersection, or it reached
          * the commit zone before it could align with the required turn slot.
@@ -607,6 +613,20 @@ public abstract class Vehicle {
                 || intersectionManeuverState == IntersectionManeuverState.TURNING_RIGHT
                 || intersectionManeuverState == IntersectionManeuverState.EXITING
                 || intersectionManeuverState == IntersectionManeuverState.CLEARING_FOR_PRIORITY;
+    }
+
+    public boolean hasPassedIntersection(Intersection intersection) {
+        if (intersection == null || lane == null) return false;
+        double conflict = lane.getProgressOf(intersection.getCenter());
+        return getRearProgress() > conflict + 70.0;
+    }
+
+    public double estimateETAToIntersection(Intersection intersection) {
+        if (intersection == null || lane == null) return Double.POSITIVE_INFINITY;
+        double distance = lane.getProgressOf(intersection.getCenter()) - getFrontProgress();
+        if (distance < -45.0) return Double.POSITIVE_INFINITY;
+        if (distance <= 0.0) return 0.0;
+        return distance / Math.max(22.0, speed);
     }
 
     public void returnPriorityToCenterIfIdle() {

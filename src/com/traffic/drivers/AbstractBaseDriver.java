@@ -131,7 +131,8 @@ public abstract class AbstractBaseDriver implements IDriver {
         }
 
         if (!vehicle.isCommittedToIntersection()
-                && vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT) {
+                && (vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
+                        || vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT_PAUSED)) {
             vehicle.cancelOvertake();
             vehicle.setManeuverState(Vehicle.ManeuverState.NORMAL);
             // Do not stop here. PREPARING_TURN_SLOT means the vehicle is gently
@@ -640,6 +641,7 @@ public abstract class AbstractBaseDriver implements IDriver {
         Vehicle.IntersectionManeuverState is = vehicle.getIntersectionManeuverState();
         return is == Vehicle.IntersectionManeuverState.APPROACHING
                 || is == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
+                || is == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT_PAUSED
                 || is == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION;
     }
 
@@ -762,6 +764,7 @@ public abstract class AbstractBaseDriver implements IDriver {
         if (vehicle.isOvertaking()) return false;
         if (vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.APPROACHING
                 || vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
+                || vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT_PAUSED
                 || vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) return false;
 
         // Gap-fill chi duoc kich hoat khi that su co xe/vat can phia truoc.
@@ -794,6 +797,7 @@ public abstract class AbstractBaseDriver implements IDriver {
         if (vehicle.getLane() == null || inFront == null) return false;
         if (vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.APPROACHING
                 || vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
+                || vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT_PAUSED
                 || vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) return false;
 
         // Xe thường không cố vượt xe ưu tiên. Xe ưu tiên vẫn phải có khả năng

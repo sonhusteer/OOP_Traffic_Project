@@ -32,6 +32,11 @@ public class TurnCoordinator {
     private static final double STRAIGHT_CONTINUATION_MIN = 92.0;
     private static final double TURN_SLOT_TOLERANCE = 5.0;
     private static final double TURN_SLOT_TARGET_TOLERANCE = 7.0;
+    private static final double PRIORITY_CONFLICT_SAFE_MARGIN_SECONDS = 0.65;
+    private static final double FORCED_CLEAR_COMMIT_DISTANCE = 12.0;
+    private static final double FORCED_ENTRY_FRONT_GAP = 34.0;
+    private static final double FORCED_ENTRY_REAR_GAP = 18.0;
+    private static final double FORCED_CLEAR_SPEED = 28.0;
 
     private final IntersectionOccupancy occupancy = new IntersectionOccupancy();
     private PriorityRouteAnalyzer priorityRoutes = PriorityRouteAnalyzer.empty();
@@ -99,6 +104,7 @@ public class TurnCoordinator {
         if (best == null) {
             if (vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.APPROACHING
                     || vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
+                    || vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT_PAUSED
                     || vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION
                     || vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.CROSSING_STRAIGHT) {
                 vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.NONE);
@@ -137,7 +143,8 @@ public class TurnCoordinator {
             }
         } else if (front >= conflict - TURN_PREPARE_DISTANCE) {
             if (vehicle.getIntersectionManeuverState() != Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION
-                    && vehicle.getIntersectionManeuverState() != Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT) {
+                    && vehicle.getIntersectionManeuverState() != Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
+                    && vehicle.getIntersectionManeuverState() != Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT_PAUSED) {
                 vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.APPROACHING);
             }
             vehicle.setCurrentIntersection(best);
@@ -181,6 +188,12 @@ public class TurnCoordinator {
         // rewrite its target back to the left-turn slot in the same tick.
         if (handlePriorityYieldBeforeTurn(vehicle, sourceLane, intersection, requested, distanceToConflict)) {
             return;
+        }
+
+        if (vehicle.getIntersectionManeuverState()
+                == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT_PAUSED) {
+            vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT);
+            vehicle.setTurnWaitReason(null);
         }
 
         // Stage 1: prepare the correct side slot while still rolling. This is
@@ -228,12 +241,21 @@ public class TurnCoordinator {
             return;
         }
 
-        if (!vehicle.isPriority()
-                && priorityRoutes.hasBlockingPriorityFor(vehicle, intersection)
+        PriorityRouteContext blockingPriority = vehicle.isPriority()
+                ? null
+                : priorityRoutes.blockingContextFor(vehicle, intersection);
+        if (blockingPriority != null
+                && priorityConflictStillRelevant(vehicle, intersection, blockingPriority)
                 && !vehicle.isCommittedToIntersection()) {
             vehicle.setYieldMode(Vehicle.YieldMode.STOP_BEFORE_CONFLICT);
             waitBeforeIntersection(vehicle, intersection, "PRIORITY_ROUTE_CONFLICT");
             return;
+        }
+        if (blockingPriority != null
+                && !priorityConflictStillRelevant(vehicle, intersection, blockingPriority)
+                && isPriorityConflictWait(vehicle)) {
+            vehicle.setYieldMode(Vehicle.YieldMode.NONE);
+            vehicle.setTurnWaitReason(null);
         }
 
         TurnCandidate candidate = chooseTurnCandidate(vehicle, vehicles, sourceLane, intersection, requested);
@@ -263,6 +285,11 @@ public class TurnCoordinator {
 
         double targetProgress = candidate.targetProgress();
         double targetOffset = candidate.targetOffset();
+
+        if (candidate.forcedClear()) {
+            vehicle.setSpeed(MathUtils.clamp(vehicle.getSpeed(), FORCED_CLEAR_SPEED, 42.0));
+            vehicle.setTurnWaitReason("FORCED_CLEAR_TARGET_FULL");
+        }
 
         TurnManeuver maneuver = buildCubicTurn(
                 vehicle,
@@ -552,8 +579,11 @@ public class TurnCoordinator {
             if (distanceToConflict <= WAITING_DISTANCE) {
                 waitBeforeIntersection(vehicle, intersection, "PRIORITY_WAIT_" + mode);
             } else if (vehicle.getIntersectionManeuverState()
-                    == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT) {
-                vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.APPROACHING);
+                    == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
+                    || vehicle.getIntersectionManeuverState()
+                    == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT_PAUSED) {
+                vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT_PAUSED);
+                vehicle.setCurrentIntersection(intersection);
                 vehicle.setTurnWaitReason("PRIORITY_SUSPEND_TURN");
             }
             return true;
@@ -567,13 +597,15 @@ public class TurnCoordinator {
         // may prepare the original L/R/S movement again.
         if (isSideYieldMode(mode)) {
             vehicle.cancelOvertake();
-            if (distanceToConflict <= WAITING_DISTANCE) {
+            Vehicle.IntersectionManeuverState state = vehicle.getIntersectionManeuverState();
+            if (state == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
+                    || state == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT_PAUSED) {
+                vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT_PAUSED);
+                vehicle.setCurrentIntersection(intersection);
+                vehicle.setTurnWaitReason("TURN_SLOT_PAUSED_FOR_PRIORITY_YIELD");
+            } else if (distanceToConflict <= WAITING_DISTANCE) {
                 waitBeforeIntersection(vehicle, intersection, "YIELD_PRIORITY_BEFORE_TURN");
-            } else if (vehicle.getIntersectionManeuverState()
-                    == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
-                    || vehicle.getIntersectionManeuverState()
-                    == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) {
-                vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.APPROACHING);
+            } else if (state == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) {
                 vehicle.setTurnWaitReason("YIELD_PRIORITY_BEFORE_TURN");
             } else {
                 vehicle.setTurnWaitReason("YIELD_PRIORITY_BEFORE_TURN");
@@ -599,6 +631,44 @@ public class TurnCoordinator {
                  CLEAR_PATH, URGENT_CLEAR_PATH -> true;
             default -> false;
         };
+    }
+
+
+    private boolean priorityConflictStillRelevant(Vehicle vehicle,
+                                                  Intersection intersection,
+                                                  PriorityRouteContext ctx) {
+        if (vehicle == null || intersection == null || ctx == null) return false;
+        Vehicle priority = ctx.getPriority();
+        if (priority == null || priority.hasPassedIntersection(intersection)) {
+            return false;
+        }
+        double priorityEta = ctx.getPriorityEta();
+        if (Double.isInfinite(priorityEta)) {
+            priorityEta = priority.estimateETAToIntersection(intersection);
+        }
+        double normalClearTime = estimateNormalClearTime(vehicle, intersection);
+        return priorityEta <= normalClearTime + PRIORITY_CONFLICT_SAFE_MARGIN_SECONDS;
+    }
+
+    private double estimateNormalClearTime(Vehicle vehicle, Intersection intersection) {
+        if (vehicle == null || vehicle.getLane() == null || intersection == null) {
+            return 0.9;
+        }
+        double conflict = vehicle.getLane().getProgressOf(intersection.getCenter());
+        double distanceToClear = Math.max(0.0, conflict + CONFLICT_RADIUS + 36.0 - vehicle.getFrontProgress());
+        double speed = Math.max(24.0, vehicle.getSpeed());
+        double base = distanceToClear / speed;
+        if (vehicle.getTurnDecision() == Vehicle.TurnDecision.LEFT
+                || vehicle.getTurnDecision() == Vehicle.TurnDecision.RIGHT) {
+            base += 0.65;
+        }
+        return MathUtils.clamp(base, 0.65, 3.0);
+    }
+
+    private boolean isPriorityConflictWait(Vehicle vehicle) {
+        if (vehicle == null) return false;
+        String reason = vehicle.getTurnWaitReason();
+        return reason != null && reason.contains("PRIORITY_ROUTE_CONFLICT");
     }
 
     private boolean canPassTrafficLight(Vehicle vehicle, Lane lane, double conflictProgress) {
@@ -647,7 +717,8 @@ public class TurnCoordinator {
     private record TurnCandidate(Vehicle.TurnDecision decision,
                                  Lane targetLane,
                                  double targetProgress,
-                                 double targetOffset) {}
+                                 double targetOffset,
+                                 boolean forcedClear) {}
 
     private TurnCandidate chooseTurnCandidate(Vehicle vehicle,
                                              List<Vehicle> vehicles,
@@ -663,7 +734,7 @@ public class TurnCoordinator {
             }
 
             if (targetLane == sourceLane && decision == Vehicle.TurnDecision.STRAIGHT) {
-                return new TurnCandidate(decision, targetLane, Double.NaN, Double.NaN);
+                return new TurnCandidate(decision, targetLane, Double.NaN, Double.NaN, false);
             }
 
             double targetConflict = targetLane.getProgressOf(intersection.getCenter());
@@ -671,18 +742,24 @@ public class TurnCoordinator {
                     MathUtils.distance(vehicle.getPosition(), intersection.getCenter()));
             double targetProgress = MathUtils.clamp(targetConflict + exitDistance, 0.0, targetLane.getLength());
             double targetOffset = chooseEntryOffset(vehicle, targetLane, targetProgress, decision);
+            boolean forcedClear = false;
+            if (Double.isNaN(targetOffset)) {
+                targetOffset = chooseForcedEntryOffsetForCommitted(vehicle, sourceLane, intersection,
+                        targetLane, targetProgress, decision);
+                forcedClear = !Double.isNaN(targetOffset);
+            }
             if (Double.isNaN(targetOffset)) {
                 lastReject = "TARGET_ENTRY_FULL_" + decision;
                 continue;
             }
 
-            if (!occupancy.canEnterIntersection(vehicle, intersection, targetLane,
+            if (!forcedClear && !occupancy.canEnterIntersection(vehicle, intersection, targetLane,
                     targetProgress, targetOffset, vehicles)) {
                 lastReject = "INTERSECTION_BUSY_" + decision;
                 continue;
             }
 
-            return new TurnCandidate(decision, targetLane, targetProgress, targetOffset);
+            return new TurnCandidate(decision, targetLane, targetProgress, targetOffset, forcedClear);
         }
         vehicle.setTurnWaitReason(lastReject != null ? lastReject : "NO_AVAILABLE_TURN");
         return null;
@@ -809,6 +886,84 @@ public class TurnCoordinator {
         }
         double progress = lane.getProgressOf(intersection.getCenter());
         return progress < lane.getLength() * 0.45;
+    }
+
+
+    private double chooseForcedEntryOffsetForCommitted(Vehicle vehicle,
+                                                       Lane sourceLane,
+                                                       Intersection intersection,
+                                                       Lane targetLane,
+                                                       double targetProgress,
+                                                       Vehicle.TurnDecision decision) {
+        if (vehicle == null || sourceLane == null || intersection == null || targetLane == null) {
+            return Double.NaN;
+        }
+        double distanceToConflict = sourceLane.getProgressOf(intersection.getCenter()) - vehicle.getFrontProgress();
+        if (distanceToConflict > FORCED_CLEAR_COMMIT_DISTANCE) {
+            return Double.NaN;
+        }
+
+        List<Double> candidates = new ArrayList<>();
+        if (decision == Vehicle.TurnDecision.LEFT) {
+            candidates.add(targetLane.getLeftmostOffset(vehicle));
+        } else if (decision == Vehicle.TurnDecision.RIGHT) {
+            candidates.add(targetLane.getRightmostOffset(vehicle));
+        } else {
+            candidates.add(targetLane.clampOffset(vehicle, vehicle.getPreferredLateralOffset()));
+            candidates.add(Vehicle.LEFT_OFFSET);
+            candidates.add(Vehicle.RIGHT_OFFSET);
+        }
+
+        for (double raw : candidates) {
+            double offset = targetLane.clampOffset(vehicle, raw);
+            if (targetLane.occupancy().isSpaceFreeAt(
+                    targetProgress, offset, vehicle, FORCED_ENTRY_FRONT_GAP, FORCED_ENTRY_REAR_GAP)) {
+                return offset;
+            }
+            if (isBlockedOnlyByMovingClearingVehicles(vehicle, targetLane, targetProgress, offset)) {
+                return offset;
+            }
+        }
+        return Double.NaN;
+    }
+
+    private boolean isBlockedOnlyByMovingClearingVehicles(Vehicle vehicle,
+                                                          Lane targetLane,
+                                                          double targetProgress,
+                                                          double targetOffset) {
+        boolean foundMovingClearing = false;
+        for (Vehicle other : targetLane.getVehicles()) {
+            if (other == null || other == vehicle) continue;
+            if (!entryConflict(vehicle, other, targetProgress, targetOffset)) continue;
+            if (!isMovingClearingVehicle(other)) return false;
+            foundMovingClearing = true;
+        }
+        for (Vehicle other : targetLane.getReservedVehicles()) {
+            if (other == null || other == vehicle) continue;
+            if (!entryConflict(vehicle, other, targetProgress, targetOffset)) continue;
+            if (!isMovingClearingVehicle(other)) return false;
+            foundMovingClearing = true;
+        }
+        return foundMovingClearing;
+    }
+
+    private boolean entryConflict(Vehicle vehicle, Vehicle other, double progress, double offset) {
+        double longitudinal = Math.abs(other.getLaneProgress() - progress);
+        double longLimit = Math.max(44.0, (vehicle.getLongitudinalLength() + other.getLongitudinalLength()) * 0.55);
+        double lateral = Math.abs(other.getLateralOffset() - offset);
+        double lateralLimit = Math.max(12.0, (vehicle.getWidth() + other.getWidth()) * 0.33);
+        return longitudinal <= longLimit && lateral <= lateralLimit;
+    }
+
+    private boolean isMovingClearingVehicle(Vehicle other) {
+        if (other == null) return false;
+        Vehicle.ManeuverState state = other.getManeuverState();
+        Vehicle.IntersectionManeuverState ix = other.getIntersectionManeuverState();
+        boolean clearing = state == Vehicle.ManeuverState.CLEARING_CONFLICT
+                || ix == Vehicle.IntersectionManeuverState.CLEARING_FOR_PRIORITY
+                || ix == Vehicle.IntersectionManeuverState.EXITING
+                || other.isTurning();
+        return clearing && other.getSpeed() > 6.0;
     }
 
     private double chooseEntryOffset(Vehicle vehicle, Lane targetLane, double targetProgress,

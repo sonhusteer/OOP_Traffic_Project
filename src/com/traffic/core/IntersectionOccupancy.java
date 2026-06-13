@@ -118,4 +118,3 @@ public class IntersectionOccupancy {
         return approaching && notCleared;
     }
 
-

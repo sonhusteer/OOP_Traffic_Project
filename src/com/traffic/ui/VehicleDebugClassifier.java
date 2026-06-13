@@ -30,6 +30,7 @@ public final class VehicleDebugClassifier {
 
         if (ix == Vehicle.IntersectionManeuverState.APPROACHING
                 || ix == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
+                || ix == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT_PAUSED
                 || ix == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION
                 || ix == Vehicle.IntersectionManeuverState.CROSSING_STRAIGHT
                 || ix == Vehicle.IntersectionManeuverState.TURNING_LEFT

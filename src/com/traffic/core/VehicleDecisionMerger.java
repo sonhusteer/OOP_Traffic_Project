@@ -274,6 +274,7 @@ public final class VehicleDecisionMerger {
         Vehicle.IntersectionManeuverState state = vehicle.getIntersectionManeuverState();
         boolean nearOrWaiting = state == Vehicle.IntersectionManeuverState.APPROACHING
                 || state == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
+                || state == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT_PAUSED
                 || state == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION;
         if (!nearOrWaiting) return;
 

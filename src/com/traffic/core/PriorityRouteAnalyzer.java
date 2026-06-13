@@ -73,11 +73,16 @@ public final class PriorityRouteAnalyzer {
         return strongestForNormal.get(normal);
     }
 
-    public boolean hasBlockingPriorityFor(Vehicle normal, Intersection intersection) {
-        if (normal == null) return false;
+    public PriorityRouteContext blockingContextFor(Vehicle normal, Intersection intersection) {
+        if (normal == null) return null;
         PriorityRouteContext ctx = strongestForNormal(normal);
-        if (ctx == null || !ctx.requiresIntersectionBlock()) return false;
-        return intersection == null || ctx.getIntersection() == intersection;
+        if (ctx == null || !ctx.requiresIntersectionBlock()) return null;
+        if (intersection != null && ctx.getIntersection() != intersection) return null;
+        return ctx;
+    }
+
+    public boolean hasBlockingPriorityFor(Vehicle normal, Intersection intersection) {
+        return blockingContextFor(normal, intersection) != null;
     }
 
     public boolean isQueueLike(Vehicle priority, Vehicle normal) {
@@ -192,7 +197,8 @@ public final class PriorityRouteAnalyzer {
         // Do not classify it as an open-road blocker and pull it away from its
         // turn slot for side-yield. Speed follow is still distance-gated later
         // by Driver/Merger, so this does not bring back early priority braking.
-        if (state == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT) {
+        if (state == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
+                || state == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT_PAUSED) {
             return true;
         }
 
