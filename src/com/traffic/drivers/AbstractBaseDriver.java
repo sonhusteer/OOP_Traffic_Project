@@ -38,7 +38,9 @@ public abstract class AbstractBaseDriver implements IDriver {
     private static final double PRIORITY_PATIENCE_SECONDS = 1.25;
     private static final double PRIORITY_PATIENCE_TICK = 0.035;
     private static final double PRIORITY_WAIT_LOOKAHEAD = 130.0;
+    private static final double PRIORITY_QUEUE_SOFT_FOLLOW_GAP = 82.0;
     private static final double PRIORITY_CRITICAL_GAP = 18.0;
+    private static final double MAX_YIELD_STUCK_SECONDS = 0.75;
 
     private final SideShiftPlanner sideShiftPlanner = new SideShiftPlanner();
 
@@ -177,9 +179,11 @@ public abstract class AbstractBaseDriver implements IDriver {
         }
 
         if (vehicle.getManeuverState() == Vehicle.ManeuverState.YIELDING_RIGHT
-                || vehicle.getManeuverState() == Vehicle.ManeuverState.STOPPED_FOR_CONFLICT
-                || vehicle.getManeuverState() == Vehicle.ManeuverState.CLEARING_CONFLICT
                 || vehicle.getManeuverState() == Vehicle.ManeuverState.URGENT_CLEARING
+                || vehicle.getManeuverState() == Vehicle.ManeuverState.YIELD_RETURNING) {
+            vehicle.returnToPreferredOffset(Vehicle.ManeuverState.YIELD_RETURNING);
+        } else if (vehicle.getManeuverState() == Vehicle.ManeuverState.STOPPED_FOR_CONFLICT
+                || vehicle.getManeuverState() == Vehicle.ManeuverState.CLEARING_CONFLICT
                 || vehicle.getManeuverState() == Vehicle.ManeuverState.HOLDING_POSITION) {
             vehicle.setManeuverState(Vehicle.ManeuverState.NORMAL);
             vehicle.returnToPreferredSlot();
@@ -344,11 +348,17 @@ public abstract class AbstractBaseDriver implements IDriver {
                 // stricter: no center/left gap-fill while an ambulance/firetruck
                 // is asking for a corridor.
             } else if (canPullToYieldSide) {
+                vehicle.resetPriorityYieldBlocked();
                 vehicle.setTargetLateralOffset(yieldOffset);
             } else if (activePriorityYield) {
-                // Keep one consistent side-yield policy. If the chosen side is
-                // blocked, creep/hold until a gap opens; do not fill center/left.
-                vehicle.setTargetLateralOffset(vehicle.getLateralOffset());
+                vehicle.notePriorityYieldBlocked(PRIORITY_PATIENCE_TICK);
+                if (vehicle.getPriorityYieldBlockedSeconds() >= MAX_YIELD_STUCK_SECONDS
+                        && !vehicle.isOvertaking()
+                        && sideShiftPlanner.tryYieldGapFill(vehicle, URGENT_FRONT_GAP, URGENT_REAR_GAP)) {
+                    vehicle.setManeuverState(Vehicle.ManeuverState.URGENT_CLEARING);
+                } else {
+                    vehicle.setTargetLateralOffset(vehicle.getLateralOffset());
+                }
             } else if (!vehicle.isOvertaking()) {
                 if (!sideShiftPlanner.tryYieldGapFill(vehicle, URGENT_FRONT_GAP, URGENT_REAR_GAP)
                         && Math.abs(vehicle.getTargetLateralOffset() - vehicle.getPreferredLateralOffset()) < 2.0) {
@@ -424,6 +434,15 @@ public abstract class AbstractBaseDriver implements IDriver {
             }
             return true;
         }
+        if (vehicle.getManeuverState() == Vehicle.ManeuverState.GAP_FILL_RETURNING
+                || vehicle.getManeuverState() == Vehicle.ManeuverState.YIELD_RETURNING) {
+            vehicle.returnToPreferredSlot();
+            if (vehicle.isNearPreferredLateralOffset(1.5)) {
+                vehicle.setManeuverState(Vehicle.ManeuverState.NORMAL);
+                vehicle.setManeuverCooldown(0.55);
+            }
+            return true;
+        }
         return handleActiveOvertake(vehicle);
     }
 
@@ -483,12 +502,7 @@ public abstract class AbstractBaseDriver implements IDriver {
     private boolean shouldAbortCurrentLateralForIntersection(Vehicle vehicle) {
         if (vehicle == null) return false;
         Vehicle.ManeuverState ms = vehicle.getManeuverState();
-        boolean activeLateral = ms == Vehicle.ManeuverState.GAP_FILLING
-                || ms == Vehicle.ManeuverState.OVERTAKE_SHIFT_LEFT
-                || ms == Vehicle.ManeuverState.OVERTAKE_PASSING
-                || ms == Vehicle.ManeuverState.OVERTAKE_RETURNING
-                || ms == Vehicle.ManeuverState.EMERGENCY_CORRIDOR;
-        if (!activeLateral) return false;
+        if (!Vehicle.isActiveLateralManeuverState(ms)) return false;
         Vehicle.IntersectionManeuverState is = vehicle.getIntersectionManeuverState();
         return is == Vehicle.IntersectionManeuverState.APPROACHING
                 || is == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
@@ -531,15 +545,18 @@ public abstract class AbstractBaseDriver implements IDriver {
 
         PriorityRouteContext ctx = PriorityRouteAnalyzer.getCurrent().get(priority, inFront);
         if (ctx.isQueueLike()) {
-            // Same-route / route-ordered vehicles are not expected to side-yield.
-            // The priority vehicle should follow and wait, not escalate into the
-            // center corridor just because YieldMode is NONE.
             if (!isBlockingCurrentPath(priority, inFront)) {
                 priority.resetPriorityWait();
                 return false;
             }
             if (longitudinalGap <= PRIORITY_CRITICAL_GAP) {
                 return true;
+            }
+            if (longitudinalGap > PRIORITY_QUEUE_SOFT_FOLLOW_GAP
+                    && !inFront.isCommittedToIntersection()
+                    && inFront.getIntersectionManeuverState() != Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) {
+                priority.resetPriorityWait();
+                return false;
             }
             priority.addPriorityWaitFor(inFront, PRIORITY_PATIENCE_TICK);
             return true;
@@ -570,8 +587,8 @@ public abstract class AbstractBaseDriver implements IDriver {
             return true;
         }
         if (inFront != null && PriorityRouteAnalyzer.getCurrent().get(priority, inFront).isQueueLike()) {
-            // Route queue is not an emergency-corridor escalation condition.
-            return false;
+            double gap = inFront.getRearProgress() - priority.getFrontProgress();
+            return gap <= PRIORITY_CRITICAL_GAP;
         }
         if (longitudinalGap <= PRIORITY_CRITICAL_GAP) {
             return true;
@@ -648,7 +665,10 @@ public abstract class AbstractBaseDriver implements IDriver {
 
         if (vehicle.isPriority()
                 && PriorityRouteAnalyzer.getCurrent().get(vehicle, inFront).isQueueLike()) {
-            return false;
+            double queueGap = inFront.getRearProgress() - vehicle.getFrontProgress();
+            if (queueGap > PRIORITY_CRITICAL_GAP) {
+                return false;
+            }
         }
 
         Lane lane = vehicle.getLane();

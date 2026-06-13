@@ -144,7 +144,6 @@ public class NetworkMap implements MapConfig {
     }
 
     @Override public String getName() { return "Mạng lưới 2 Ngã Tư"; }
-    @Override public String getSceneryType() { return "NETWORK"; }
 
     @Override public List<Lane> getLanes() { return lanes; }
 

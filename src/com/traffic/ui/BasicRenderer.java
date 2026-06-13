@@ -258,26 +258,7 @@ public class BasicRenderer extends AbstractBaseRenderer {
         gc.translate(vx, vy);
         gc.rotate(v.getAngle());
 
-        // Yield warning
-        if (v.getYieldMode() == Vehicle.YieldMode.STOP_BEFORE_CONFLICT
-                || v.getYieldMode() == Vehicle.YieldMode.STOP
-                || v.getYieldMode() == Vehicle.YieldMode.CLEAR_CONFLICT
-                || v.getYieldMode() == Vehicle.YieldMode.CLEAR_INTERSECTION
-                || v.getYieldMode() == Vehicle.YieldMode.CLEAR_PATH
-                || v.getYieldMode() == Vehicle.YieldMode.URGENT_CLEAR_PATH) {
-            gc.setStroke(Color.rgb(255, 140, 0, 0.8));
-            gc.setLineWidth(2.5);
-            gc.setLineDashes();
-            gc.strokeRect(-w/2 - 3, -h/2 - 3, w + 6, h + 6);
-        }
-
-        if (isUrgentYield(v)) {
-            gc.setStroke(Color.rgb(255, 230, 70, 0.95));
-            gc.setLineWidth(1.4);
-            gc.setLineDashes(4, 4);
-            gc.strokeRect(-w/2 - 6, -h/2 - 6, w + 12, h + 12);
-            gc.setLineDashes();
-        }
+        drawDebugStateBorder(gc, VehicleDebugClassifier.classify(v), w, h);
 
         // Body
         Color base = VEHICLE_COLORS.getOrDefault(v.getTypeName(), Color.GRAY);
@@ -308,6 +289,29 @@ public class BasicRenderer extends AbstractBaseRenderer {
 
         gc.restore();
         drawTurnIntentBadge(gc, v, vx, vy, w, h);
+    }
+
+    private void drawDebugStateBorder(GraphicsContext gc, DebugVisualState state, double w, double h) {
+        if (state == null || state == DebugVisualState.NORMAL) return;
+        Color color = switch (state) {
+            case ERROR -> Color.rgb(255, 45, 180, 0.95);
+            case EMERGENCY_YIELD -> Color.rgb(235, 45, 45, 0.92);
+            case PRIORITY_QUEUE -> Color.rgb(255, 115, 95, 0.88);
+            case TURNING_OR_INTERSECTION -> Color.rgb(165, 95, 255, 0.86);
+            case ORDINARY_WAIT -> Color.rgb(255, 180, 45, 0.86);
+            case GAP_FILL -> Color.rgb(40, 210, 190, 0.86);
+            case OVERTAKE -> Color.rgb(70, 150, 255, 0.86);
+            default -> Color.TRANSPARENT;
+        };
+        gc.setStroke(color);
+        gc.setLineWidth(state == DebugVisualState.EMERGENCY_YIELD ? 3.0 : 2.2);
+        if (state == DebugVisualState.PRIORITY_QUEUE) {
+            gc.setLineDashes(5, 4);
+        } else {
+            gc.setLineDashes();
+        }
+        gc.strokeRect(-w / 2 - 4, -h / 2 - 4, w + 8, h + 8);
+        gc.setLineDashes();
     }
 
     private void drawTurnIntentBadge(GraphicsContext gc, Vehicle v, double vx, double vy, double w, double h) {

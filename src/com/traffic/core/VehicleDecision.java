@@ -42,18 +42,41 @@ public final class VehicleDecision {
         return this;
     }
 
-    public VehicleDecision maxSpeed(double speed) {
-        if (targetSpeed == null || speed > targetSpeed) {
-            targetSpeed(speed);
+    /**
+     * Raise the commanded speed floor. This keeps clearing/turning vehicles from
+     * freezing when a previous module wrote a lower speed in the same frame.
+     */
+    public VehicleDecision floorSpeed(double speed) {
+        double floor = Math.max(0.0, speed);
+        if (targetSpeed == null || floor > targetSpeed) {
+            targetSpeed(floor);
         }
         return this;
     }
 
-    public VehicleDecision minSpeed(double speed) {
-        if (targetSpeed == null || speed < targetSpeed) {
-            targetSpeed(speed);
+    /**
+     * Apply an upper speed cap. Use this when the merger aborts a lateral
+     * maneuver near an intersection/red light so the current frame does not keep
+     * the driver's previous high overtake speed.
+     */
+    public VehicleDecision capSpeed(double speed) {
+        double cap = Math.max(0.0, speed);
+        if (targetSpeed == null || cap < targetSpeed) {
+            targetSpeed(cap);
         }
         return this;
+    }
+
+    /** @deprecated Use floorSpeed(double) for explicit semantics. */
+    @Deprecated
+    public VehicleDecision maxSpeed(double speed) {
+        return floorSpeed(speed);
+    }
+
+    /** @deprecated Use capSpeed(double) for explicit semantics. */
+    @Deprecated
+    public VehicleDecision minSpeed(double speed) {
+        return capSpeed(speed);
     }
 
     public VehicleDecision targetLateralOffset(double offset) {

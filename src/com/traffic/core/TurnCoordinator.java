@@ -509,10 +509,7 @@ public class TurnCoordinator {
 
     private boolean isLateralStableForIntersection(Vehicle vehicle) {
         if (vehicle == null) return false;
-        if (vehicle.isOvertaking()
-                || vehicle.getManeuverState() == Vehicle.ManeuverState.GAP_FILLING
-                || vehicle.getManeuverState() == Vehicle.ManeuverState.YIELDING_RIGHT
-                || vehicle.getManeuverState() == Vehicle.ManeuverState.URGENT_CLEARING) {
+        if (Vehicle.isActiveLateralManeuverState(vehicle.getManeuverState())) {
             return false;
         }
         return vehicle.isNearPreferredLateralOffset(PREFERRED_OFFSET_TOLERANCE);

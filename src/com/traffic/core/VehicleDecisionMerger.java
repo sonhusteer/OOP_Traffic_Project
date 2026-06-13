@@ -18,8 +18,13 @@ import java.util.List;
 public final class VehicleDecisionMerger {
     private static final double COMMITTED_CLEAR_SPEED_FACTOR = 0.72;
     private static final double PRIORITY_QUEUE_FOLLOW_FACTOR = 0.86;
+    private static final double PRIORITY_QUEUE_FOLLOW_DISTANCE = 82.0;
+    private static final double PRIORITY_QUEUE_HARD_FOLLOW_DISTANCE = 34.0;
+    private static final double PRIORITY_QUEUE_CANCEL_LATERAL_DISTANCE = 96.0;
     private static final double CENTER_CONFLICT_RADIUS = 88.0;
     private static final double RED_LIGHT_LATERAL_GATE = 150.0;
+    private static final double INTERSECTION_ABORT_SPEED_CAP = 26.0;
+    private static final double RED_LIGHT_ABORT_SPEED_CAP = 18.0;
 
     private VehicleDecisionMerger() {}
 
@@ -42,7 +47,7 @@ public final class VehicleDecisionMerger {
                     .yieldMode(Vehicle.YieldMode.CLEAR_CONFLICT)
                     .maneuverState(Vehicle.ManeuverState.CLEARING_CONFLICT)
                     .targetLateralOffset(vehicle.getLateralOffset())
-                    .maxSpeed(Math.max(vehicle.getSpeed(), 28.0))
+                    .floorSpeed(Math.max(vehicle.getSpeed(), 28.0))
                     .reason("ACTIVE_TURN_CLEAR");
         }
 
@@ -62,7 +67,7 @@ public final class VehicleDecisionMerger {
                 .yieldMode(Vehicle.YieldMode.CLEAR_CONFLICT)
                 .maneuverState(Vehicle.ManeuverState.CLEARING_CONFLICT)
                 .targetLateralOffset(vehicle.getLateralOffset())
-                .maxSpeed(Math.max(vehicle.getSpeed(), Math.max(24.0, vehicle.getSpeed() * COMMITTED_CLEAR_SPEED_FACTOR)))
+                .floorSpeed(Math.max(vehicle.getSpeed(), Math.max(24.0, vehicle.getSpeed() * COMMITTED_CLEAR_SPEED_FACTOR)))
                 .reason("COMMITTED_CLEAR");
     }
 
@@ -78,18 +83,20 @@ public final class VehicleDecisionMerger {
             if (inFront != null) {
                 PriorityRouteContext ctx = routes.get(vehicle, inFront);
                 if (ctx.isQueueLike()) {
-                    // Same-route or priority-straight/normal-turning means queue,
-                    // not corridor. The priority vehicle follows and never escalates
-                    // to middle/center passing for this target.
-                    if (vehicle.isOvertaking()
-                            || vehicle.getManeuverState() == Vehicle.ManeuverState.EMERGENCY_CORRIDOR) {
+                    double gap = inFront.getRearProgress() - vehicle.getFrontProgress();
+                    boolean shouldFollowNow = shouldPriorityQueueFollowNow(ctx, gap);
+                    if ((vehicle.isOvertaking()
+                            || vehicle.getManeuverState() == Vehicle.ManeuverState.EMERGENCY_CORRIDOR)
+                            && gap <= PRIORITY_QUEUE_CANCEL_LATERAL_DISTANCE) {
                         decision.abortLateralManeuver().reason("PRIORITY_QUEUE_CANCEL_LATERAL");
                     }
-                    double followSpeed = Math.max(0.0, inFront.getSpeed() * PRIORITY_QUEUE_FOLLOW_FACTOR);
-                    if (inFront.getRearProgress() - vehicle.getFrontProgress() < 34.0) {
-                        followSpeed = Math.min(followSpeed, Math.max(0.0, inFront.getSpeed() * 0.62));
+                    if (shouldFollowNow) {
+                        double followSpeed = Math.max(0.0, inFront.getSpeed() * PRIORITY_QUEUE_FOLLOW_FACTOR);
+                        if (gap < PRIORITY_QUEUE_HARD_FOLLOW_DISTANCE) {
+                            followSpeed = Math.min(followSpeed, Math.max(0.0, inFront.getSpeed() * 0.62));
+                        }
+                        decision.capSpeed(followSpeed).reason("PRIORITY_QUEUE_FOLLOW");
                     }
-                    decision.minSpeed(followSpeed).reason("PRIORITY_QUEUE_FOLLOW");
                 }
             }
             return;
@@ -135,7 +142,28 @@ public final class VehicleDecisionMerger {
     private static boolean centerConflictsWithQueueLikeTarget(Vehicle priority, PriorityRouteAnalyzer routes) {
         if (priority == null || priority.getLane() == null || routes == null) return false;
         Vehicle ahead = priority.getLane().occupancy().vehicleAheadOf(priority);
-        return ahead != null && routes.get(priority, ahead).isQueueLike();
+        if (ahead == null) return false;
+        PriorityRouteContext ctx = routes.get(priority, ahead);
+        double gap = ahead.getRearProgress() - priority.getFrontProgress();
+        return ctx.isQueueLike() && shouldPriorityQueueFollowNow(ctx, gap);
+    }
+
+    private static boolean shouldPriorityQueueFollowNow(PriorityRouteContext ctx, double gap) {
+        if (ctx == null || !ctx.isQueueLike() || gap <= 0.0) return false;
+        Vehicle normal = ctx.getNormal();
+        if (normal != null) {
+            Vehicle.IntersectionManeuverState state = normal.getIntersectionManeuverState();
+            if (normal.isCommittedToIntersection()
+                    || state == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION
+                    || state == Vehicle.IntersectionManeuverState.CROSSING_STRAIGHT
+                    || state == Vehicle.IntersectionManeuverState.TURNING_LEFT
+                    || state == Vehicle.IntersectionManeuverState.TURNING_RIGHT
+                    || state == Vehicle.IntersectionManeuverState.EXITING
+                    || state == Vehicle.IntersectionManeuverState.CLEARING_FOR_PRIORITY) {
+                return true;
+            }
+        }
+        return gap <= PRIORITY_QUEUE_FOLLOW_DISTANCE;
     }
 
     private static boolean centerOffsetOccupiedByCommittedVehicle(Vehicle priority,
@@ -186,14 +214,10 @@ public final class VehicleDecisionMerger {
                 || state == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION;
         if (!nearOrWaiting) return;
 
-        Vehicle.ManeuverState ms = vehicle.getManeuverState();
-        boolean activeLateral = ms == Vehicle.ManeuverState.GAP_FILLING
-                || ms == Vehicle.ManeuverState.OVERTAKE_SHIFT_LEFT
-                || ms == Vehicle.ManeuverState.OVERTAKE_PASSING
-                || ms == Vehicle.ManeuverState.OVERTAKE_RETURNING
-                || ms == Vehicle.ManeuverState.EMERGENCY_CORRIDOR;
-        if (activeLateral) {
-            decision.abortLateralManeuver().reason("INTERSECTION_LATERAL_GATE");
+        if (Vehicle.isActiveLateralManeuverState(vehicle.getManeuverState())) {
+            decision.abortLateralManeuver()
+                    .capSpeed(Math.min(vehicle.getSpeed(), INTERSECTION_ABORT_SPEED_CAP))
+                    .reason("INTERSECTION_LATERAL_GATE");
         }
     }
 
@@ -216,14 +240,11 @@ public final class VehicleDecisionMerger {
         double dist = stopProgress - frontProgress;
         if (dist < -3.0 || dist > RED_LIGHT_LATERAL_GATE) return;
 
-        Vehicle.ManeuverState ms = vehicle.getManeuverState();
-        boolean activeLateral = ms == Vehicle.ManeuverState.GAP_FILLING
-                || ms == Vehicle.ManeuverState.OVERTAKE_SHIFT_LEFT
-                || ms == Vehicle.ManeuverState.OVERTAKE_PASSING
-                || ms == Vehicle.ManeuverState.OVERTAKE_RETURNING
-                || ms == Vehicle.ManeuverState.EMERGENCY_CORRIDOR;
-        if (activeLateral) {
-            decision.abortLateralManeuver().reason("RED_LIGHT_LATERAL_GATE");
+        if (Vehicle.isActiveLateralManeuverState(vehicle.getManeuverState())) {
+            double cap = dist <= 24.0 ? 0.0 : RED_LIGHT_ABORT_SPEED_CAP;
+            decision.abortLateralManeuver()
+                    .capSpeed(Math.min(vehicle.getSpeed(), cap))
+                    .reason("RED_LIGHT_LATERAL_GATE");
         }
     }
 }

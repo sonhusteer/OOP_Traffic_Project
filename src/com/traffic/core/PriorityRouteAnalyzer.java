@@ -117,7 +117,7 @@ public final class PriorityRouteAnalyzer {
                 Intersection ix = nearestSharedIntersectionAhead(priority, normal, intersections, INTERSECTION_HORIZON);
                 Lane pTarget = resolveTargetLane(priority.getLane(), ix, priority.getTurnDecision());
                 Lane nTarget = resolveTargetLane(normal.getLane(), ix, normal.getTurnDecision());
-                PriorityRouteRelation relation = sameLaneRelation(priority, normal, pTarget, nTarget);
+                PriorityRouteRelation relation = sameLaneRelation(priority, normal, ix, pTarget, nTarget);
                 double pEta = etaToIntersection(priority, ix);
                 double nEta = etaToIntersection(normal, ix);
                 return new PriorityRouteContext(priority, normal, ix, relation, pTarget, nTarget, pEta, nEta, gap);
@@ -143,24 +143,70 @@ public final class PriorityRouteAnalyzer {
         return new PriorityRouteContext(priority, normal, ix, relation, pTarget, nTarget, pEta, nEta, Double.POSITIVE_INFINITY);
     }
 
-    private PriorityRouteRelation sameLaneRelation(Vehicle priority, Vehicle normal, Lane pTarget, Lane nTarget) {
+    private PriorityRouteRelation sameLaneRelation(Vehicle priority, Vehicle normal,
+                                                   Intersection ix, Lane pTarget, Lane nTarget) {
         Vehicle.TurnDecision p = priority.getTurnDecision();
         Vehicle.TurnDecision n = normal.getTurnDecision();
         if (p == null) p = Vehicle.TurnDecision.STRAIGHT;
         if (n == null) n = Vehicle.TurnDecision.STRAIGHT;
 
-        boolean sameDecision = p == n;
-        boolean sameTarget = pTarget == null || nTarget == null || pTarget == nTarget;
-        if (sameDecision && sameTarget) {
-            return PriorityRouteRelation.SAME_QUEUE;
-        }
+        boolean orderedQueue = isOrderedQueueSituation(priority, normal, ix, p, n, pTarget, nTarget);
+
+        // Same-lane straight/straight on an open road is not a queue. The normal
+        // vehicle is a physical blocker ahead and may split to an edge; the
+        // priority vehicle should not be forced into early follow from far away.
         if (p == Vehicle.TurnDecision.STRAIGHT && n == Vehicle.TurnDecision.STRAIGHT) {
-            return PriorityRouteRelation.PRIORITY_STRAIGHT_NORMAL_STRAIGHT_AHEAD;
+            return orderedQueue
+                    ? PriorityRouteRelation.SAME_QUEUE
+                    : PriorityRouteRelation.PRIORITY_STRAIGHT_NORMAL_STRAIGHT_AHEAD;
         }
+
         if (p == Vehicle.TurnDecision.STRAIGHT && n != Vehicle.TurnDecision.STRAIGHT) {
             return PriorityRouteRelation.PRIORITY_STRAIGHT_NORMAL_TURNING_AHEAD;
         }
+
+        boolean sameDecision = p == n;
+        boolean sameTarget = pTarget != null && nTarget != null && pTarget == nTarget;
+        if (sameDecision && sameTarget && orderedQueue) {
+            return PriorityRouteRelation.SAME_QUEUE;
+        }
         return PriorityRouteRelation.SAME_LANE_DIVERGING;
+    }
+
+    private boolean isOrderedQueueSituation(Vehicle priority, Vehicle normal, Intersection ix,
+                                            Vehicle.TurnDecision p, Vehicle.TurnDecision n,
+                                            Lane pTarget, Lane nTarget) {
+        if (priority == null || normal == null || normal.getLane() == null) return false;
+        if (normal.isCommittedToIntersection() || priority.isCommittedToIntersection()) return true;
+
+        Vehicle.IntersectionManeuverState state = normal.getIntersectionManeuverState();
+        if (state == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION
+                || state == Vehicle.IntersectionManeuverState.CROSSING_STRAIGHT
+                || state == Vehicle.IntersectionManeuverState.TURNING_LEFT
+                || state == Vehicle.IntersectionManeuverState.TURNING_RIGHT
+                || state == Vehicle.IntersectionManeuverState.EXITING
+                || state == Vehicle.IntersectionManeuverState.CLEARING_FOR_PRIORITY) {
+            return true;
+        }
+
+        // A vehicle that is already lining up for its turn close to an intersection
+        // is ordered by the junction, not by open-road passing rules.
+        if (state == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT && ix != null) {
+            double nDist = normal.getLane().getProgressOf(ix.getCenter()) - normal.getFrontProgress();
+            return nDist <= 95.0;
+        }
+
+        if (ix != null) {
+            double pDist = priority.getLane().getProgressOf(ix.getCenter()) - priority.getFrontProgress();
+            double nDist = normal.getLane().getProgressOf(ix.getCenter()) - normal.getFrontProgress();
+            if (nDist <= 70.0 && pDist <= 150.0) return true;
+        }
+
+        return p != Vehicle.TurnDecision.STRAIGHT
+                && p == n
+                && pTarget != null
+                && nTarget != null
+                && pTarget == nTarget;
     }
 
     private PriorityRouteRelation crossingRelation(Vehicle priority, Vehicle normal,

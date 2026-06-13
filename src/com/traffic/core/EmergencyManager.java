@@ -203,9 +203,14 @@ public class EmergencyManager {
             return Vehicle.YieldMode.STOP_BEFORE_CONFLICT;
         }
 
-        return canStopBeforeConflict(normal, distanceToStop)
-                ? Vehicle.YieldMode.STOP_BEFORE_CONFLICT
-                : Vehicle.YieldMode.STOP_BEFORE_CONFLICT;
+        if (canStopBeforeConflict(normal, distanceToStop)) {
+            return Vehicle.YieldMode.STOP_BEFORE_CONFLICT;
+        }
+
+        // If the lead car is already too close/fast to stop comfortably before
+        // the conflict, do not force a late hard stop. Let it clear the conflict
+        // area instead of freezing at or inside the intersection.
+        return Vehicle.YieldMode.CLEAR_CONFLICT;
     }
 
     private boolean isLeadVehicleBeforeConflict(Vehicle candidate, double conflictStart) {

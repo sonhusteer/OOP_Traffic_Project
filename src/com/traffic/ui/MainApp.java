@@ -49,7 +49,7 @@ public class MainApp extends Application {
 
     private final Random random = new Random();
     private boolean autoSpawnEnabled = false;
-    private long lastAutoSpawnNanos = 0L;
+    private double autoSpawnTimerSeconds = 0.0;
     private double autoSpawnIntervalSeconds = 0.75;
 
     private Canvas canvas;
@@ -120,7 +120,7 @@ public class MainApp extends Application {
             public void handle(long now) {
                 if (!paused) {
                     double dt = 0.03 * simSpeed;
-                    updateAutoSpawn(now);
+                    updateAutoSpawn(dt);
                     engine.tick(dt);
                     engine.render();
 
@@ -215,7 +215,7 @@ public class MainApp extends Application {
         btnAutoSpawn.setSelected(autoSpawnEnabled);
         btnAutoSpawn.setOnAction(e -> {
             autoSpawnEnabled = btnAutoSpawn.isSelected();
-            lastAutoSpawnNanos = 0L;
+            autoSpawnTimerSeconds = 0.0;
             btnAutoSpawn.setText(autoSpawnEnabled ? "⏸ Auto Spawn: ON" : "▶ Auto Spawn: OFF");
             appendSpawnLog(autoSpawnEnabled
                     ? "[A] Auto spawn bật: sinh xe ngẫu nhiên trái/phải\n"
@@ -415,11 +415,6 @@ public class MainApp extends Application {
         basicRenderer.setLanes(newMap.getLanes());
         graphicRenderer.setLanes(newMap.getLanes());
 
-        // Cập nhật scenery type cho graphic renderer
-        if (graphicRenderer instanceof JavaFXRenderer jfxR) {
-            jfxR.setSceneryType(newMap.getSceneryType());
-        }
-
         // Rebuild sidebar
         BorderPane root = (BorderPane) canvas.getScene().getRoot();
         spawnContainer = buildSidebar(newMap);
@@ -427,7 +422,6 @@ public class MainApp extends Application {
 
         appendSpawnLog("[✓] Map: " + newMap.getName() + "\n");
     }
-
 
     private static void registerMap(TrafficEngine engine, MapConfig map) {
         RoadNetwork network = new RoadNetwork();
@@ -479,23 +473,24 @@ public class MainApp extends Application {
         return fallback;
     }
 
-    private void updateAutoSpawn(long now) {
+    private void updateAutoSpawn(double deltaTime) {
         if (!autoSpawnEnabled || vehicleSpawner == null || currentMap == null) {
+            autoSpawnTimerSeconds = 0.0;
             return;
         }
         SpawnProfile profile = getSpawnProfile(currentMap);
         if (engine.getVehicles().size() >= profile.maxTotalVehicles()) {
             return;
         }
-        if (lastAutoSpawnNanos != 0L) {
-            double elapsed = (now - lastAutoSpawnNanos) / 1_000_000_000.0;
-            if (elapsed < autoSpawnIntervalSeconds) {
-                return;
-            }
+
+        autoSpawnTimerSeconds += Math.max(0.0, deltaTime);
+        if (autoSpawnTimerSeconds < autoSpawnIntervalSeconds) {
+            return;
         }
 
         List<Lane> lanes = getSpawnableLanes(currentMap);
         if (lanes.isEmpty()) {
+            autoSpawnTimerSeconds = 0.0;
             return;
         }
 
@@ -515,15 +510,15 @@ public class MainApp extends Application {
                     1
             );
             if (spawned > 0) {
-                lastAutoSpawnNanos = now;
+                autoSpawnTimerSeconds = 0.0;
                 appendSpawnLog(String.format("[A] 1x %s → lane %d\n",
                         type, lanes.indexOf(lane) + 1));
                 return;
             }
         }
 
-        // Tat ca dau lane dang kin: cho nhip sau thu lai, khong spam log.
-        lastAutoSpawnNanos = now;
+        // Tat ca dau lane dang kin: doi mot nhip simulation roi thu lai.
+        autoSpawnTimerSeconds = 0.0;
     }
 
     private record SpawnProfile(

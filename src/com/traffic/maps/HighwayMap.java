@@ -72,7 +72,6 @@ public class HighwayMap implements MapConfig {
     }
 
     @Override public String getName() { return "Đại Lộ Cao Tốc"; }
-    @Override public String getSceneryType() { return "HIGHWAY"; }
 
     @Override public List<Lane> getLanes() { return lanes; }
 
