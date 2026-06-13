@@ -817,17 +817,20 @@ public class TurnCoordinator {
             candidates.add(Math.abs(preferred - Vehicle.LEFT_OFFSET) < Math.abs(preferred - Vehicle.RIGHT_OFFSET)
                     ? Vehicle.RIGHT_OFFSET : Vehicle.LEFT_OFFSET);
         } else if (decision == Vehicle.TurnDecision.LEFT) {
-            // Narrow left turns: enter the left virtual slot, not the far/right slot.
+            // Narrow left turns must enter the near/left slot. Do not silently
+            // fall back to the far/right slot because that creates a wide loop
+            // and can overlap a priority vehicle using the same exit.
             candidates.add(targetLane.getLeftmostOffset(vehicle));
-            candidates.add(targetLane.getRightmostOffset(vehicle));
         } else {
-            // Narrow right turns: enter the right virtual slot, not the far/left slot.
+            // Narrow right turns must enter the near/right slot. If that entry is
+            // blocked, wait before the intersection instead of cutting across the
+            // target lane.
             candidates.add(targetLane.getRightmostOffset(vehicle));
-            candidates.add(targetLane.getLeftmostOffset(vehicle));
         }
-        // Center is only a last-resort temporary entry buffer. Normal stable
-        // driving still returns to the two real slots.
-        candidates.add(Vehicle.CENTER_OFFSET);
+        // Center is only an emergency last-resort buffer for priority vehicles.
+        if (vehicle.isPriority()) {
+            candidates.add(Vehicle.CENTER_OFFSET);
+        }
 
         for (double raw : candidates) {
             double offset = targetLane.clampOffset(vehicle, raw);

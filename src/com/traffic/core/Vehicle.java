@@ -124,6 +124,7 @@ public abstract class Vehicle {
     protected Vehicle priorityYieldSource = null;
     protected double priorityYieldLockSeconds = 0.0;
     protected double priorityYieldTargetOffset = Double.NaN;
+    protected double priorityYieldOriginalPreferredOffset = Double.NaN;
 
     public Vehicle(double x, double y, double speed, IDriver driver) {
         this.position = new Vector2D(x, y);
@@ -188,8 +189,7 @@ public abstract class Vehicle {
         if (priorityYieldLockSeconds > 0.0) {
             priorityYieldLockSeconds = Math.max(0.0, priorityYieldLockSeconds - deltaTime);
             if (priorityYieldLockSeconds == 0.0) {
-                priorityYieldSource = null;
-                priorityYieldTargetOffset = Double.NaN;
+                restoreAfterPriorityYieldLock();
             }
         }
 
@@ -680,6 +680,9 @@ public abstract class Vehicle {
         if (isPriority || isCommittedToIntersection()) {
             return;
         }
+        if (!hasActivePriorityYieldLock() || Double.isNaN(priorityYieldOriginalPreferredOffset)) {
+            priorityYieldOriginalPreferredOffset = preferredLateralOffset;
+        }
         priorityYieldSource = prioritySource;
         priorityYieldLockSeconds = Math.max(priorityYieldLockSeconds, Math.max(0.0, seconds));
         priorityYieldTargetOffset = clampLateralForLane(targetOffset);
@@ -697,6 +700,23 @@ public abstract class Vehicle {
         priorityYieldSource = null;
         priorityYieldLockSeconds = 0.0;
         priorityYieldTargetOffset = Double.NaN;
+        priorityYieldOriginalPreferredOffset = Double.NaN;
+    }
+
+    private void restoreAfterPriorityYieldLock() {
+        if (!isCommittedToIntersection() && !Double.isNaN(priorityYieldOriginalPreferredOffset)) {
+            double restored = clampLateralForLane(priorityYieldOriginalPreferredOffset);
+            preferredLateralOffset = restored;
+            if (maneuverState == ManeuverState.NORMAL
+                    || maneuverState == ManeuverState.YIELDING_RIGHT
+                    || maneuverState == ManeuverState.URGENT_CLEARING
+                    || maneuverState == ManeuverState.HOLDING_POSITION) {
+                targetLateralOffset = restored;
+            }
+        }
+        priorityYieldSource = null;
+        priorityYieldTargetOffset = Double.NaN;
+        priorityYieldOriginalPreferredOffset = Double.NaN;
     }
 
     public double getManeuverCooldown() { return maneuverCooldown; }

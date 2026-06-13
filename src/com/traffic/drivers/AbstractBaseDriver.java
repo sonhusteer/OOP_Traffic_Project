@@ -122,28 +122,27 @@ public abstract class AbstractBaseDriver implements IDriver {
                 return;
             }
 
-            double rightOffset = priorityYieldOffset(vehicle, lane);
-            if (vehicle.hasActivePriorityYieldLock()) {
-                // During an emergency-yield lock, make the right side the natural
-                // temporary slot. That prevents normal return-to-slot/turn prep
-                // code from pulling the vehicle back left in the next frame.
-                vehicle.setPreferredLateralOffset(rightOffset);
-            }
+            double yieldOffset = priorityYieldOffset(vehicle, lane);
 
-            boolean canReallyPullRight = lane.occupancy().isSideSpaceFree(
-                    vehicle, rightOffset, URGENT_FRONT_GAP, URGENT_REAR_GAP);
-            if (canReallyPullRight) {
-                vehicle.setManeuverState(Vehicle.ManeuverState.YIELDING_RIGHT);
-                vehicle.setTargetLateralOffset(rightOffset);
+            boolean canReachYieldSide = lane.occupancy().isSideSpaceFree(
+                    vehicle, yieldOffset, URGENT_FRONT_GAP, URGENT_REAR_GAP);
+            vehicle.setManeuverState(Vehicle.ManeuverState.YIELDING_RIGHT);
+            if (canReachYieldSide) {
+                vehicle.setTargetLateralOffset(yieldOffset);
             } else {
-                // Right side is occupied. Keep the yield intent but do not drift
-                // to center/left because that blocks the emergency corridor.
-                vehicle.setManeuverState(Vehicle.ManeuverState.YIELDING_RIGHT);
+                // Keep the same-side yield policy. If that side is blocked, hold
+                // the current lateral position instead of drifting to another
+                // slot and making the emergency path unpredictable.
                 vehicle.setTargetLateralOffset(vehicle.getLateralOffset());
             }
 
             double yieldSpeed = Math.min(getMaxSpeed() * 0.50,
                     vehicle.getSpeed() > 0.0 ? vehicle.getSpeed() : getMaxSpeed() * 0.40);
+            if (isPriorityYieldWaitingBeforeIntersection(vehicle)) {
+                yieldSpeed = canReachYieldSide && !vehicle.isNearTargetLateralOffset(3.0)
+                        ? Math.min(yieldSpeed, getMaxSpeed() * 0.18)
+                        : 0.0;
+            }
             SpeedDecision lightRule = applyTrafficLightRule(vehicle, nextLight);
             if (lightRule.redLightAhead() && !lightRule.pastStopLine()) {
                 yieldSpeed = Math.min(yieldSpeed, lightRule.targetSpeed());
@@ -330,14 +329,11 @@ public abstract class AbstractBaseDriver implements IDriver {
         Lane lane = vehicle.getLane();
         boolean activePriorityYield = vehicle.hasActivePriorityYieldLock();
         if (lane != null) {
-            double rightOffset = priorityYieldOffset(vehicle, lane);
-            if (activePriorityYield) {
-                vehicle.setPreferredLateralOffset(rightOffset);
-            }
+            double yieldOffset = priorityYieldOffset(vehicle, lane);
 
-            boolean canPullRight = lane.occupancy().isSideSpaceFree(
+            boolean canPullToYieldSide = lane.occupancy().isSideSpaceFree(
                     vehicle,
-                    rightOffset,
+                    yieldOffset,
                     URGENT_FRONT_GAP,
                     URGENT_REAR_GAP
             );
@@ -345,11 +341,11 @@ public abstract class AbstractBaseDriver implements IDriver {
                 // Let normal committed gap-fill finish. Emergency-yield locks are
                 // stricter: no center/left gap-fill while an ambulance/firetruck
                 // is asking for a corridor.
-            } else if (canPullRight) {
-                vehicle.setTargetLateralOffset(rightOffset);
+            } else if (canPullToYieldSide) {
+                vehicle.setTargetLateralOffset(yieldOffset);
             } else if (activePriorityYield) {
-                // Keep one consistent side-yield policy. If right is blocked,
-                // creep/hold until a right gap opens; do not fill center/left.
+                // Keep one consistent side-yield policy. If the chosen side is
+                // blocked, creep/hold until a gap opens; do not fill center/left.
                 vehicle.setTargetLateralOffset(vehicle.getLateralOffset());
             } else if (!vehicle.isOvertaking()) {
                 if (!sideShiftPlanner.tryYieldGapFill(vehicle, URGENT_FRONT_GAP, URGENT_REAR_GAP)
@@ -372,10 +368,12 @@ public abstract class AbstractBaseDriver implements IDriver {
         } else {
             desired = Math.max(lightRule.targetSpeed(), getMaxSpeed() * URGENT_SPEED_FACTOR);
         }
-        if (activePriorityYield && lane != null
+        if (isPriorityYieldWaitingBeforeIntersection(vehicle)) {
+            desired = 0.0;
+        } else if (activePriorityYield && lane != null
                 && Math.abs(vehicle.getTargetLateralOffset() - vehicle.getLateralOffset()) < 1.0) {
-            // No safe right opening yet: leave room predictably and avoid rushing
-            // into the junction while still blocking the emergency path.
+            // No safe chosen-side opening yet: leave room predictably and avoid
+            // rushing into the junction while still blocking the emergency path.
             desired = Math.min(desired, getMaxSpeed() * 0.45);
         }
 
@@ -475,6 +473,15 @@ public abstract class AbstractBaseDriver implements IDriver {
         }
     }
 
+
+    private boolean isPriorityYieldWaitingBeforeIntersection(Vehicle vehicle) {
+        if (vehicle == null) return false;
+        if (vehicle.getIntersectionManeuverState() != Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) {
+            return false;
+        }
+        String reason = vehicle.getTurnWaitReason();
+        return reason != null && (reason.contains("PRIORITY") || reason.contains("YIELD"));
+    }
 
     private double priorityYieldOffset(Vehicle vehicle, Lane lane) {
         double locked = vehicle.getPriorityYieldTargetOffset();

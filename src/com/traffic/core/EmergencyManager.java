@@ -54,19 +54,34 @@ public class EmergencyManager {
                     continue;
                 }
 
-                // One consistent policy for same-lane emergency yielding:
-                // affected normal vehicles move toward the right edge and keep
-                // that intent briefly. They must not immediately prepare a left
-                // turn or drift back into the emergency corridor.
-                double rightOffset = lane.getRightmostOffset(normal);
-                normal.lockPriorityYield(priority, rightOffset, PRIORITY_YIELD_LOCK_SECONDS);
+                // Use one consistent side for the whole priority event.
+                // Normally cars pull to the right so the priority vehicle can use
+                // the center/left corridor. If the priority vehicle itself intends
+                // to turn RIGHT, pulling all cars to the right blocks exactly the
+                // exit it needs; in that case affected cars pull LEFT and hold.
+                double yieldOffset = chooseSameLaneYieldOffset(priority, normal, lane);
+                normal.lockPriorityYield(priority, yieldOffset, PRIORITY_YIELD_LOCK_SECONDS);
 
-                boolean canPullRight = lane.occupancy().hasYieldRightMergeGap(normal, priority);
-                applyHigherPriorityMode(normal, canPullRight
+                boolean sideGap = lane.occupancy().isSideSpaceFree(
+                        normal, yieldOffset, 82.0, 48.0);
+                applyHigherPriorityMode(normal, sideGap
                         ? Vehicle.YieldMode.YIELD_RIGHT
                         : Vehicle.YieldMode.URGENT_CLEAR_PATH);
             }
         }
+    }
+
+
+    private double chooseSameLaneYieldOffset(Vehicle priority, Vehicle normal, Lane lane) {
+        if (priority == null || normal == null || lane == null) {
+            return 0.0;
+        }
+        // If the emergency vehicle plans a right turn, keep the right-turn path
+        // free. Otherwise use the conventional right-side yield.
+        if (priority.getTurnDecision() == Vehicle.TurnDecision.RIGHT) {
+            return lane.getLeftmostOffset(normal);
+        }
+        return lane.getRightmostOffset(normal);
     }
 
     private void applyIntersectionYield(Vehicle priority, List<Vehicle> vehicles,
