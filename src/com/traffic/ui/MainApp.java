@@ -51,6 +51,7 @@ public class MainApp extends Application {
     private boolean autoSpawnEnabled = false;
     private long lastAutoSpawnNanos = 0L;
     private double autoSpawnIntervalSeconds = 0.75;
+    private VehicleSpawner.SpawnTurnMode autoSpawnTurnMode = VehicleSpawner.SpawnTurnMode.RANDOM;
 
     private Canvas canvas;
     private Label lblVehicles;
@@ -209,6 +210,10 @@ public class MainApp extends Application {
         cmbTurn.getSelectionModel().selectFirst();
         cmbTurn.setMaxWidth(Double.MAX_VALUE);
         cmbTurn.getStyleClass().add("dark-combo");
+        cmbTurn.valueProperty().addListener((obs, oldValue, newValue) -> {
+            autoSpawnTurnMode = toSpawnTurnMode(cmbTurn.getSelectionModel().getSelectedIndex());
+            appendSpawnLog("[T] Auto spawn hướng rẽ: " + newValue + "\n");
+        });
 
         // Count
         Label lblCount = makeLabel("Số lượng:");
@@ -527,7 +532,7 @@ public class MainApp extends Application {
                     lane,
                     VehicleSpawner.SpawnPosition.START,
                     VehicleSpawner.SpawnLateralMode.AUTO,
-                    VehicleSpawner.SpawnTurnMode.RANDOM,
+                    autoSpawnTurnMode,
                     1
             );
             if (spawned > 0) {

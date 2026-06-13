@@ -18,7 +18,7 @@ import java.util.List;
  */
 public final class LaneOccupancy {
 
-    private static final double SIDE_MARGIN = 4.0;
+    private static final double SIDE_MARGIN = 3.0;
     private static final double LONGITUDINAL_MARGIN = 4.0;
     private static final int OFFSET_SEARCH_STEPS = 9;
     private static final double PASS_CORRIDOR_FORWARD_FACTOR = 0.85;
@@ -171,7 +171,7 @@ public final class LaneOccupancy {
         }
 
         double direction = passLeft ? -1.0 : 1.0;
-        double required = requiredLateralSeparation(passingVehicle, obstacle) + 3.0;
+        double required = requiredLateralSeparation(passingVehicle, obstacle) + 2.0;
         double current = offsetOf(passingVehicle);
         double obstacleOffset = offsetOf(obstacle);
 
@@ -606,7 +606,15 @@ public final class LaneOccupancy {
     }
 
     private double requiredLateralSeparation(Vehicle a, Vehicle b) {
-        return a.getHeight() / 2.0 + b.getHeight() / 2.0 + SIDE_MARGIN;
+        double margin = SIDE_MARGIN;
+        if ((a != null && a.isPriority()) || (b != null && b.isPriority())) {
+            // Emergency vehicles are allowed to use a slightly tighter center
+            // corridor. Physical overlap is still prevented by vehicle widths,
+            // but this avoids deadlocks where firetruck/ambulance sees the
+            // middle opening as mathematically too narrow by only a few pixels.
+            margin = 2.2;
+        }
+        return a.getHeight() / 2.0 + b.getHeight() / 2.0 + margin;
     }
 
     private double longitudinalPadding(Vehicle a, Vehicle b) {

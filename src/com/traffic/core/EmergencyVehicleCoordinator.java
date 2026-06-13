@@ -12,6 +12,10 @@ public final class EmergencyVehicleCoordinator {
 
     private final EmergencyManager delegate = new EmergencyManager();
 
+    /**
+     * @deprecated Use {@link EmergencyManager#update(List, List)} instead.
+     */
+    @Deprecated
     public void apply(List<Vehicle> vehicles, List<Intersection> intersections) {
         delegate.update(vehicles, intersections);
     }

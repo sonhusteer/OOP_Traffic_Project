@@ -313,6 +313,30 @@ public class BasicRenderer extends AbstractBaseRenderer {
         gc.fillText(label, -w/2 + 2, 3);
 
         gc.restore();
+        drawTurnIntentBadge(gc, v, vx, vy, w, h);
+    }
+
+    private void drawTurnIntentBadge(GraphicsContext gc, Vehicle v, double vx, double vy, double w, double h) {
+        if (v == null) return;
+        String turn = v.getTurnIntentLabel();
+        if (turn == null || turn.isBlank()) return;
+
+        double bx = vx - 7.0;
+        double by = vy - h / 2.0 - 18.0;
+        boolean waiting = v.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION;
+        Color bg = waiting ? Color.rgb(255, 170, 35, 0.88) : Color.rgb(20, 20, 25, 0.70);
+        Color fg = waiting ? Color.rgb(30, 25, 10) : Color.rgb(255, 255, 255, 0.92);
+
+        gc.save();
+        gc.setFill(bg);
+        gc.fillRoundRect(bx, by, 14, 14, 4, 4);
+        gc.setStroke(Color.rgb(255, 255, 255, 0.35));
+        gc.setLineWidth(0.8);
+        gc.strokeRoundRect(bx, by, 14, 14, 4, 4);
+        gc.setFill(fg);
+        gc.setFont(Font.font("SansSerif", FontWeight.BOLD, 10));
+        gc.fillText(turn, bx + 4.0, by + 10.5);
+        gc.restore();
     }
 
     private void drawBlink(GraphicsContext gc, Vehicle v) {

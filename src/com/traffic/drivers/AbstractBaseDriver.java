@@ -79,6 +79,15 @@ public abstract class AbstractBaseDriver implements IDriver {
             return;
         }
 
+        if (!vehicle.isCommittedToIntersection()
+                && vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) {
+            vehicle.cancelOvertake();
+            vehicle.setManeuverState(Vehicle.ManeuverState.HOLDING_POSITION);
+            vehicle.returnToPreferredSlot();
+            vehicle.setSpeed(0.0);
+            return;
+        }
+
         if (mode == Vehicle.YieldMode.STOP_BEFORE_CONFLICT || mode == Vehicle.YieldMode.STOP) {
             vehicle.cancelOvertake();
             vehicle.setManeuverState(Vehicle.ManeuverState.STOPPED_FOR_CONFLICT);

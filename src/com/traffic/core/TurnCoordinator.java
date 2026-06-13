@@ -14,16 +14,17 @@ import java.util.List;
  */
 public class TurnCoordinator {
 
-    private static final double TURN_TRIGGER_DISTANCE = 66.0;
-    private static final double RIGHT_TURN_TRIGGER_DISTANCE = 88.0;
-    private static final double STRAIGHT_CROSSING_DISTANCE = 48.0;
+    private static final double TURN_TRIGGER_DISTANCE = 82.0;
+    private static final double RIGHT_TURN_TRIGGER_DISTANCE = 100.0;
+    private static final double STRAIGHT_CROSSING_DISTANCE = 52.0;
     private static final double CLEAR_RESET_DISTANCE = 128.0;
     private static final double CONFLICT_RADIUS = 52.0;
-    private static final double EXIT_DISTANCE_MIN = 48.0;
-    private static final double EXIT_DISTANCE_MAX = 92.0;
+    private static final double EXIT_DISTANCE_MIN = 58.0;
+    private static final double EXIT_DISTANCE_MAX = 108.0;
     private static final double ENTRY_FRONT_GAP = 76.0;
     private static final double ENTRY_REAR_GAP = 44.0;
     private static final double PREFERRED_OFFSET_TOLERANCE = 6.0;
+    private static final double WAITING_DISTANCE = 130.0;
 
     private final IntersectionOccupancy occupancy = new IntersectionOccupancy();
 
@@ -55,6 +56,7 @@ public class TurnCoordinator {
         }
         if (MathUtils.distance(vehicle.getPosition(), last.getCenter()) > CLEAR_RESET_DISTANCE) {
             vehicle.setLastIntersectionTurned(null);
+            vehicle.setTurnWaitReason(null);
             if (vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.EXITING) {
                 vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.NONE);
                 vehicle.setCurrentIntersection(null);
@@ -74,6 +76,7 @@ public class TurnCoordinator {
                     || vehicle.getIntersectionManeuverState() == Vehicle.IntersectionManeuverState.CROSSING_STRAIGHT) {
                 vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.NONE);
                 vehicle.setCurrentIntersection(null);
+                vehicle.setTurnWaitReason(null);
             }
             return;
         }
@@ -89,11 +92,15 @@ public class TurnCoordinator {
             vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.EXITING);
             vehicle.setCurrentIntersection(best);
             vehicle.setLastIntersectionTurned(best);
+            vehicle.setTurnWaitReason(null);
         } else if (front >= start) {
             vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.CROSSING_STRAIGHT);
             vehicle.setCurrentIntersection(best);
+            vehicle.setTurnWaitReason(null);
         } else if (front >= conflict - TURN_TRIGGER_DISTANCE - 24.0) {
-            vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.APPROACHING);
+            if (vehicle.getIntersectionManeuverState() != Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) {
+                vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.APPROACHING);
+            }
             vehicle.setCurrentIntersection(best);
         }
     }
@@ -103,13 +110,6 @@ public class TurnCoordinator {
                               List<Intersection> intersections) {
         Lane sourceLane = vehicle.getLane();
         if (sourceLane == null || vehicle.getLastIntersectionTurned() != null) {
-            return;
-        }
-        if (!isLateralStableForIntersection(vehicle)) {
-            vehicle.abortLateralManeuverSafely();
-            return;
-        }
-        if (isBlockedByYieldMode(vehicle)) {
             return;
         }
 
@@ -127,9 +127,20 @@ public class TurnCoordinator {
             return;
         }
 
+        if (!isLateralStableForIntersection(vehicle)) {
+            vehicle.abortLateralManeuverSafely();
+            waitBeforeIntersection(vehicle, intersection, "STABILIZE_SLOT");
+            return;
+        }
+        if (isBlockedByYieldMode(vehicle)) {
+            if (distanceToConflict <= WAITING_DISTANCE) {
+                waitBeforeIntersection(vehicle, intersection, "YIELDING");
+            }
+            return;
+        }
+
         if (!canPassTrafficLight(vehicle, sourceLane, conflict)) {
-            vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION);
-            vehicle.setCurrentIntersection(intersection);
+            waitBeforeIntersection(vehicle, intersection, "TRAFFIC_LIGHT");
             return;
         }
 
@@ -137,8 +148,7 @@ public class TurnCoordinator {
                 && occupancy.hasPriorityVehicleApproaching(intersection, vehicles)
                 && !vehicle.isCommittedToIntersection()) {
             vehicle.setYieldMode(Vehicle.YieldMode.STOP_BEFORE_CONFLICT);
-            vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION);
-            vehicle.setCurrentIntersection(intersection);
+            waitBeforeIntersection(vehicle, intersection, "PRIORITY_VEHICLE");
             return;
         }
 
@@ -147,8 +157,12 @@ public class TurnCoordinator {
         Vehicle.TurnDecision effectiveDecision = requested;
 
         if (targetLane == null && requested != Vehicle.TurnDecision.STRAIGHT) {
-            targetLane = findTargetLane(sourceLane, Vehicle.TurnDecision.STRAIGHT, intersection);
-            effectiveDecision = Vehicle.TurnDecision.STRAIGHT;
+            waitBeforeIntersection(vehicle, intersection, "NO_" + requested + "_TARGET");
+            // Do not silently turn a requested LEFT/RIGHT into straight while debugging.
+            // After a short wait the driver remains visible with its L/R label, which
+            // makes missing map connections easy to spot. The explicit angle fallback
+            // below still covers maps that do have a reasonable outgoing lane.
+            return;
         }
         if (targetLane == null) {
             for (Vehicle.TurnDecision fallback : Vehicle.TurnDecision.values()) {
@@ -161,50 +175,128 @@ public class TurnCoordinator {
         }
         if (targetLane == null) {
             vehicle.setLastIntersectionTurned(intersection);
+            vehicle.setTurnWaitReason("NO_TARGET_LANE");
             return;
         }
 
         if (targetLane == sourceLane && effectiveDecision == Vehicle.TurnDecision.STRAIGHT) {
-            // No Bezier needed. The straight crossing is still marked so emergency
-            // rules do not stop the car in the middle of the intersection.
             vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.CROSSING_STRAIGHT);
             vehicle.setCurrentIntersection(intersection);
+            vehicle.setTurnWaitReason(null);
             return;
         }
 
         double targetConflict = targetLane.getProgressOf(intersection.getCenter());
-        double exitDistance = MathUtils.clamp(
-                MathUtils.distance(vehicle.getPosition(), intersection.getCenter()),
-                EXIT_DISTANCE_MIN,
-                EXIT_DISTANCE_MAX);
+        double exitDistance = exitDistanceFor(vehicle, effectiveDecision,
+                MathUtils.distance(vehicle.getPosition(), intersection.getCenter()));
         double targetProgress = MathUtils.clamp(targetConflict + exitDistance, 0.0, targetLane.getLength());
         double targetOffset = chooseEntryOffset(vehicle, targetLane, targetProgress);
         if (Double.isNaN(targetOffset)) {
+            waitBeforeIntersection(vehicle, intersection, "TARGET_ENTRY_FULL");
             return;
         }
 
         if (!occupancy.canEnterIntersection(vehicle, intersection, targetLane,
                 targetProgress, targetOffset, vehicles)) {
-            vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION);
-            vehicle.setCurrentIntersection(intersection);
+            waitBeforeIntersection(vehicle, intersection, "INTERSECTION_BUSY");
             return;
         }
 
-        Vector2D p0 = new Vector2D(vehicle.getPosition().getX(), vehicle.getPosition().getY());
-        Vector2D p1 = new Vector2D(intersection.getCenter().getX(), intersection.getCenter().getY());
-        Vector2D p2 = targetLane.getPositionAt(targetProgress, targetOffset);
-
-        vehicle.startTurn(new TurnManeuver(
+        TurnManeuver maneuver = buildCubicTurn(
+                vehicle,
                 sourceLane,
                 targetLane,
                 intersection,
                 effectiveDecision,
+                targetProgress,
+                targetOffset
+        );
+        vehicle.startTurn(maneuver);
+        vehicle.setTurnWaitReason(null);
+    }
+
+    private void waitBeforeIntersection(Vehicle vehicle, Intersection intersection, String reason) {
+        if (vehicle == null) return;
+        if (!vehicle.isCommittedToIntersection()) {
+            vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION);
+            vehicle.setCurrentIntersection(intersection);
+            vehicle.setTurnWaitReason(reason);
+        }
+    }
+
+    private TurnManeuver buildCubicTurn(Vehicle vehicle,
+                                        Lane sourceLane,
+                                        Lane targetLane,
+                                        Intersection intersection,
+                                        Vehicle.TurnDecision decision,
+                                        double targetProgress,
+                                        double targetOffset) {
+        Vector2D p0 = new Vector2D(vehicle.getPosition().getX(), vehicle.getPosition().getY());
+        Vector2D p3 = targetLane.getPositionAt(targetProgress, targetOffset);
+
+        double sourceProgress = sourceLane.getProgressOf(p0);
+        Vector2D dirIn = sourceLane.getDirectionAt(sourceProgress);
+        Vector2D dirOut = targetLane.getDirectionAt(targetProgress);
+
+        double chord = Math.max(10.0, MathUtils.distance(p0, p3));
+        double angleDelta = Math.abs(normalizeAngle(targetLane.getAngleAt(targetProgress)
+                - sourceLane.getAngleAt(sourceProgress)));
+        double handle = handleLengthFor(vehicle, decision, chord, angleDelta);
+
+        Vector2D p1 = new Vector2D(
+                p0.getX() + dirIn.getX() * handle,
+                p0.getY() + dirIn.getY() * handle
+        );
+        Vector2D p2 = new Vector2D(
+                p3.getX() - dirOut.getX() * handle,
+                p3.getY() - dirOut.getY() * handle
+        );
+
+        return new TurnManeuver(
+                sourceLane,
+                targetLane,
+                intersection,
+                decision,
                 p0,
                 p1,
                 p2,
+                p3,
                 targetOffset,
                 targetProgress
-        ));
+        );
+    }
+
+    private double exitDistanceFor(Vehicle vehicle,
+                                   Vehicle.TurnDecision decision,
+                                   double currentDistanceToCenter) {
+        double vehicleBonus = vehicle != null ? Math.max(0.0, vehicle.getWidth() - 34.0) * 0.55 : 0.0;
+        double base = switch (decision) {
+            case RIGHT -> 66.0;
+            case LEFT -> 88.0;
+            case STRAIGHT -> 64.0;
+        };
+        if (vehicle != null && vehicle.isPriority()) {
+            base += 8.0;
+        }
+        double desired = Math.max(base, currentDistanceToCenter * 0.70 + base * 0.35 + vehicleBonus);
+        return MathUtils.clamp(desired, EXIT_DISTANCE_MIN, EXIT_DISTANCE_MAX + vehicleBonus);
+    }
+
+    private double handleLengthFor(Vehicle vehicle,
+                                   Vehicle.TurnDecision decision,
+                                   double chord,
+                                   double angleDelta) {
+        double sharpFactor = MathUtils.clamp(angleDelta / 90.0, 0.45, 1.35);
+        double decisionFactor = switch (decision) {
+            case RIGHT -> 0.48;
+            case LEFT -> 0.58;
+            case STRAIGHT -> 0.34;
+        };
+        double vehicleBonus = vehicle != null ? Math.max(0.0, vehicle.getWidth() - 34.0) * 0.20 : 0.0;
+        double handle = chord * decisionFactor * sharpFactor + vehicleBonus;
+        double min = decision == Vehicle.TurnDecision.STRAIGHT ? 18.0 : 28.0;
+        double max = Math.max(min, chord * 0.62);
+        return MathUtils.clamp(handle, min, Math.min(max, 86.0 + vehicleBonus));
     }
 
     private boolean isLateralStableForIntersection(Vehicle vehicle) {
@@ -286,7 +378,7 @@ public class TurnCoordinator {
         }
 
         double desired = decision == Vehicle.TurnDecision.LEFT ? -90.0 : 90.0;
-        return bestOutgoingLaneByAngle(currentLane, intersection, desired, 55.0);
+        return bestOutgoingLaneByAngle(currentLane, intersection, desired, 60.0);
     }
 
     private Lane bestOutgoingLaneByAngle(Lane currentLane,
@@ -298,7 +390,7 @@ public class TurnCoordinator {
         Lane best = null;
         double bestScore = Double.MAX_VALUE;
         for (Lane candidate : intersection.getLanes()) {
-            if (candidate == null || candidate == currentLane || !candidate.isUsableForSpawn()) {
+            if (candidate == null || candidate == currentLane || candidate.getLength() <= 5.0) {
                 continue;
             }
             if (!isOutgoingFromIntersection(candidate, intersection)) {
@@ -324,7 +416,7 @@ public class TurnCoordinator {
             return true;
         }
         double progress = lane.getProgressOf(intersection.getCenter());
-        return progress < lane.getLength() * 0.35;
+        return progress < lane.getLength() * 0.45;
     }
 
     private double chooseEntryOffset(Vehicle vehicle, Lane targetLane, double targetProgress) {

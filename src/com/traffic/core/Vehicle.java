@@ -101,6 +101,7 @@ public abstract class Vehicle {
     protected Intersection lastIntersectionTurned = null;
     protected Intersection currentIntersection = null;
     protected IntersectionManeuverState intersectionManeuverState = IntersectionManeuverState.NONE;
+    protected String turnWaitReason = null;
 
     // Priority vehicles should give normal vehicles a short chance to yield
     // before committing to aggressive passing or emergency corridor.
@@ -147,6 +148,7 @@ public abstract class Vehicle {
             lane.addVehicle(this);
             syncPositionFromLane();
         }
+        turnWaitReason = null;
     }
 
     /** Legacy API retained for older UI code. Prefer setLanePosition. */
@@ -190,15 +192,58 @@ public abstract class Vehicle {
 
     private void updateTurnManeuver(double deltaTime) {
         if (activeTurn == null) return;
-        boolean done = activeTurn.advance(speed, deltaTime);
+
+        // Once committed to the intersection, the vehicle must not stop in the
+        // conflict area. Clamp the motion speed to a smooth turn band so a car
+        // that was waiting at the stop line does not freeze immediately after
+        // startTurn(), and a fast emergency vehicle does not snap through a tight
+        // curve.
+        double motionSpeed = MathUtils.clamp(speed, minCommittedTurnSpeed(), maxCommittedTurnSpeed());
+        speed = motionSpeed;
+
+        boolean done = activeTurn.advance(motionSpeed, deltaTime);
         Vector2D p = activeTurn.pointAtCurrentT();
         Vector2D tangent = activeTurn.tangentAtCurrentT();
         position.setX(p.getX());
         position.setY(p.getY());
-        angle = Math.toDegrees(Math.atan2(tangent.getY(), tangent.getX()));
+
+        double desiredAngle = Math.toDegrees(Math.atan2(tangent.getY(), tangent.getX()));
+        angle = rotateToward(angle, desiredAngle, maxHeadingTurnRate() * Math.max(0.0, deltaTime));
         if (done) {
             completeActiveTurn();
         }
+    }
+
+    private double minCommittedTurnSpeed() {
+        if (isPriority) return 44.0;
+        return 32.0;
+    }
+
+    private double maxCommittedTurnSpeed() {
+        String type = getTypeName();
+        if ("firetruck".equals(type)) return 58.0;
+        if ("ambulance".equals(type)) return 66.0;
+        return 60.0;
+    }
+
+    private double maxHeadingTurnRate() {
+        String type = getTypeName();
+        if ("firetruck".equals(type)) return 145.0;
+        if ("ambulance".equals(type)) return 170.0;
+        return 190.0;
+    }
+
+    private static double rotateToward(double current, double target, double maxStep) {
+        double diff = normalizeAngle(target - current);
+        double step = MathUtils.clamp(diff, -Math.abs(maxStep), Math.abs(maxStep));
+        return normalizeAngle(current + step);
+    }
+
+    private static double normalizeAngle(double angle) {
+        double result = angle;
+        while (result <= -180.0) result += 360.0;
+        while (result > 180.0) result -= 360.0;
+        return result;
     }
 
     private void updateLateralOffset(double deltaTime) {
@@ -443,6 +488,7 @@ public abstract class Vehicle {
         if (maneuver == null || maneuver.getTargetLane() == null) return;
         abortLateralManeuverSafely();
         activeTurn = maneuver;
+        turnWaitReason = null;
         maneuver.getTargetLane().reserve(this);
         currentIntersection = maneuver.getIntersection();
         lastIntersectionTurned = maneuver.getIntersection();
@@ -475,6 +521,7 @@ public abstract class Vehicle {
         yieldMode = YieldMode.NONE;
         maneuverState = ManeuverState.NORMAL;
         turnDecision = TurnDecision.STRAIGHT;
+        turnWaitReason = null;
     }
 
     public boolean isCommittedToIntersection() {
@@ -604,6 +651,21 @@ public abstract class Vehicle {
     public IntersectionManeuverState getIntersectionManeuverState() { return intersectionManeuverState; }
     public void setIntersectionManeuverState(IntersectionManeuverState state) {
         intersectionManeuverState = state == null ? IntersectionManeuverState.NONE : state;
+    }
+
+    public String getTurnWaitReason() { return turnWaitReason; }
+    public void setTurnWaitReason(String reason) { turnWaitReason = reason; }
+
+    public Vehicle.TurnDecision getDisplayedTurnDecision() {
+        return activeTurn != null ? activeTurn.getDecision() : turnDecision;
+    }
+
+    public String getTurnIntentLabel() {
+        return switch (getDisplayedTurnDecision()) {
+            case LEFT -> "L";
+            case RIGHT -> "R";
+            case STRAIGHT -> "S";
+        };
     }
 
     public abstract String getTypeName();
