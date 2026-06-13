@@ -282,42 +282,59 @@ public abstract class AbstractBaseRenderer implements IRenderer {
             if (inter.getType() == Intersection.Type.FIVE_WAY) {
                 double cx = inter.getCenter().getX();
                 double cy = inter.getCenter().getY();
-                double r = 85.0;
-                
-                // 0. Nền asphalt to hơn bao quanh để che các góc đè lên nhau giữa nhánh chéo và nhánh ngang
-                double rBase = 125.0;
-                gc.setFill(Color.rgb(45, 48, 55)); // Trùng màu ASPHALT của mặt đường
-                gc.fillOval(cx - rBase, cy - rBase, rBase * 2, rBase * 2);
 
-                // 1. Nền asphalt tròn (roundabout)
+                // Vẽ bùng binh như một vòng xuyến thật: nền phủ lớn che các nhánh,
+                // một vòng lane rõ ràng, đảo xanh ở giữa, vạch vòng + mũi tên lưu thông.
+                double coverR = 132.0;
+                double outerR = 110.0;
+                double innerR = 48.0;
+                double islandR = 44.0;
+                double laneGuideR = 66.0;
+
+                gc.setFill(Color.rgb(0, 0, 0, 0.24));
+                gc.fillOval(cx - coverR + 4, cy - coverR + 5, coverR * 2, coverR * 2);
+
+                gc.setFill(Color.rgb(45, 48, 55));
+                gc.fillOval(cx - coverR, cy - coverR, coverR * 2, coverR * 2);
+
                 gc.setFill(Color.rgb(38, 41, 50));
-                gc.fillOval(cx - r, cy - r, r * 2, r * 2);
-                
-                // Highlight giữa
-                gc.setFill(Color.rgb(255, 255, 255, 0.04));
-                gc.fillOval(cx - r * 0.8, cy - r * 0.8, r * 1.6, r * 1.6);
+                gc.fillOval(cx - outerR, cy - outerR, outerR * 2, outerR * 2);
 
-                // 2. Vạch phân làn đứt đoạn tròn
-                gc.setStroke(Color.rgb(255, 255, 255, 0.55));
-                gc.setLineWidth(1.8);
+                gc.setFill(Color.rgb(255, 255, 255, 0.045));
+                gc.fillOval(cx - outerR * 0.86, cy - outerR * 0.86, outerR * 1.72, outerR * 1.72);
+
+                // Viền ngoài và viền trong màu vàng nhạt để người xem nhận ra đây là vòng xuyến.
+                gc.setLineDashes((double[]) null);
+                gc.setStroke(Color.rgb(255, 210, 50, 0.82));
+                gc.setLineWidth(2.4);
+                gc.strokeOval(cx - outerR + 7, cy - outerR + 7, (outerR - 7) * 2, (outerR - 7) * 2);
+                gc.setStroke(Color.rgb(255, 210, 50, 0.55));
+                gc.setLineWidth(2.0);
+                gc.strokeOval(cx - innerR, cy - innerR, innerR * 2, innerR * 2);
+
+                gc.setStroke(Color.rgb(255, 255, 255, 0.62));
+                gc.setLineWidth(2.0);
                 gc.setLineDashes(14, 10);
-                gc.strokeOval(cx - r + 30, cy - r + 30, (r - 30) * 2, (r - 30) * 2);
+                gc.strokeOval(cx - laneGuideR, cy - laneGuideR, laneGuideR * 2, laneGuideR * 2);
                 gc.setLineDashes((double[]) null);
 
-                // 3. Cỏ xanh ở tâm (Đảo giao thông)
-                double islandR = 45.0;
+                for (int i = 0; i < 5; i++) {
+                    drawRoundaboutArrow(gc, cx, cy, -Math.PI / 2 + i * 2.0 * Math.PI / 5.0 - 0.32, laneGuideR + 17.0);
+                }
+
                 gc.setFill(Color.rgb(46, 80, 40));
                 gc.fillOval(cx - islandR, cy - islandR, islandR * 2, islandR * 2);
-                gc.setStroke(Color.rgb(30, 50, 25));
-                gc.setLineWidth(2.0);
+                gc.setFill(Color.rgb(65, 105, 52, 0.45));
+                gc.fillOval(cx - islandR * 0.72, cy - islandR * 0.72, islandR * 1.44, islandR * 1.44);
+                gc.setStroke(Color.rgb(24, 48, 24));
+                gc.setLineWidth(2.2);
                 gc.strokeOval(cx - islandR, cy - islandR, islandR * 2, islandR * 2);
 
-                // Số 7 đếm ngược giữa bùng binh
-                gc.setFill(Color.rgb(20, 25, 30, 0.9));
-                gc.fillRect(cx - 10, cy - 8, 20, 16);
-                gc.setFill(Color.WHITE);
-                gc.setFont(javafx.scene.text.Font.font("SansSerif", javafx.scene.text.FontWeight.BOLD, 12));
-                gc.fillText("7", cx - 4, cy + 4);
+                gc.setFill(Color.rgb(255, 255, 255, 0.70));
+                gc.setFont(javafx.scene.text.Font.font("SansSerif", javafx.scene.text.FontWeight.BOLD, 16));
+                gc.fillText("↺", cx - 7, cy + 6);
+
+                drawRoundaboutApproachMarkings(gc, inter);
 
             } else {
                 double[] b = calcIntersectionBox(inter);
@@ -400,6 +417,57 @@ public abstract class AbstractBaseRenderer implements IRenderer {
                     drawRoadArrow(gc, ax, ay, nx, ny);
                 }
             }
+        }
+    }
+
+    private void drawRoundaboutArrow(GraphicsContext gc, double cx, double cy, double theta, double radius) {
+        double x = cx + Math.cos(theta) * radius;
+        double y = cy + Math.sin(theta) * radius;
+        double tangent = theta - Math.PI / 2.0; // cùng chiều với path vòng xuyến trong TurnManeuver
+
+        gc.save();
+        gc.translate(x, y);
+        gc.rotate(Math.toDegrees(tangent));
+        gc.setStroke(Color.rgb(255, 255, 255, 0.58));
+        gc.setFill(Color.rgb(255, 255, 255, 0.58));
+        gc.setLineWidth(2.2);
+        gc.setLineCap(StrokeLineCap.ROUND);
+        gc.strokeLine(-10, 0, 7, 0);
+        gc.fillPolygon(new double[]{7, 7, 15}, new double[]{-5, 5, 0}, 3);
+        gc.restore();
+    }
+
+    private void drawRoundaboutApproachMarkings(GraphicsContext gc, Intersection inter) {
+        for (Lane lane : inter.getLanes()) {
+            if (lane == null || lane.getLight() == null) {
+                continue; // chỉ vẽ vạch dừng cho làn đi vào vòng xuyến
+            }
+            Vector2D stop = lane.getStopLine();
+            double stopProgress = lane.getProgressOf(stop);
+            Vector2D dir = lane.getDirectionAt(stopProgress);
+            double nx = dir.getX();
+            double ny = dir.getY();
+            double len = Math.hypot(nx, ny);
+            if (len < 1e-6) {
+                continue;
+            }
+            nx /= len;
+            ny /= len;
+            double px = -ny;
+            double py = nx;
+            double hw = ROAD_HALF;
+
+            gc.setStroke(Color.rgb(240, 240, 240, 0.92));
+            gc.setLineWidth(4.4);
+            gc.setLineCap(StrokeLineCap.BUTT);
+            gc.setLineDashes((double[]) null);
+            gc.strokeLine(stop.getX() + px * hw, stop.getY() + py * hw,
+                    stop.getX() - px * hw, stop.getY() - py * hw);
+
+            // Mũi tên approach nhỏ để phân biệt đường vào với vòng xuyến ở giữa.
+            double ax = stop.getX() - nx * 42.0;
+            double ay = stop.getY() - ny * 42.0;
+            drawRoadArrow(gc, ax, ay, nx, ny);
         }
     }
 
