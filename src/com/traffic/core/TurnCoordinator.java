@@ -598,13 +598,13 @@ public class TurnCoordinator {
         if (isSideYieldMode(mode)) {
             vehicle.cancelOvertake();
             Vehicle.IntersectionManeuverState state = vehicle.getIntersectionManeuverState();
-            if (state == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
+            if (distanceToConflict <= WAITING_DISTANCE) {
+                waitBeforeIntersection(vehicle, intersection, "YIELD_PRIORITY_BEFORE_TURN");
+            } else if (state == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT
                     || state == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT_PAUSED) {
                 vehicle.setIntersectionManeuverState(Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT_PAUSED);
                 vehicle.setCurrentIntersection(intersection);
                 vehicle.setTurnWaitReason("TURN_SLOT_PAUSED_FOR_PRIORITY_YIELD");
-            } else if (distanceToConflict <= WAITING_DISTANCE) {
-                waitBeforeIntersection(vehicle, intersection, "YIELD_PRIORITY_BEFORE_TURN");
             } else if (state == Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) {
                 vehicle.setTurnWaitReason("YIELD_PRIORITY_BEFORE_TURN");
             } else {

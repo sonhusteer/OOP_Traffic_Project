@@ -115,11 +115,10 @@ public class VehicleSpawner {
             case LEFT -> Vehicle.TurnDecision.LEFT;
             case RIGHT -> Vehicle.TurnDecision.RIGHT;
             case RANDOM -> {
-                // Calmer default traffic mix. Turns still appear for coverage,
-                // but most auto-spawned vehicles go straight to reduce junction chaos.
+                // Tăng tỷ lệ rẽ để ngã ba/ngã tư thấy xe rẽ nhiều hơn
                 int r = random.nextInt(100);
-                if (r < 70) yield Vehicle.TurnDecision.STRAIGHT;
-                if (r < 85) yield Vehicle.TurnDecision.LEFT;
+                if (r < 40) yield Vehicle.TurnDecision.STRAIGHT;
+                if (r < 70) yield Vehicle.TurnDecision.LEFT;
                 yield Vehicle.TurnDecision.RIGHT;
             }
         };
@@ -172,11 +171,11 @@ public class VehicleSpawner {
         boolean canRight = lane.hasAllowedTurnDecision(Vehicle.TurnDecision.RIGHT);
 
         if (safe == Vehicle.TurnDecision.LEFT) {
-            if (canStraight) return Vehicle.TurnDecision.STRAIGHT;
             if (canRight) return Vehicle.TurnDecision.RIGHT;
-        } else if (safe == Vehicle.TurnDecision.RIGHT) {
             if (canStraight) return Vehicle.TurnDecision.STRAIGHT;
+        } else if (safe == Vehicle.TurnDecision.RIGHT) {
             if (canLeft) return Vehicle.TurnDecision.LEFT;
+            if (canStraight) return Vehicle.TurnDecision.STRAIGHT;
         } else { // STRAIGHT invalid, common on the stem of a T-junction.
             if (canLeft && canRight) return random.nextBoolean()
                     ? Vehicle.TurnDecision.LEFT

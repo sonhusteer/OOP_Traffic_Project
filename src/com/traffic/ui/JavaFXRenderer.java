@@ -23,6 +23,9 @@ import java.util.Map;
 public class JavaFXRenderer extends AbstractBaseRenderer {
 
     private final Map<String, Image> sprites = new HashMap<>();
+    private final Map<Integer, Image> tileSprites = new HashMap<>();
+    private final java.util.List<Image> buildingSprites = new java.util.ArrayList<>();
+    private final java.util.List<Image> envSprites = new java.util.ArrayList<>();
 
     // ── Bảng màu đường & nền ─────────────────────────────────────────────
     private static final Color ASPHALT      = Color.rgb(38, 41, 50);
@@ -55,13 +58,48 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
 
     /** Tải sprite PNG từ /images/. Nếu không có, fallback về 2D shapes. */
     private void loadSprites() {
-        String[] types = {"car", "motorcycle", "bicycle", "ambulance", "firetruck"};
-        for (String type : types) {
+        // Simple Vehicles
+        String[] stdVehicles = {"ambulance", "bicycle", "firetruck", "motorcycle"};
+        for (String type : stdVehicles) {
             try {
                 InputStream is = getClass().getResourceAsStream("/images/" + type + ".png");
-                if (is != null) {
-                    sprites.put(type, new Image(is));
-                }
+                if (is != null) sprites.put(type, new Image(is));
+            } catch (Exception ignored) {}
+        }
+        
+        // Car Variants
+        String[] cars = {"car1", "car2", "car3"};
+        for (String c : cars) {
+            try {
+                InputStream is = getClass().getResourceAsStream("/images/" + c + ".png");
+                if (is != null) sprites.put(c, new Image(is));
+            } catch (Exception ignored) {}
+        }
+        
+        // Buildings
+        for (int i = 1; i <= 25; i++) {
+            String path = String.format("/images/Structure/medievalStructure_%02d.png", i);
+            try {
+                InputStream is = getClass().getResourceAsStream(path);
+                if (is != null) buildingSprites.add(new Image(is));
+            } catch (Exception ignored) {}
+        }
+        
+        // Environments (Trees)
+        for (int i = 1; i <= 25; i++) {
+            String path = String.format("/images/Environment/medievalEnvironment_%02d.png", i);
+            try {
+                InputStream is = getClass().getResourceAsStream(path);
+                if (is != null) envSprites.add(new Image(is));
+            } catch (Exception ignored) {}
+        }
+        
+        // Tiles
+        for (int i = 1; i <= 58; i++) {
+            String path = String.format("/images/Tile/medievalTile_%02d.png", i);
+            try {
+                InputStream is = getClass().getResourceAsStream(path);
+                if (is != null) tileSprites.put(i, new Image(is));
             } catch (Exception ignored) {}
         }
     }
@@ -84,23 +122,45 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
     }
 
     // =====================================================================
-    //  1. NỀN CỎ — gradient tối hơn BasicRenderer
+    //  1. NỀN CỎ — Tiled Background
     // =====================================================================
     private void drawBackground(GraphicsContext gc, double w, double h) {
-        LinearGradient bg = new LinearGradient(
-            0, 0, w, h, false, CycleMethod.NO_CYCLE,
-            new Stop(0, BG_DARK),
-            new Stop(1, BG_GRASS)
-        );
-        gc.setFill(bg);
-        gc.fillRect(0, 0, w, h);
+        if (tileSprites.isEmpty()) {
+            LinearGradient bg = new LinearGradient(
+                0, 0, w, h, false, CycleMethod.NO_CYCLE,
+                new Stop(0, BG_DARK),
+                new Stop(1, BG_GRASS)
+            );
+            gc.setFill(bg);
+            gc.fillRect(0, 0, w, h);
 
-        // Lưới cỏ mờ nhạt
-        gc.setStroke(Color.rgb(0, 0, 0, 0.08));
-        gc.setLineWidth(1);
-        gc.setLineDashes();
-        for (int x = 0; x < (int) w; x += 32) gc.strokeLine(x, 0, x, h);
-        for (int y = 0; y < (int) h; y += 32) gc.strokeLine(0, y, w, y);
+            // Lưới cỏ mờ nhạt
+            gc.setStroke(Color.rgb(0, 0, 0, 0.08));
+            gc.setLineWidth(1);
+            gc.setLineDashes();
+            for (int x = 0; x < (int) w; x += 32) gc.strokeLine(x, 0, x, h);
+            for (int y = 0; y < (int) h; y += 32) gc.strokeLine(0, y, w, y);
+            return;
+        }
+
+        java.util.Random rnd = new java.util.Random(999);
+        double tileSize = 64; // Use 64x64 grid cells
+        for (double y = 0; y < h; y += tileSize) {
+            for (double x = 0; x < w; x += tileSize) {
+                // Mostly pure grass tiles (57, 58)
+                int tId = rnd.nextBoolean() ? 57 : 58;
+                // 15% chance to have small grass details (49, 50, 51)
+                if (rnd.nextDouble() < 0.15) {
+                    tId = 49 + rnd.nextInt(3);
+                }
+                
+                Image tImg = tileSprites.get(tId);
+                if (tImg != null) {
+                    // Bleed 1 pixel to prevent seams
+                    gc.drawImage(tImg, x, y, tileSize + 1, tileSize + 1);
+                }
+            }
+        }
     }
 
     // =====================================================================
@@ -111,34 +171,70 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
         // Cố định seed để nhà không bị giật khi render lại
         java.util.Random rnd = new java.util.Random(42);
         
-        int bSize = 60;
-        int padding = 20;
-        int streetClearance = 80;
+        int bSize = 35; // Smaller building size
+        int padding = 10;
+        int streetClearance = 60; // Closer to street (lane width is ~88, so 44 is edge)
 
+        // Logic: Try to build mostly along streets to form city blocks
         for (int y = padding; y < canvasH - padding; y += bSize + padding) {
             for (int x = padding; x < canvasW - padding; x += bSize + padding) {
                 // Kiểm tra xem tòa nhà có đè lên đường không
                 boolean isClear = true;
+                boolean isNearStreet = false;
+                
                 for (Lane lane : lanes) {
                     if (lane == null) continue;
-                    // Kiểm tra khoảng cách từ tâm tòa nhà đến đường (rất cơ bản)
                     double cx = x + bSize / 2.0;
                     double cy = y + bSize / 2.0;
                     double lx1 = lane.getStart().getX(), ly1 = lane.getStart().getY();
                     double lx2 = lane.getEnd().getX(), ly2 = lane.getEnd().getY();
                     
-                    // Khoảng cách từ điểm đến đoạn thẳng
                     double dist = pointToLineDistance(cx, cy, lx1, ly1, lx2, ly2);
                     if (dist < streetClearance) {
                         isClear = false;
                         break;
                     }
+                    if (dist < streetClearance + 40) {
+                        isNearStreet = true;
+                    }
                 }
 
-                if (isClear && rnd.nextDouble() > 0.2) { // 80% có nhà
+                // Logic: 90% chance to build if near street, 40% chance if deep inside block
+                double buildChance = isNearStreet ? 0.90 : 0.40;
+                
+                if (isClear && rnd.nextDouble() < buildChance) { 
+                    double bw = bSize + rnd.nextInt(10);
+                    double bh = bSize + rnd.nextInt(15);
+
+                    // Try to draw image building
+                    if (!buildingSprites.isEmpty()) {
+                        int bIdx = rnd.nextInt(buildingSprites.size());
+                        Image bImg = buildingSprites.get(bIdx);
+                        if (bImg != null) {
+                            // Foundation Tile (Stone: 15, 16 or Dirt: 13, 14)
+                            if (!tileSprites.isEmpty()) {
+                                int foundId = rnd.nextBoolean() ? (rnd.nextBoolean() ? 13 : 14) : (rnd.nextBoolean() ? 15 : 16);
+                                Image fImg = tileSprites.get(foundId);
+                                if (fImg != null) {
+                                    // Make foundation larger than building
+                                    double fx = x - 12;
+                                    double fy = y - 12;
+                                    double fw = bw + 24;
+                                    double fh = bh + 24;
+                                    gc.drawImage(fImg, fx, fy, fw, fh);
+                                }
+                            }
+
+                            // Soft shadow
+                            gc.setFill(Color.rgb(0, 0, 0, 0.4));
+                            gc.fillRoundRect(x + 5, y + 5, bw, bh, 4, 4);
+                            
+                            gc.drawImage(bImg, x, y - bh * 0.2, bw, bh * 1.2);
+                            continue; // skip primitive rendering
+                        }
+                    }
+
                     boolean isGlass = rnd.nextDouble() > 0.4; // 60% nhà kính
-                    double bw = bSize + rnd.nextInt(20);
-                    double bh = bSize + rnd.nextInt(30);
                     
                     // Vẽ bóng đổ (Soft shadow)
                     gc.setFill(Color.rgb(0, 0, 0, 0.4));
@@ -226,20 +322,32 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
             }
             
             if (nearRoad && !onRoad) {
-                // Tán cây sồi lớn: bóng đổ trước
-                double treeR = 25 + rnd.nextDouble() * 15;
-                gc.setFill(Color.rgb(0, 0, 0, 0.35));
-                gc.fillOval(tx - treeR + 8, ty - treeR + 8, treeR * 2, treeR * 2);
+                Image tImg = null;
+                if (!envSprites.isEmpty()) {
+                    tImg = envSprites.get(rnd.nextInt(envSprites.size()));
+                }
                 
-                // Các lớp lá đè lên nhau
-                for (int j = 0; j < 3; j++) {
-                    double leafR = treeR * (1.0 - j*0.2);
-                    double ox = (rnd.nextDouble() - 0.5) * 10;
-                    double oy = (rnd.nextDouble() - 0.5) * 10;
+                double treeR = 15 + rnd.nextDouble() * 10;
+                if (tImg != null) {
+                    double treeW = treeR * 2.2;
+                    gc.setFill(Color.rgb(0, 0, 0, 0.35));
+                    gc.fillOval(tx - treeR + 4, ty - treeR + 4, treeR * 2, treeR * 2);
+                    gc.drawImage(tImg, tx - treeW/2, ty - treeW/2, treeW, treeW);
+                } else {
+                    // Tán cây sồi lớn: bóng đổ trước
+                    gc.setFill(Color.rgb(0, 0, 0, 0.35));
+                    gc.fillOval(tx - treeR + 8, ty - treeR + 8, treeR * 2, treeR * 2);
                     
-                    // Màu xanh lá đậm -> nhạt (với chút vàng của sồi già)
-                    gc.setFill(Color.rgb(30 + j*15, 80 + j*25 + rnd.nextInt(20), 20 + j*10));
-                    gc.fillOval(tx - leafR + ox, ty - leafR + oy, leafR * 2, leafR * 2);
+                    // Các lớp lá đè lên nhau
+                    for (int j = 0; j < 3; j++) {
+                        double leafR = treeR * (1.0 - j*0.2);
+                        double ox = (rnd.nextDouble() - 0.5) * 10;
+                        double oy = (rnd.nextDouble() - 0.5) * 10;
+                        
+                        // Màu xanh lá đậm -> nhạt (với chút vàng của sồi già)
+                        gc.setFill(Color.rgb(30 + j*15, 80 + j*25 + rnd.nextInt(20), 20 + j*10));
+                        gc.fillOval(tx - leafR + ox, ty - leafR + oy, leafR * 2, leafR * 2);
+                    }
                 }
             }
         }
@@ -481,15 +589,28 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
 
         gc.save();
         gc.translate(px, py);
-        gc.rotate(v.getAngle());   // JavaFX rotate() takes degrees
+        gc.rotate(v.getAngle());   // Removed +90 offset because the new images point East (Right)
 
         drawDebugStateBorder(gc, debugState, w, h);
 
-        // Kiểm tra sprite
-        if (sprites.containsKey(v.getTypeName())) {
+        String spriteKey = v.getTypeName();
+        // Determine car variant deterministically so it doesn't flicker
+        if (spriteKey.equals("car")) {
+            String[] vars = {"car1", "car2", "car3"};
+            int hash = Math.abs(v.getName().hashCode());
+            spriteKey = vars[hash % vars.length];
+        }
+
+        // Kiểm tra sprite đơn hướng
+        if (sprites.containsKey(spriteKey)) {
             // ── Vẽ sprite ───────────────────────────────────────────────
-            Image sprite = sprites.get(v.getTypeName());
-            gc.drawImage(sprite, -w / 2, -h / 2, w, h);
+            Image sprite = sprites.get(spriteKey);
+            double drawW = w * 1.5;
+            double drawH = h * 1.5;
+            gc.save();
+            gc.rotate(90);
+            gc.drawImage(sprite, -drawH / 2, -drawW / 2, drawH, drawW);
+            gc.restore();
         } else {
             // ── Fallback: vẽ 2D shapes giống BasicRenderer ──────────────
 

@@ -1,5 +1,6 @@
 package com.traffic.maps;
 
+import com.traffic.core.Vehicle;
 import com.traffic.map.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -101,6 +102,18 @@ public class FiveWayMap implements MapConfig {
 
             ngaNam.addLane(inLane);
             ngaNam.addLane(outLane);
+        }
+
+        for (int i = 0; i < 5; i++) {
+            Lane inLane = inLanes[i];
+            
+            // Map 3 routing (Clockwise exits from perspective of incoming lane):
+            // 1st exit (RIGHT): (i + 4) % 5
+            // 2nd exit (STRAIGHT): (i + 3) % 5
+            // 3rd exit (LEFT): (i + 2) % 5
+            inLane.setTurnTarget(ngaNam, Vehicle.TurnDecision.RIGHT, outLanes[(i + 4) % 5]);
+            inLane.setTurnTarget(ngaNam, Vehicle.TurnDecision.STRAIGHT, outLanes[(i + 3) % 5]);
+            inLane.setTurnTarget(ngaNam, Vehicle.TurnDecision.LEFT, outLanes[(i + 2) % 5]);
         }
 
         intersections.add(ngaNam);
