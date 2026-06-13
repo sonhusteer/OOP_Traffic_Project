@@ -253,12 +253,13 @@ public class BasicRenderer extends AbstractBaseRenderer {
         double vy = v.getPosition().getY();
         double w  = v.getWidth();
         double h  = v.getHeight();
+        DebugVisualState debugState = VehicleDebugClassifier.classify(v);
 
         gc.save();
         gc.translate(vx, vy);
         gc.rotate(v.getAngle());
 
-        drawDebugStateBorder(gc, VehicleDebugClassifier.classify(v), w, h);
+        drawDebugStateBorder(gc, debugState, w, h);
 
         // Body
         Color base = VEHICLE_COLORS.getOrDefault(v.getTypeName(), Color.GRAY);
@@ -289,6 +290,7 @@ public class BasicRenderer extends AbstractBaseRenderer {
 
         gc.restore();
         drawTurnIntentBadge(gc, v, vx, vy, w, h);
+        drawDebugStateCue(gc, debugState, vx, vy, w, h);
     }
 
     private void drawDebugStateBorder(GraphicsContext gc, DebugVisualState state, double w, double h) {
@@ -312,6 +314,43 @@ public class BasicRenderer extends AbstractBaseRenderer {
         }
         gc.strokeRect(-w / 2 - 4, -h / 2 - 4, w + 8, h + 8);
         gc.setLineDashes();
+    }
+
+    private void drawDebugStateCue(GraphicsContext gc, DebugVisualState state, double vx, double vy, double w, double h) {
+        if (state == null || state == DebugVisualState.NORMAL) return;
+        String cue = switch (state) {
+            case EMERGENCY_YIELD -> "E";
+            case PRIORITY_QUEUE -> "Q";
+            case TURNING_OR_INTERSECTION -> "T";
+            case ORDINARY_WAIT -> "W";
+            case GAP_FILL -> "G";
+            case OVERTAKE -> "O";
+            case ERROR -> "!";
+            default -> "";
+        };
+        if (cue.isEmpty()) return;
+        Color bg = switch (state) {
+            case ERROR -> Color.rgb(255, 45, 180, 0.90);
+            case EMERGENCY_YIELD -> Color.rgb(235, 45, 45, 0.90);
+            case PRIORITY_QUEUE -> Color.rgb(255, 115, 95, 0.90);
+            case TURNING_OR_INTERSECTION -> Color.rgb(165, 95, 255, 0.88);
+            case ORDINARY_WAIT -> Color.rgb(255, 180, 45, 0.88);
+            case GAP_FILL -> Color.rgb(40, 210, 190, 0.88);
+            case OVERTAKE -> Color.rgb(70, 150, 255, 0.88);
+            default -> Color.TRANSPARENT;
+        };
+        double size = 14.0;
+        double x = vx + w / 2.0 + 5.0;
+        double y = vy + h / 2.0 + 2.0;
+        gc.save();
+        gc.setFill(bg);
+        gc.fillRoundRect(x, y, size, size, 4, 4);
+        gc.setStroke(Color.rgb(10, 10, 12, 0.55));
+        gc.strokeRoundRect(x, y, size, size, 4, 4);
+        gc.setFill(Color.rgb(255, 255, 255, 0.96));
+        gc.setFont(Font.font("SansSerif", FontWeight.BOLD, 9));
+        gc.fillText(cue, x + 4.0, y + 10.5);
+        gc.restore();
     }
 
     private void drawTurnIntentBadge(GraphicsContext gc, Vehicle v, double vx, double vy, double w, double h) {

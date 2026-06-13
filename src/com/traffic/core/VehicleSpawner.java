@@ -115,12 +115,11 @@ public class VehicleSpawner {
             case LEFT -> Vehicle.TurnDecision.LEFT;
             case RIGHT -> Vehicle.TurnDecision.RIGHT;
             case RANDOM -> {
-                // Debug-friendly distribution: enough cars still go straight, but
-                // left/right turns appear frequently so turn logic problems are
-                // visible without manual spawning.
+                // Calmer default traffic mix. Turns still appear for coverage,
+                // but most auto-spawned vehicles go straight to reduce junction chaos.
                 int r = random.nextInt(100);
-                if (r < 40) yield Vehicle.TurnDecision.STRAIGHT;
-                if (r < 70) yield Vehicle.TurnDecision.LEFT;
+                if (r < 70) yield Vehicle.TurnDecision.STRAIGHT;
+                if (r < 85) yield Vehicle.TurnDecision.LEFT;
                 yield Vehicle.TurnDecision.RIGHT;
             }
         };

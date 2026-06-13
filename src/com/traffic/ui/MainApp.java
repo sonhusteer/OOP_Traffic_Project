@@ -36,6 +36,8 @@ public class MainApp extends Application {
         new HighwayMap()
     };
 
+    private static final int MAX_AUTO_SPAWN_BURSTS_PER_FRAME = 4;
+
     // ── State ────────────────────────────────────────────────────────────
     private MapConfig currentMap;
     private TrafficEngine engine;
@@ -478,6 +480,7 @@ public class MainApp extends Application {
             autoSpawnTimerSeconds = 0.0;
             return;
         }
+
         SpawnProfile profile = getSpawnProfile(currentMap);
         if (engine.getVehicles().size() >= profile.maxTotalVehicles()) {
             return;
@@ -493,6 +496,30 @@ public class MainApp extends Application {
             autoSpawnTimerSeconds = 0.0;
             return;
         }
+
+        int bursts = 0;
+        while (autoSpawnTimerSeconds >= autoSpawnIntervalSeconds
+                && bursts < MAX_AUTO_SPAWN_BURSTS_PER_FRAME
+                && engine.getVehicles().size() < profile.maxTotalVehicles()) {
+            autoSpawnTimerSeconds -= autoSpawnIntervalSeconds;
+            bursts++;
+            if (tryAutoSpawnOnce(profile, lanes)) {
+                // Spawned one batch for this simulation interval.
+            } else {
+                // Lanes are temporarily full. Keep at most half an interval so
+                // a long lag frame does not spam attempts as soon as one slot opens.
+                autoSpawnTimerSeconds = Math.min(autoSpawnTimerSeconds, autoSpawnIntervalSeconds * 0.5);
+                break;
+            }
+        }
+
+        if (bursts >= MAX_AUTO_SPAWN_BURSTS_PER_FRAME) {
+            autoSpawnTimerSeconds = Math.min(autoSpawnTimerSeconds, autoSpawnIntervalSeconds);
+        }
+    }
+
+    private boolean tryAutoSpawnOnce(SpawnProfile profile, List<Lane> lanes) {
+        if (profile == null || lanes == null || lanes.isEmpty()) return false;
 
         String type = randomAutoType(profile);
         int attempts = Math.min(lanes.size(), 8);
@@ -510,15 +537,12 @@ public class MainApp extends Application {
                     1
             );
             if (spawned > 0) {
-                autoSpawnTimerSeconds = 0.0;
                 appendSpawnLog(String.format("[A] 1x %s → lane %d\n",
                         type, lanes.indexOf(lane) + 1));
-                return;
+                return true;
             }
         }
-
-        // Tat ca dau lane dang kin: doi mot nhip simulation roi thu lai.
-        autoSpawnTimerSeconds = 0.0;
+        return false;
     }
 
     private record SpawnProfile(

@@ -88,7 +88,7 @@ public class TrafficEngine {
                     ? vehicle.getLane().getNextLight(vehicle.getFrontProgress())
                     : null;
 
-            vehicle.makeDecision(targetLight);
+            vehicle.makeDecision(targetLight, deltaTime);
             VehicleDecisionMerger.resolve(vehicle, targetLight, priorityRoutes, vehicles, intersections)
                     .applyTo(vehicle);
             vehicle.update(deltaTime);

@@ -16,9 +16,15 @@ import java.util.List;
  * lateral/turn/priority conflicts are resolved in one place.
  */
 public final class VehicleDecisionMerger {
-    private static final double COMMITTED_CLEAR_SPEED_FACTOR = 0.72;
+    private static final double CLEARING_MIN_SPEED = 15.0;
+    private static final double CLEARING_SPEED_CAP = 46.0;
+    private static final double PRIORITY_CLEARING_SPEED_CAP = 58.0;
+    private static final double ACTIVE_TURN_MIN_SPEED = 18.0;
+    private static final double ACTIVE_TURN_SPEED_CAP = 62.0;
+    private static final double PRIORITY_ACTIVE_TURN_SPEED_CAP = 72.0;
     private static final double PRIORITY_QUEUE_FOLLOW_FACTOR = 0.86;
     private static final double PRIORITY_QUEUE_FOLLOW_DISTANCE = 82.0;
+    private static final double PRIORITY_QUEUE_FOLLOW_EXIT_DISTANCE = 96.0;
     private static final double PRIORITY_QUEUE_HARD_FOLLOW_DISTANCE = 34.0;
     private static final double PRIORITY_QUEUE_CANCEL_LATERAL_DISTANCE = 96.0;
     private static final double CENTER_CONFLICT_RADIUS = 88.0;
@@ -43,11 +49,14 @@ public final class VehicleDecisionMerger {
         // The driver may have set speed/offset already. The merger only writes
         // corrections when a higher-level policy demands it.
         if (vehicle.isTurning()) {
+            double cap = vehicle.isPriority()
+                    ? PRIORITY_ACTIVE_TURN_SPEED_CAP
+                    : ACTIVE_TURN_SPEED_CAP;
             return decision.cancelOvertake()
                     .yieldMode(Vehicle.YieldMode.CLEAR_CONFLICT)
                     .maneuverState(Vehicle.ManeuverState.CLEARING_CONFLICT)
                     .targetLateralOffset(vehicle.getLateralOffset())
-                    .floorSpeed(Math.max(vehicle.getSpeed(), 28.0))
+                    .targetSpeed(boundedSpeed(vehicle, ACTIVE_TURN_MIN_SPEED, cap))
                     .reason("ACTIVE_TURN_CLEAR");
         }
 
@@ -63,12 +72,22 @@ public final class VehicleDecisionMerger {
     }
 
     private static VehicleDecision mergeCommittedClear(Vehicle vehicle, VehicleDecision decision) {
+        double cap = vehicle != null && vehicle.isPriority()
+                ? PRIORITY_CLEARING_SPEED_CAP
+                : CLEARING_SPEED_CAP;
         return decision.cancelOvertake()
                 .yieldMode(Vehicle.YieldMode.CLEAR_CONFLICT)
                 .maneuverState(Vehicle.ManeuverState.CLEARING_CONFLICT)
                 .targetLateralOffset(vehicle.getLateralOffset())
-                .floorSpeed(Math.max(vehicle.getSpeed(), Math.max(24.0, vehicle.getSpeed() * COMMITTED_CLEAR_SPEED_FACTOR)))
+                .targetSpeed(boundedSpeed(vehicle, CLEARING_MIN_SPEED, cap))
                 .reason("COMMITTED_CLEAR");
+    }
+
+    private static double boundedSpeed(Vehicle vehicle, double minSpeed, double maxSpeed) {
+        double current = vehicle == null ? 0.0 : vehicle.getSpeed();
+        double lo = Math.max(0.0, minSpeed);
+        double hi = Math.max(lo, maxSpeed);
+        return Math.min(hi, Math.max(lo, current));
     }
 
     private static void applyPriorityRoutePolicy(Vehicle vehicle,
@@ -163,7 +182,11 @@ public final class VehicleDecisionMerger {
                 return true;
             }
         }
-        return gap <= PRIORITY_QUEUE_FOLLOW_DISTANCE;
+        Vehicle priority = ctx.getPriority();
+        double followLimit = priority != null && priority.getPriorityWaitTarget() == normal
+                ? PRIORITY_QUEUE_FOLLOW_EXIT_DISTANCE
+                : PRIORITY_QUEUE_FOLLOW_DISTANCE;
+        return gap <= followLimit;
     }
 
     private static boolean centerOffsetOccupiedByCommittedVehicle(Vehicle priority,

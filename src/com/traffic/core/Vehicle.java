@@ -388,7 +388,11 @@ public abstract class Vehicle {
     }
 
     public void makeDecision(TrafficLight nearestLight) {
-        if (driver != null) driver.makeDecision(this, nearestLight);
+        makeDecision(nearestLight, 0.03);
+    }
+
+    public void makeDecision(TrafficLight nearestLight, double deltaTime) {
+        if (driver != null) driver.makeDecision(this, nearestLight, deltaTime);
     }
 
     public boolean isSameDirection(Lane otherLane) {

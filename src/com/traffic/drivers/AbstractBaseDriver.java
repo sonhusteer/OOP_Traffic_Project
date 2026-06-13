@@ -36,9 +36,9 @@ public abstract class AbstractBaseDriver implements IDriver {
     private static final double URGENT_MIN_FACTOR = 0.72;
 
     private static final double PRIORITY_PATIENCE_SECONDS = 1.25;
-    private static final double PRIORITY_PATIENCE_TICK = 0.035;
     private static final double PRIORITY_WAIT_LOOKAHEAD = 130.0;
     private static final double PRIORITY_QUEUE_SOFT_FOLLOW_GAP = 82.0;
+    private static final double PRIORITY_QUEUE_SOFT_FOLLOW_EXIT_GAP = 96.0;
     private static final double PRIORITY_CRITICAL_GAP = 18.0;
     private static final double MAX_YIELD_STUCK_SECONDS = 0.75;
 
@@ -61,6 +61,12 @@ public abstract class AbstractBaseDriver implements IDriver {
 
     @Override
     public void makeDecision(Vehicle vehicle, TrafficLight nextLight) {
+        makeDecision(vehicle, nextLight, 0.03);
+    }
+
+    @Override
+    public void makeDecision(Vehicle vehicle, TrafficLight nextLight, double deltaTime) {
+        double behaviorDt = MathUtils.clamp(deltaTime, 0.0, 0.12);
         if (vehicle == null || vehicle.isChangingLane()) return;
 
         Vehicle.YieldMode mode = vehicle.getYieldMode();
@@ -114,7 +120,7 @@ public abstract class AbstractBaseDriver implements IDriver {
 
         if (mode == Vehicle.YieldMode.CLEAR_PATH
                 || mode == Vehicle.YieldMode.URGENT_CLEAR_PATH) {
-            handleUrgentClearPath(vehicle, nextLight);
+            handleUrgentClearPath(vehicle, nextLight, behaviorDt);
             return;
         }
 
@@ -212,7 +218,7 @@ public abstract class AbstractBaseDriver implements IDriver {
             if (vehicle.isPriority() && inFront != null
                     && longitudinalGap > 0.0
                     && longitudinalGap < PRIORITY_WAIT_LOOKAHEAD
-                    && shouldPriorityWaitForYield(vehicle, inFront, longitudinalGap)) {
+                    && shouldPriorityWaitForYield(vehicle, inFront, longitudinalGap, behaviorDt)) {
                 double waitSpeed = Math.min(targetSpeed, Math.max(inFront.getSpeed(), getMaxSpeed() * 0.58));
                 if (longitudinalGap < getSafeDistance() * 1.7) {
                     waitSpeed = Math.min(waitSpeed, Math.max(getMinSpeed(), inFront.getSpeed() * 0.75));
@@ -325,7 +331,7 @@ public abstract class AbstractBaseDriver implements IDriver {
      * - neu chua nhich duoc thi tang toc mem de tim khoang trong;
      * - van ton trong den do/vach dung, khong duoc bi thuc qua den.
      */
-    private void handleUrgentClearPath(Vehicle vehicle, TrafficLight nextLight) {
+    private void handleUrgentClearPath(Vehicle vehicle, TrafficLight nextLight, double behaviorDt) {
         vehicle.cancelOvertake();
         boolean continuingGapFill = vehicle.getManeuverState() == Vehicle.ManeuverState.GAP_FILLING;
         if (!continuingGapFill) {
@@ -334,6 +340,7 @@ public abstract class AbstractBaseDriver implements IDriver {
 
         Lane lane = vehicle.getLane();
         boolean activePriorityYield = vehicle.hasActivePriorityYieldLock();
+        boolean stuckOnYieldSide = false;
         if (lane != null) {
             double yieldOffset = priorityYieldOffset(vehicle, lane);
 
@@ -351,7 +358,8 @@ public abstract class AbstractBaseDriver implements IDriver {
                 vehicle.resetPriorityYieldBlocked();
                 vehicle.setTargetLateralOffset(yieldOffset);
             } else if (activePriorityYield) {
-                vehicle.notePriorityYieldBlocked(PRIORITY_PATIENCE_TICK);
+                stuckOnYieldSide = true;
+                vehicle.notePriorityYieldBlocked(behaviorDt);
                 if (vehicle.getPriorityYieldBlockedSeconds() >= MAX_YIELD_STUCK_SECONDS
                         && !vehicle.isOvertaking()
                         && sideShiftPlanner.tryYieldGapFill(vehicle, URGENT_FRONT_GAP, URGENT_REAR_GAP)) {
@@ -380,12 +388,18 @@ public abstract class AbstractBaseDriver implements IDriver {
         } else {
             desired = Math.max(lightRule.targetSpeed(), getMaxSpeed() * URGENT_SPEED_FACTOR);
         }
+        boolean canEscapeForward = stuckOnYieldSide && canUrgentEscapeForward(vehicle, lane, nextLight);
         if (isPriorityYieldWaitingBeforeIntersection(vehicle)) {
             desired = 0.0;
+        } else if (stuckOnYieldSide && canEscapeForward) {
+            // The chosen yield side is blocked, but the road ahead is open: move
+            // forward decisively to create longitudinal space instead of freezing
+            // in front of the priority vehicle.
+            desired = Math.max(desired, getMaxSpeed() * 0.82);
         } else if (activePriorityYield && lane != null
                 && Math.abs(vehicle.getTargetLateralOffset() - vehicle.getLateralOffset()) < 1.0) {
-            // No safe chosen-side opening yet: leave room predictably and avoid
-            // rushing into the junction while still blocking the emergency path.
+            // No safe chosen-side opening and no forward escape: hold/crawl
+            // predictably instead of weaving into another occupied slot.
             desired = Math.min(desired, getMaxSpeed() * 0.45);
         }
 
@@ -402,6 +416,23 @@ public abstract class AbstractBaseDriver implements IDriver {
         }
 
         rampSpeed(vehicle, desired);
+    }
+
+    private boolean canUrgentEscapeForward(Vehicle vehicle, Lane lane, TrafficLight nextLight) {
+        if (vehicle == null || lane == null) return false;
+        if (isPriorityYieldWaitingBeforeIntersection(vehicle)) return false;
+
+        SpeedDecision lightRule = applyTrafficLightRule(vehicle, nextLight);
+        if (lightRule.redLightAhead() && !lightRule.pastStopLine()
+                && lightRule.distanceToStopLine() <= getBrakeDistance() + 18.0) {
+            return false;
+        }
+
+        Vehicle inFront = lane.occupancy().vehicleAheadOf(vehicle);
+        if (inFront == null) return true;
+
+        double gap = inFront.getRearProgress() - vehicle.getFrontProgress();
+        return gap > getSafeDistance() * 1.15;
     }
 
     private double turningSpeedLimit(Vehicle vehicle) {
@@ -538,7 +569,7 @@ public abstract class AbstractBaseDriver implements IDriver {
                 && Math.abs(vehicle.getTargetLateralOffset() - target) <= 4.5;
     }
 
-    private boolean shouldPriorityWaitForYield(Vehicle priority, Vehicle inFront, double longitudinalGap) {
+    private boolean shouldPriorityWaitForYield(Vehicle priority, Vehicle inFront, double longitudinalGap, double behaviorDt) {
         if (priority == null || inFront == null || !priority.isPriority()) {
             return false;
         }
@@ -552,13 +583,16 @@ public abstract class AbstractBaseDriver implements IDriver {
             if (longitudinalGap <= PRIORITY_CRITICAL_GAP) {
                 return true;
             }
-            if (longitudinalGap > PRIORITY_QUEUE_SOFT_FOLLOW_GAP
+            double followLimit = priority.getPriorityWaitTarget() == inFront
+                    ? PRIORITY_QUEUE_SOFT_FOLLOW_EXIT_GAP
+                    : PRIORITY_QUEUE_SOFT_FOLLOW_GAP;
+            if (longitudinalGap > followLimit
                     && !inFront.isCommittedToIntersection()
                     && inFront.getIntersectionManeuverState() != Vehicle.IntersectionManeuverState.WAITING_BEFORE_INTERSECTION) {
                 priority.resetPriorityWait();
                 return false;
             }
-            priority.addPriorityWaitFor(inFront, PRIORITY_PATIENCE_TICK);
+            priority.addPriorityWaitFor(inFront, behaviorDt);
             return true;
         }
 
@@ -573,7 +607,7 @@ public abstract class AbstractBaseDriver implements IDriver {
         if (longitudinalGap <= PRIORITY_CRITICAL_GAP) {
             return false;
         }
-        double waited = priority.addPriorityWaitFor(inFront, PRIORITY_PATIENCE_TICK);
+        double waited = priority.addPriorityWaitFor(inFront, behaviorDt);
         if (inFront.hasActivePriorityYieldLock()
                 && inFront.getPriorityYieldSource() == priority
                 && !isNearPriorityYieldTarget(inFront)) {

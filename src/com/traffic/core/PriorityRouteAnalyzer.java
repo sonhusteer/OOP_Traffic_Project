@@ -189,11 +189,12 @@ public final class PriorityRouteAnalyzer {
             return true;
         }
 
-        // A vehicle that is already lining up for its turn close to an intersection
-        // is ordered by the junction, not by open-road passing rules.
-        if (state == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT && ix != null) {
-            double nDist = normal.getLane().getProgressOf(ix.getCenter()) - normal.getFrontProgress();
-            return nDist <= 95.0;
+        // PREPARING_TURN_SLOT is already owned by the turn/intersection planner.
+        // Do not classify it as an open-road blocker and pull it away from its
+        // turn slot for side-yield. Speed follow is still distance-gated later
+        // by Driver/Merger, so this does not bring back early priority braking.
+        if (state == Vehicle.IntersectionManeuverState.PREPARING_TURN_SLOT) {
+            return true;
         }
 
         if (ix != null) {
