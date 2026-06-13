@@ -4,16 +4,6 @@
         "src"
     ],
     "java.project.referencedLibraries": [
-        "c:\\Users\\LENOVO\\OneDrive\\Desktop\\oop\\prj\\lib\\javafx.graphics.jar",
-        "c:\\Users\\LENOVO\\OneDrive\\Desktop\\oop\\prj\\lib\\javafx.swing.jar",
-        "c:\\Users\\LENOVO\\OneDrive\\Desktop\\oop\\prj\\lib\\javafx.web.jar",
-        "c:\\Users\\LENOVO\\OneDrive\\Desktop\\oop\\prj\\lib\\javafx.base.jar",
-        "c:\\Users\\LENOVO\\OneDrive\\Desktop\\oop\\prj\\lib\\jfx.incubator.input.jar",
-        "c:\\Users\\LENOVO\\OneDrive\\Desktop\\oop\\prj\\lib\\javafx.controls.jar",
-        "c:\\Users\\LENOVO\\OneDrive\\Desktop\\oop\\prj\\lib\\jdk.jsobject.jar",
-        "c:\\Users\\LENOVO\\OneDrive\\Desktop\\oop\\prj\\lib\\javafx-swt.jar",
-        "c:\\Users\\LENOVO\\OneDrive\\Desktop\\oop\\prj\\lib\\javafx.fxml.jar",
-        "c:\\Users\\LENOVO\\OneDrive\\Desktop\\oop\\prj\\lib\\javafx.media.jar",
-        "c:\\Users\\LENOVO\\OneDrive\\Desktop\\oop\\prj\\lib\\jfx.incubator.richtext.jar"
+        "lib/**/*.jar"
     ]
 }
