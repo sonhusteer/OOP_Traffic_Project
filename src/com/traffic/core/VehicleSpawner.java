@@ -115,10 +115,12 @@ public class VehicleSpawner {
             case LEFT -> Vehicle.TurnDecision.LEFT;
             case RIGHT -> Vehicle.TurnDecision.RIGHT;
             case RANDOM -> {
-                // Tăng tỷ lệ rẽ để ngã ba/ngã tư thấy xe rẽ nhiều hơn
+                // Keep random traffic mostly straight. Dense left/right spawning
+                // makes the five-way roundabout look chaotic and creates many
+                // artificial turn conflicts during debugging.
                 int r = random.nextInt(100);
-                if (r < 40) yield Vehicle.TurnDecision.STRAIGHT;
-                if (r < 70) yield Vehicle.TurnDecision.LEFT;
+                if (r < 88) yield Vehicle.TurnDecision.STRAIGHT;
+                if (r < 94) yield Vehicle.TurnDecision.LEFT;
                 yield Vehicle.TurnDecision.RIGHT;
             }
         };

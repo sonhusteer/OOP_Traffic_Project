@@ -42,12 +42,13 @@ public class TurnCoordinator {
     // be forced through the full turn-slot/wait pipeline; otherwise a vehicle can
     // pause at the mouth of the roundabout while waiting for a lateral slot that
     // is not actually needed for the short exit.
-    private static final double ROUNDABOUT_RIGHT_PREPARE_DISTANCE = 120.0;
-    private static final double ROUNDABOUT_RIGHT_COMMIT_DISTANCE = 98.0;
-    private static final double ROUNDABOUT_RIGHT_EXIT_DISTANCE = 44.0;
-    private static final double ROUNDABOUT_RIGHT_ENTRY_FRONT_GAP = 42.0;
-    private static final double ROUNDABOUT_RIGHT_ENTRY_REAR_GAP = 22.0;
-    private static final double ROUNDABOUT_RIGHT_PRIORITY_MARGIN_SECONDS = 0.35;
+    private static final double ROUNDABOUT_RIGHT_PREPARE_DISTANCE = 150.0;
+    private static final double ROUNDABOUT_RIGHT_COMMIT_DISTANCE = 132.0;
+    private static final double ROUNDABOUT_RIGHT_EXIT_DISTANCE = 38.0;
+    private static final double ROUNDABOUT_RIGHT_ENTRY_FRONT_GAP = 34.0;
+    private static final double ROUNDABOUT_RIGHT_ENTRY_REAR_GAP = 16.0;
+    private static final double ROUNDABOUT_RIGHT_PRIORITY_MARGIN_SECONDS = 0.18;
+    private static final double ROUNDABOUT_RIGHT_DIRECT_COMMIT_DISTANCE = 145.0;
 
     private final IntersectionOccupancy occupancy = new IntersectionOccupancy();
     private PriorityRouteAnalyzer priorityRoutes = PriorityRouteAnalyzer.empty();
@@ -194,6 +195,16 @@ public class TurnCoordinator {
         boolean isPhysicalTurn = requested == Vehicle.TurnDecision.LEFT
                 || requested == Vehicle.TurnDecision.RIGHT;
         boolean quickRoundaboutRight = isRoundaboutRightTurn(intersection, requested);
+
+        // Five-way right turns are a short slip movement. Handle them before the
+        // generic priority/slot pipeline; otherwise a side-yield lock or a
+        // not-perfect lateral slot can make the vehicle hesitate at the mouth of
+        // the roundabout even though the right exit is only a short movement.
+        if (quickRoundaboutRight && distanceToConflict <= ROUNDABOUT_RIGHT_DIRECT_COMMIT_DISTANCE) {
+            if (tryStartRoundaboutRightSlip(vehicle, vehicles, sourceLane, intersection, distanceToConflict)) {
+                return;
+            }
+        }
 
         // Priority yielding always wins over turn-slot preparation. Without this
         // guard a car that was pulled right for an ambulance could immediately
@@ -787,6 +798,97 @@ public class TurnCoordinator {
                                  double targetOffset,
                                  boolean forcedClear) {}
 
+    private boolean tryStartRoundaboutRightSlip(Vehicle vehicle,
+                                                List<Vehicle> vehicles,
+                                                Lane sourceLane,
+                                                Intersection intersection,
+                                                double distanceToConflict) {
+        if (vehicle == null || sourceLane == null || intersection == null) return false;
+
+        double conflict = sourceLane.getProgressOf(intersection.getCenter());
+        if (!canPassTrafficLight(vehicle, sourceLane, conflict)) {
+            waitBeforeIntersection(vehicle, intersection, "TRAFFIC_LIGHT");
+            return true;
+        }
+
+        Vehicle.YieldMode mode = vehicle.getYieldMode();
+        if (mode == Vehicle.YieldMode.STOP_BEFORE_CONFLICT
+                || mode == Vehicle.YieldMode.STOP
+                || mode == Vehicle.YieldMode.HOLD_POSITION
+                || mode == Vehicle.YieldMode.BLOCKED_YIELD) {
+            PriorityRouteContext blocking = vehicle.isPriority()
+                    ? null
+                    : priorityRoutes.blockingContextFor(vehicle, intersection);
+            if (blocking != null && priorityConflictStillRelevant(vehicle, intersection, blocking)) {
+                waitBeforeIntersection(vehicle, intersection, "PRIORITY_ROUTE_CONFLICT_RIGHT");
+                return true;
+            }
+            vehicle.setYieldMode(Vehicle.YieldMode.NONE);
+        }
+
+        if (isSideYieldMode(mode) && canShortRightProceedWhileYielding(vehicle, sourceLane, intersection)) {
+            vehicle.clearPriorityYieldLock("ROUNDABOUT_RIGHT_DIRECT_CLEAR");
+            vehicle.setYieldMode(Vehicle.YieldMode.NONE);
+            vehicle.setTurnWaitReason(null);
+        }
+
+        Lane targetLane = findTargetLane(sourceLane, Vehicle.TurnDecision.RIGHT, intersection);
+        if (targetLane == null) {
+            waitBeforeIntersection(vehicle, intersection, "NO_RIGHT_TARGET");
+            return true;
+        }
+
+        double targetConflict = targetLane.getProgressOf(intersection.getCenter());
+        double targetProgress = MathUtils.clamp(
+                targetConflict + roundaboutRightExitDistance(vehicle), 0.0, targetLane.getLength());
+        double targetOffset = chooseRoundaboutRightEntryOffset(vehicle, targetLane, targetProgress);
+        boolean forcedClear = false;
+        if (Double.isNaN(targetOffset)) {
+            targetOffset = chooseForcedEntryOffsetForCommitted(vehicle, sourceLane, intersection,
+                    targetLane, targetProgress, Vehicle.TurnDecision.RIGHT);
+            forcedClear = !Double.isNaN(targetOffset);
+        }
+        if (Double.isNaN(targetOffset)) {
+            if (distanceToConflict <= WAITING_DISTANCE) {
+                waitBeforeIntersection(vehicle, intersection, "RIGHT_TARGET_ENTRY_FULL");
+            } else {
+                prepareRoundaboutRightSlip(vehicle, sourceLane, intersection);
+            }
+            return true;
+        }
+
+        if (!forcedClear && !canEnterRoundaboutRightSlip(vehicle, vehicles, intersection,
+                targetLane, targetProgress, targetOffset)) {
+            if (distanceToConflict <= 42.0) {
+                waitBeforeIntersection(vehicle, intersection, "RIGHT_SLIP_BUSY");
+            } else {
+                prepareRoundaboutRightSlip(vehicle, sourceLane, intersection);
+            }
+            return true;
+        }
+
+        if (forcedClear) {
+            vehicle.setSpeed(MathUtils.clamp(vehicle.getSpeed(), FORCED_CLEAR_SPEED, 42.0));
+            vehicle.setTurnWaitReason("FORCED_RIGHT_CLEAR");
+        }
+
+        if (vehicle.getTurnDecision() != Vehicle.TurnDecision.RIGHT) {
+            vehicle.setTurnDecision(Vehicle.TurnDecision.RIGHT);
+        }
+        TurnManeuver maneuver = buildCubicTurn(
+                vehicle,
+                sourceLane,
+                targetLane,
+                intersection,
+                Vehicle.TurnDecision.RIGHT,
+                targetProgress,
+                targetOffset
+        );
+        vehicle.startTurn(maneuver);
+        vehicle.setTurnWaitReason(null);
+        return true;
+    }
+
     private TurnCandidate chooseTurnCandidate(Vehicle vehicle,
                                              List<Vehicle> vehicles,
                                              Lane sourceLane,
@@ -1085,14 +1187,17 @@ public class TurnCoordinator {
                 if (other.getActiveTurn() != null && other.getActiveTurn().getIntersection() == intersection) {
                     eta = 0.0;
                 }
+                // Right slip movements should only wait for a priority vehicle that is
+                // practically on the same conflict mouth. Far-away priority traffic
+                // must not freeze short right turns.
                 if (eta <= ROUNDABOUT_RIGHT_PRIORITY_MARGIN_SECONDS
-                        && MathUtils.distance(other.getPosition(), intersection.getCenter()) <= 110.0) {
+                        && MathUtils.distance(other.getPosition(), intersection.getCenter()) <= 72.0) {
                     return false;
                 }
             }
             if (other.isCommittedToIntersection()) {
                 double distance = MathUtils.distance(other.getPosition(), vehicle.getPosition());
-                if (distance <= 42.0) return false;
+                if (distance <= 30.0) return false;
             }
         }
         return true;
@@ -1109,7 +1214,8 @@ public class TurnCoordinator {
         Vehicle source = vehicle.getPriorityYieldSource();
         if (source == null || !source.isPriority()) return true;
         double eta = source.estimateETAToIntersection(intersection);
-        return eta > ROUNDABOUT_RIGHT_PRIORITY_MARGIN_SECONDS;
+        double distance = MathUtils.distance(source.getPosition(), intersection.getCenter());
+        return eta > ROUNDABOUT_RIGHT_PRIORITY_MARGIN_SECONDS || distance > 72.0;
     }
 
     private double chooseEntryOffset(Vehicle vehicle, Lane targetLane, double targetProgress,

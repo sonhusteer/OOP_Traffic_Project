@@ -36,7 +36,7 @@ public class MainApp extends Application {
         new HighwayMap()
     };
 
-    private static final int MAX_AUTO_SPAWN_BURSTS_PER_FRAME = 4;
+    private static final int MAX_AUTO_SPAWN_BURSTS_PER_FRAME = 2;
 
     // ── State ────────────────────────────────────────────────────────────
     private MapConfig currentMap;
@@ -52,7 +52,7 @@ public class MainApp extends Application {
     private final Random random = new Random();
     private boolean autoSpawnEnabled = false;
     private double autoSpawnTimerSeconds = 0.0;
-    private double autoSpawnIntervalSeconds = 0.75;
+    private double autoSpawnIntervalSeconds = 1.15;
 
     private Canvas canvas;
     private Label lblVehicles;
@@ -206,7 +206,7 @@ public class MainApp extends Application {
 
         // Count
         Label lblCount = makeLabel("Số lượng:");
-        Spinner<Integer> spinner = new Spinner<>(1, 10, 1);
+        Spinner<Integer> spinner = new Spinner<>(1, 6, 1);
         spinner.setMaxWidth(Double.MAX_VALUE);
 
         // Auto spawn controls
@@ -224,7 +224,7 @@ public class MainApp extends Application {
                     : "[A] Auto spawn tắt\n");
         });
 
-        Slider autoRateSlider = new Slider(0.15, 2.0, autoSpawnIntervalSeconds);
+        Slider autoRateSlider = new Slider(0.45, 3.0, autoSpawnIntervalSeconds);
         autoRateSlider.setShowTickMarks(true);
         autoRateSlider.setMajorTickUnit(0.5);
         Label lblAutoRate = makeLabel(String.format("Nhịp: %.2fs", autoSpawnIntervalSeconds));
@@ -552,12 +552,12 @@ public class MainApp extends Application {
     ) {}
 
     private SpawnProfile getSpawnProfile(MapConfig map) {
-        if (map instanceof CrossroadsMap) return new SpawnProfile(26, 7, 9);
-        if (map instanceof TJunctionMap) return new SpawnProfile(18, 5, 8);
-        if (map instanceof FiveWayMap) return new SpawnProfile(30, 7, 8);
-        if (map instanceof NetworkMap) return new SpawnProfile(36, 7, 9);
-        if (map instanceof HighwayMap) return new SpawnProfile(70, 18, 6);
-        return new SpawnProfile(28, 7, 8);
+        if (map instanceof CrossroadsMap) return new SpawnProfile(20, 5, 7);
+        if (map instanceof TJunctionMap) return new SpawnProfile(14, 4, 6);
+        if (map instanceof FiveWayMap) return new SpawnProfile(20, 4, 5);
+        if (map instanceof NetworkMap) return new SpawnProfile(28, 5, 7);
+        if (map instanceof HighwayMap) return new SpawnProfile(54, 14, 5);
+        return new SpawnProfile(22, 5, 6);
     }
 
     private int countVehiclesOnLane(Lane lane) {

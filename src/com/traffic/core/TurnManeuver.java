@@ -150,7 +150,9 @@ public class TurnManeuver {
         // Smooth angular interpolation avoids a visible heading snap at entry
         // and exit. Right turns use the shortest slip arc; other movements keep
         // the circulatory direction around the island.
-        double angularT = smootherStep(clamped);
+        double angularT = decision == Vehicle.TurnDecision.RIGHT
+                ? clamped
+                : smootherStep(clamped);
         double theta = theta0 + angularT * deltaTheta;
 
         double r0 = Math.hypot(p0.getX() - cx, p0.getY() - cy);
@@ -164,7 +166,7 @@ public class TurnManeuver {
         double oneMinus = 1.0 - clamped;
         double ringBlend = 16.0 * clamped * clamped * oneMinus * oneMinus;
         double slipRadius = decision == Vehicle.TurnDecision.RIGHT
-                ? ROUNDABOUT_LANE_RADIUS + 9.0
+                ? ROUNDABOUT_LANE_RADIUS + 18.0
                 : ROUNDABOUT_LANE_RADIUS;
         double r = baseRadius + ringBlend * (slipRadius - baseRadius);
         return new Vector2D(cx + r * Math.cos(theta), cy + r * Math.sin(theta));
@@ -185,7 +187,7 @@ public class TurnManeuver {
         // Blend the rendered heading with the lane tangents at the ends. The
         // position still follows the ring, but the car nose turns progressively
         // instead of snapping from lane heading to circular heading.
-        final double blendBand = decision == Vehicle.TurnDecision.RIGHT ? 0.32 : 0.22;
+        final double blendBand = decision == Vehicle.TurnDecision.RIGHT ? 0.24 : 0.22;
         if (clamped < blendBand && sourceLane != null) {
             Vector2D in = sourceLane.getDirectionAt(sourceLane.getProgressOf(p0));
             double w = smootherStep(clamped / blendBand);
