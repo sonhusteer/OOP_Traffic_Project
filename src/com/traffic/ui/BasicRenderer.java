@@ -306,12 +306,6 @@ public class BasicRenderer extends AbstractBaseRenderer {
         gc.fillOval(-w/2 + 1, -h/2 - 3, 5, 4);
         gc.fillOval(-w/2 + 1,  h/2 - 1, 5, 4);
 
-        // Name label
-        gc.setFill(Color.rgb(255, 255, 255, 0.85));
-        gc.setFont(Font.font("SansSerif", FontWeight.BOLD, 7));
-        String label = v.getName().substring(0, Math.min(3, v.getName().length()));
-        gc.fillText(label, -w/2 + 2, 3);
-
         gc.restore();
         drawTurnIntentBadge(gc, v, vx, vy, w, h);
     }

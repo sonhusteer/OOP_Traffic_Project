@@ -28,8 +28,8 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
     private static final Color ASPHALT      = Color.rgb(38, 41, 50);
     private static final Color LANE_EDGE    = Color.rgb(255, 210, 50, 0.90);  // vạch mép vàng
     private static final Color LANE_CENTER  = Color.rgb(255, 255, 255, 0.55); // vạch giữa trắng
-    private static final Color BG_DARK      = Color.rgb(22, 34, 20);
-    private static final Color BG_GRASS     = Color.rgb(38, 58, 32);
+    private static final Color BG_DARK      = Color.rgb(18, 28, 16);
+    private static final Color BG_GRASS     = Color.rgb(28, 45, 24);
 
     // ── Bảng màu xe ─────────────────────────────────────────────────────
     private static final Map<String, Color> VEHICLE_COLORS = Map.of(
@@ -75,6 +75,8 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
         drawBuildings(gc, w, h);      // nhà dân cư (dưới cùng)
         drawLanes(gc);                // đường xe chạy (kẻ vạch qua ngã tư)
         drawIntersections(gc);        // ngã giao (xóa vạch cũ, vẽ chuẩn)
+        drawPedestrians(gc);         // người đi bộ
+        drawTrees(gc, w, h);         // cây sồi (có bóng đổ xuống đường)
         drawLights(gc);              // đèn giao thông
         drawVehicles(gc);            // xe
         drawRain(gc, w, h);          // hiệu ứng mưa trơn trượt
@@ -99,6 +101,189 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
         gc.setLineDashes();
         for (int x = 0; x < (int) w; x += 32) gc.strokeLine(x, 0, x, h);
         for (int y = 0; y < (int) h; y += 32) gc.strokeLine(0, y, w, y);
+    }
+
+    // =====================================================================
+    //  1.5. TÒA NHÀ (Glass Skyscrapers & Brick Buildings)
+    // =====================================================================
+    @Override
+    protected void drawBuildings(GraphicsContext gc, double canvasW, double canvasH) {
+        // Cố định seed để nhà không bị giật khi render lại
+        java.util.Random rnd = new java.util.Random(42);
+        
+        int bSize = 60;
+        int padding = 20;
+        int streetClearance = 80;
+
+        for (int y = padding; y < canvasH - padding; y += bSize + padding) {
+            for (int x = padding; x < canvasW - padding; x += bSize + padding) {
+                // Kiểm tra xem tòa nhà có đè lên đường không
+                boolean isClear = true;
+                for (Lane lane : lanes) {
+                    if (lane == null) continue;
+                    // Kiểm tra khoảng cách từ tâm tòa nhà đến đường (rất cơ bản)
+                    double cx = x + bSize / 2.0;
+                    double cy = y + bSize / 2.0;
+                    double lx1 = lane.getStart().getX(), ly1 = lane.getStart().getY();
+                    double lx2 = lane.getEnd().getX(), ly2 = lane.getEnd().getY();
+                    
+                    // Khoảng cách từ điểm đến đoạn thẳng
+                    double dist = pointToLineDistance(cx, cy, lx1, ly1, lx2, ly2);
+                    if (dist < streetClearance) {
+                        isClear = false;
+                        break;
+                    }
+                }
+
+                if (isClear && rnd.nextDouble() > 0.2) { // 80% có nhà
+                    boolean isGlass = rnd.nextDouble() > 0.4; // 60% nhà kính
+                    double bw = bSize + rnd.nextInt(20);
+                    double bh = bSize + rnd.nextInt(30);
+                    
+                    // Vẽ bóng đổ (Soft shadow)
+                    gc.setFill(Color.rgb(0, 0, 0, 0.4));
+                    gc.fillRoundRect(x + 10, y + 10, bw, bh, 8, 8);
+
+                    if (isGlass) {
+                        // Tòa nhà kính (Glass Skyscraper)
+                        LinearGradient glassGrad = new LinearGradient(
+                            x, y, x + bw, y + bh, false, CycleMethod.NO_CYCLE,
+                            new Stop(0, Color.rgb(180, 220, 255, 0.9)), // Phản chiếu bầu trời
+                            new Stop(1, Color.rgb(40, 80, 140, 0.9))
+                        );
+                        gc.setFill(glassGrad);
+                        gc.fillRoundRect(x, y, bw, bh, 4, 4);
+                        
+                        // Lưới vân kính
+                        gc.setStroke(Color.rgb(255, 255, 255, 0.3));
+                        gc.setLineWidth(1.0);
+                        for(double i = 5; i < bw; i += 10) gc.strokeLine(x+i, y, x+i, y+bh);
+                        for(double i = 5; i < bh; i += 10) gc.strokeLine(x, y+i, x+bw, y+i);
+                        
+                    } else {
+                        // Nhà gạch (Low-poly Brick)
+                        gc.setFill(Color.rgb(140, 60, 50));
+                        gc.fillRoundRect(x, y, bw, bh, 4, 4);
+                        
+                        // Mái bằng phẳng màu xám sậm
+                        gc.setFill(Color.rgb(80, 80, 80));
+                        gc.fillRoundRect(x+4, y+4, bw-8, bh-8, 2, 2);
+                        
+                        // Mặt tiền (storefront giả lập)
+                        gc.setFill(Color.rgb(255, 240, 180, 0.8));
+                        gc.fillRect(x + bw/2 - 10, y + bh - 6, 20, 6);
+                    }
+                    
+                    // Viền nóc nhà
+                    gc.setStroke(Color.rgb(30, 30, 30, 0.8));
+                    gc.setLineWidth(1.5);
+                    gc.strokeRoundRect(x, y, bw, bh, 4, 4);
+                }
+            }
+        }
+    }
+
+    private double pointToLineDistance(double px, double py, double x1, double y1, double x2, double y2) {
+        double A = px - x1;
+        double B = py - y1;
+        double C = x2 - x1;
+        double D = y2 - y1;
+        double dot = A * C + B * D;
+        double lenSq = C * C + D * D;
+        double param = -1;
+        if (lenSq != 0) param = dot / lenSq;
+        double xx, yy;
+        if (param < 0) {
+            xx = x1; yy = y1;
+        } else if (param > 1) {
+            xx = x2; yy = y2;
+        } else {
+            xx = x1 + param * C; yy = y1 + param * D;
+        }
+        double dx = px - xx;
+        double dy = py - yy;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    // =====================================================================
+    //  1.6. CÂY XANH & NGƯỜI ĐI BỘ
+    // =====================================================================
+    private void drawTrees(GraphicsContext gc, double canvasW, double canvasH) {
+        java.util.Random rnd = new java.util.Random(123);
+        
+        for (int i = 0; i < 40; i++) { // Vẽ 40 cụm cây
+            double tx = rnd.nextDouble() * canvasW;
+            double ty = rnd.nextDouble() * canvasH;
+            
+            // Chỉ vẽ cây nếu gần đường (vỉa hè) nhưng không đè lên giữa đường
+            boolean nearRoad = false;
+            boolean onRoad = false;
+            for (Lane lane : lanes) {
+                if (lane == null) continue;
+                double dist = pointToLineDistance(tx, ty, lane.getStart().getX(), lane.getStart().getY(), lane.getEnd().getX(), lane.getEnd().getY());
+                if (dist > 45 && dist < 120) nearRoad = true;
+                if (dist <= 45) onRoad = true; // Đường rộng 80 (bán kính 40)
+            }
+            
+            if (nearRoad && !onRoad) {
+                // Tán cây sồi lớn: bóng đổ trước
+                double treeR = 25 + rnd.nextDouble() * 15;
+                gc.setFill(Color.rgb(0, 0, 0, 0.35));
+                gc.fillOval(tx - treeR + 8, ty - treeR + 8, treeR * 2, treeR * 2);
+                
+                // Các lớp lá đè lên nhau
+                for (int j = 0; j < 3; j++) {
+                    double leafR = treeR * (1.0 - j*0.2);
+                    double ox = (rnd.nextDouble() - 0.5) * 10;
+                    double oy = (rnd.nextDouble() - 0.5) * 10;
+                    
+                    // Màu xanh lá đậm -> nhạt (với chút vàng của sồi già)
+                    gc.setFill(Color.rgb(30 + j*15, 80 + j*25 + rnd.nextInt(20), 20 + j*10));
+                    gc.fillOval(tx - leafR + ox, ty - leafR + oy, leafR * 2, leafR * 2);
+                }
+            }
+        }
+    }
+
+    private void drawPedestrians(GraphicsContext gc) {
+        java.util.Random rnd = new java.util.Random(999);
+        // Tìm các vị trí ngã tư (Intersection) để vẽ người đứng chờ
+        for (com.traffic.map.Intersection inter : intersections) {
+            if (inter == null) continue;
+            double cx = inter.getCenter().getX();
+            double cy = inter.getCenter().getY();
+            
+            // Vẽ 3-5 nhóm người ở 4 góc
+            int numGroups = 3 + rnd.nextInt(3);
+            for (int g = 0; g < numGroups; g++) {
+                double angle = rnd.nextDouble() * Math.PI * 2;
+                double dist = 90 + rnd.nextDouble() * 30; // Đứng dạt ra ngoài rìa ngã tư
+                double px = cx + Math.cos(angle) * dist;
+                double py = cy + Math.sin(angle) * dist;
+                
+                // 1-3 người mỗi nhóm
+                int people = 1 + rnd.nextInt(3);
+                for (int p = 0; p < people; p++) {
+                    double ox = px + (rnd.nextDouble() - 0.5) * 12;
+                    double oy = py + (rnd.nextDouble() - 0.5) * 12;
+                    
+                    // Bóng đổ
+                    gc.setFill(Color.rgb(0, 0, 0, 0.4));
+                    gc.fillOval(ox - 3, oy - 3, 6, 6);
+                    
+                    // Vai áo (Màu sắc đa dạng)
+                    int r = 50 + rnd.nextInt(200);
+                    int gC = 50 + rnd.nextInt(200);
+                    int b = 50 + rnd.nextInt(200);
+                    gc.setFill(Color.rgb(r, gC, b));
+                    gc.fillOval(ox - 3.5, oy - 2.5, 7, 5); // Vai áo ngang
+                    
+                    // Đầu
+                    gc.setFill(Color.rgb(240, 200, 180));
+                    gc.fillOval(ox - 2, oy - 2, 4, 4);
+                }
+            }
+        }
     }
 
     // =====================================================================
@@ -328,9 +513,28 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
             Color base = VEHICLE_COLORS.getOrDefault(v.getTypeName(), Color.GRAY);
             Color dark = VEHICLE_COLORS_DARK.getOrDefault(v.getTypeName(), Color.DARKGRAY);
 
+            boolean isTaxi = false;
+            boolean isTruck = false;
+
+            if (v.getTypeName().equals("car")) {
+                int hash = Math.abs(v.getName().hashCode());
+                if (hash % 4 == 0) {
+                    base = Color.rgb(240, 200, 20); // Yellow Taxi
+                    dark = Color.rgb(180, 150, 10);
+                    isTaxi = true;
+                } else if (hash % 4 == 1) {
+                    base = Color.rgb(210, 30, 40); // Red Sports Car
+                    dark = Color.rgb(150, 10, 20);
+                } else if (hash % 4 == 2) {
+                    base = Color.rgb(235, 235, 240); // White Delivery Truck
+                    dark = Color.rgb(170, 170, 180);
+                    isTruck = true;
+                }
+            }
+
             // Shadow dưới xe
-            gc.setFill(Color.rgb(0, 0, 0, 60.0 / 255));
-            gc.fillRoundRect(-w / 2 + 2, -h / 2 + 2, w, h, 4, 4);
+            gc.setFill(Color.rgb(0, 0, 0, 0.5));
+            gc.fillRoundRect(-w / 2 + 3, -h / 2 + 3, w, h, 4, 4);
 
             // Thân xe — gradient dọc
             LinearGradient bodyGrad = new LinearGradient(
@@ -353,6 +557,22 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
             // Bánh xe 4 góc
             drawWheels(gc, w, h);
 
+            if (isTaxi) {
+                // Vẽ biển TAXI trên nóc
+                gc.setFill(Color.BLACK);
+                gc.fillRect(-4, -h / 2 + h / 2 - 2, 8, 4);
+                gc.setFill(Color.YELLOW);
+                gc.fillRect(-3, -h / 2 + h / 2 - 1, 6, 2);
+            } else if (isTruck) {
+                // Thùng xe tải chở hàng (phía sau)
+                gc.setFill(Color.rgb(200, 200, 210));
+                gc.fillRoundRect(-w / 2, -h / 2, w * 0.7, h, 2, 2);
+                // Viền thùng xe
+                gc.setStroke(Color.rgb(150, 150, 160));
+                gc.setLineWidth(1.0);
+                gc.strokeRoundRect(-w / 2, -h / 2, w * 0.7, h, 2, 2);
+            }
+
             // Đèn hậu đỏ (phía sau xe)
             gc.setFill(Color.rgb(255, 50, 50, 200.0 / 255));
             gc.fillRect(-w / 2, -h / 2, 3, h);
@@ -361,19 +581,6 @@ public class JavaFXRenderer extends AbstractBaseRenderer {
             gc.setFill(Color.rgb(255, 255, 200, 180.0 / 255));
             gc.fillRect(w / 2 - 3, -h / 2, 3, h);
         }
-
-        // Label tên & tốc độ (vẽ cho cả sprite lẫn 2D)
-        gc.setFill(Color.WHITE);
-        gc.setFont(Font.font("SansSerif", FontWeight.BOLD, 8));
-        String label = v.getName().substring(0, Math.min(3, v.getName().length()));
-        // Ước lượng chiều rộng text (JavaFX không có FontMetrics trực tiếp trên GC)
-        double labelW = label.length() * 5.0;
-        gc.fillText(label, -labelW / 2, 3);
-
-        int spd = (int) v.getSpeed();
-        gc.setFill(spd == 0 ? Color.rgb(255, 100, 100) : Color.rgb(180, 255, 180));
-        gc.setFont(Font.font("SansSerif", FontWeight.NORMAL, 7));
-        gc.fillText(spd + "", w / 2 - 12, h / 2 - 1);
 
         gc.restore();
         drawTurnIntentBadge(gc, v, px, py, w, h);

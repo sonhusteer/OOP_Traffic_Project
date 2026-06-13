@@ -6,7 +6,7 @@ echo   Traffic Simulation - Build ^& Run
 echo ==========================================
 
 
-set "JAVA_HOME=C:\Program Files\Java\jdk-26"
+set "JAVA_HOME=C:\Program Files\BellSoft\LibericaJDK-26-Full"
 set "JAVAFX_PATH=%~dp0lib"
 set "JAVAC=%JAVA_HOME%\bin\javac.exe"
 set "JAVA=%JAVA_HOME%\bin\java.exe"

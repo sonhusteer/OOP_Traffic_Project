@@ -279,66 +279,126 @@ public abstract class AbstractBaseRenderer implements IRenderer {
 
     protected void drawIntersections(GraphicsContext gc) {
         for (Intersection inter : intersections) {
-            double[] b = calcIntersectionBox(inter);
-            double x1 = b[0], y1 = b[1], x2 = b[2], y2 = b[3];
-            double bw = x2 - x1, bh = y2 - y1;
+            if (inter.getType() == Intersection.Type.FIVE_WAY) {
+                double cx = inter.getCenter().getX();
+                double cy = inter.getCenter().getY();
+                double r = 85.0;
+                
+                // 0. Nền asphalt to hơn bao quanh để che các góc đè lên nhau giữa nhánh chéo và nhánh ngang
+                double rBase = 125.0;
+                gc.setFill(Color.rgb(45, 48, 55)); // Trùng màu ASPHALT của mặt đường
+                gc.fillOval(cx - rBase, cy - rBase, rBase * 2, rBase * 2);
 
-            // ── 1. Nền asphalt (Xóa các vạch kẻ đường đè lên nhau) ────────
-            gc.setFill(Color.rgb(38, 41, 50));
-            gc.fillRect(x1, y1, bw, bh);
+                // 1. Nền asphalt tròn (roundabout)
+                gc.setFill(Color.rgb(38, 41, 50));
+                gc.fillOval(cx - r, cy - r, r * 2, r * 2);
+                
+                // Highlight giữa
+                gc.setFill(Color.rgb(255, 255, 255, 0.04));
+                gc.fillOval(cx - r * 0.8, cy - r * 0.8, r * 1.6, r * 1.6);
 
-            // Highlight ánh sáng giữa ngã tư
-            gc.setFill(Color.rgb(255, 255, 255, 0.04));
-            gc.fillOval(x1 + bw * 0.1, y1 + bh * 0.1, bw * 0.8, bh * 0.8);
+                // 2. Vạch phân làn đứt đoạn tròn
+                gc.setStroke(Color.rgb(255, 255, 255, 0.55));
+                gc.setLineWidth(1.8);
+                gc.setLineDashes(14, 10);
+                gc.strokeOval(cx - r + 30, cy - r + 30, (r - 30) * 2, (r - 30) * 2);
+                gc.setLineDashes((double[]) null);
 
-            // ── 2. Vẽ vạch kẻ theo TỪNG LÀN (Realistic Markings) ──────────
-            for (Lane lane : inter.getLanes()) {
-                Vector2D start = lane.getStart();
-                Vector2D end = lane.getEnd();
-                Vector2D stop = lane.getStopLine();
+                // 3. Cỏ xanh ở tâm (Đảo giao thông)
+                double islandR = 45.0;
+                gc.setFill(Color.rgb(46, 80, 40));
+                gc.fillOval(cx - islandR, cy - islandR, islandR * 2, islandR * 2);
+                gc.setStroke(Color.rgb(30, 50, 25));
+                gc.setLineWidth(2.0);
+                gc.strokeOval(cx - islandR, cy - islandR, islandR * 2, islandR * 2);
 
-                double dx = end.getX() - start.getX();
-                double dy = end.getY() - start.getY();
-                double len = Math.hypot(dx, dy);
-                if (len == 0)
-                    continue;
-                double nx = dx / len;
-                double ny = dy / len;
-                double px = -ny; // Vector vuông góc
-                double py = nx;
+                // Số 7 đếm ngược giữa bùng binh
+                gc.setFill(Color.rgb(20, 25, 30, 0.9));
+                gc.fillRect(cx - 10, cy - 8, 20, 16);
+                gc.setFill(Color.WHITE);
+                gc.setFont(javafx.scene.text.Font.font("SansSerif", javafx.scene.text.FontWeight.BOLD, 12));
+                gc.fillText("7", cx - 4, cy + 4);
 
-                double hw = ROAD_HALF; // 40px
+            } else {
+                double[] b = calcIntersectionBox(inter);
+                double x1 = b[0], y1 = b[1], x2 = b[2], y2 = b[3];
+                double bw = x2 - x1, bh = y2 - y1;
 
-                // --- Stop Line (Vạch dừng) ---
-                gc.setStroke(Color.rgb(240, 240, 240, 0.85));
-                gc.setLineWidth(4.0);
-                gc.setLineCap(StrokeLineCap.BUTT);
-                gc.strokeLine(
-                        stop.getX() + px * hw, stop.getY() + py * hw,
-                        stop.getX() - px * hw, stop.getY() - py * hw);
+                // 1. Nền asphalt (Xóa các vạch kẻ đường đè lên nhau)
+                gc.setFill(Color.rgb(38, 41, 50));
+                gc.fillRect(x1, y1, bw, bh);
 
-                // --- Zebra Crossing (Vạch người đi bộ) ---
-                double zebraDist = 18; // lùi về sau vạch dừng
-                double zcx = stop.getX() - nx * zebraDist;
-                double zcy = stop.getY() - ny * zebraDist;
+                // Highlight ánh sáng giữa ngã tư
+                gc.setFill(Color.rgb(255, 255, 255, 0.04));
+                gc.fillOval(x1 + bw * 0.1, y1 + bh * 0.1, bw * 0.8, bh * 0.8);
+            }
+            
+            if (inter.getType() != Intersection.Type.FIVE_WAY) {
+                for (Lane lane : inter.getLanes()) {
+                    Vector2D start = lane.getStart();
+                    Vector2D end = lane.getEnd();
+                    Vector2D stop = lane.getStopLine();
+                    
+                    double dx = end.getX() - start.getX();
+                    double dy = end.getY() - start.getY();
+                    double len = Math.hypot(dx, dy);
+                    if (len == 0)
+                        continue;
+                        
+                    // Fix: Tìm waypoint gần ngã tư nhất làm stop line cho những đường đi qua nhiều ngã tư
+                    if (lane.getwaypoints().size() > 3) {
+                        for (int i = 1; i < lane.getwaypoints().size() - 1; i++) {
+                            Vector2D wp = lane.getwaypoints().get(i);
+                            double dist = Math.hypot(wp.getX() - inter.getCenter().getX(), wp.getY() - inter.getCenter().getY());
+                            if (dist < 150) {
+                                double vx = inter.getCenter().getX() - wp.getX();
+                                double vy = inter.getCenter().getY() - wp.getY();
+                                if (vx * dx + vy * dy > 0) {
+                                    stop = wp;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    double nx = dx / len;
+                    double ny = dy / len;
+                    double px = -ny; // Vector vuông góc
+                    double py = nx;
 
-                double zebraLen = 16;
-                gc.setStroke(Color.rgb(220, 220, 220, 0.45));
-                gc.setLineWidth(5.0);
-                // Vẽ từng sọc song song với hướng đi
-                for (double offset = -hw + 8; offset <= hw - 8; offset += 12) {
-                    double cx = zcx + px * offset;
-                    double cy = zcy + py * offset;
+                    double hw = ROAD_HALF; // 40px
+
+                    // --- Stop Line (Vạch dừng liền nét) ---
+                    gc.setStroke(Color.rgb(240, 240, 240, 0.95));
+                    gc.setLineWidth(5.0);
+                    gc.setLineCap(StrokeLineCap.BUTT);
+                    gc.setLineDashes((double[]) null);
                     gc.strokeLine(
-                            cx - nx * (zebraLen / 2), cy - ny * (zebraLen / 2),
-                            cx + nx * (zebraLen / 2), cy + ny * (zebraLen / 2));
-                }
+                            stop.getX() + px * hw, stop.getY() + py * hw,
+                            stop.getX() - px * hw, stop.getY() - py * hw);
 
-                // --- Mũi tên chỉ hướng (Road Arrow) ---
-                double arrowDist = 55; // lùi xa hơn zebra
-                double ax = stop.getX() - nx * arrowDist;
-                double ay = stop.getY() - ny * arrowDist;
-                drawRoadArrow(gc, ax, ay, nx, ny);
+                    // --- Zebra Crossing (Vạch người đi bộ) ---
+                    double zebraDist = 18; // lùi về sau vạch dừng
+                    double zcx = stop.getX() - nx * zebraDist;
+                    double zcy = stop.getY() - ny * zebraDist;
+
+                    double zebraLen = 20;
+                    gc.setStroke(Color.rgb(250, 250, 250, 0.85)); // Sắc nét hơn
+                    gc.setLineWidth(6.0);
+                    // Vẽ từng sọc song song với hướng đi
+                    for (double offset = -hw + 8; offset <= hw - 8; offset += 12) {
+                        double cx = zcx + px * offset;
+                        double cy = zcy + py * offset;
+                        gc.strokeLine(
+                                cx - nx * (zebraLen / 2), cy - ny * (zebraLen / 2),
+                                cx + nx * (zebraLen / 2), cy + ny * (zebraLen / 2));
+                    }
+
+                    // --- Mũi tên chỉ hướng (Road Arrow) ---
+                    double arrowDist = 55; // lùi xa hơn zebra
+                    double ax = stop.getX() - nx * arrowDist;
+                    double ay = stop.getY() - ny * arrowDist;
+                    drawRoadArrow(gc, ax, ay, nx, ny);
+                }
             }
         }
     }

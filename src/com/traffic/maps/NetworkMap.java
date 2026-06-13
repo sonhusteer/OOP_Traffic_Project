@@ -61,10 +61,10 @@ public class NetworkMap implements MapConfig {
 
         // road1 → Trái → Phải (Nửa dưới Y=340)
         Lane road1 = new Lane(30, 340, 770, 340, lightLH1);
-        road1.addwaypoint(210, 340); // Stop line ngã tư trái
-        road1.addwaypoint(510, 340); // Stop line ngã tư phải
-        road1.addControlPoint(210, 340, lightLH1);
-        road1.addControlPoint(510, 340, lightRH1);
+        road1.addwaypoint(170, 340); // Stop line ngã tư trái
+        road1.addwaypoint(470, 340); // Stop line ngã tư phải
+        road1.addControlPoint(170, 340, lightLH1);
+        road1.addControlPoint(470, 340, lightRH1);
         lanes.add(road1);
 
         // Dummy lane để giữ đèn RH1 cho ngã tư phải (vì xe không nhận 2 đèn trên 1 làn)
@@ -72,10 +72,10 @@ public class NetworkMap implements MapConfig {
 
         // road2 ← Phải → Trái (Nửa trên Y=260)
         Lane road2 = new Lane(770, 260, 30, 260, lightRH2);
-        road2.addwaypoint(590, 260); // Stop line ngã tư phải
-        road2.addwaypoint(290, 260); // Stop line ngã tư trái
-        road2.addControlPoint(590, 260, lightRH2);
-        road2.addControlPoint(290, 260, lightLH2);
+        road2.addwaypoint(630, 260); // Stop line ngã tư phải
+        road2.addwaypoint(330, 260); // Stop line ngã tư trái
+        road2.addControlPoint(630, 260, lightRH2);
+        road2.addControlPoint(330, 260, lightLH2);
         lanes.add(road2);
 
         // Dummy lane để giữ đèn LH2 cho ngã tư trái

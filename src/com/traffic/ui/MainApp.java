@@ -43,7 +43,7 @@ public class MainApp extends Application {
     private AbstractBaseRenderer basicRenderer;
     private AbstractBaseRenderer graphicRenderer;
     private AbstractBaseRenderer activeRenderer;
-    private boolean isBasicMode = true;
+    private boolean isBasicMode = false;
     private boolean paused = false;
     private double simSpeed = 1.0;
 
@@ -71,7 +71,7 @@ public class MainApp extends Application {
         currentMap = ALL_MAPS[0];
         basicRenderer   = new BasicRenderer(currentMap.getLanes());
         graphicRenderer = new JavaFXRenderer(currentMap.getLanes());
-        activeRenderer  = basicRenderer;
+        activeRenderer  = graphicRenderer;
 
         engine = new TrafficEngine(activeRenderer);
         vehicleSpawner = new VehicleSpawner(engine);
@@ -220,29 +220,7 @@ public class MainApp extends Application {
         Spinner<Integer> spinner = new Spinner<>(1, 10, 1);
         spinner.setMaxWidth(Double.MAX_VALUE);
 
-        // Auto spawn controls
-        Label lblAuto = makeLabel("Tự động:");
-        ToggleButton btnAutoSpawn = new ToggleButton(autoSpawnEnabled ? "⏸ Auto Spawn: ON" : "▶ Auto Spawn: OFF");
-        btnAutoSpawn.getStyleClass().add("btn-action");
-        btnAutoSpawn.setMaxWidth(Double.MAX_VALUE);
-        btnAutoSpawn.setSelected(autoSpawnEnabled);
-        btnAutoSpawn.setOnAction(e -> {
-            autoSpawnEnabled = btnAutoSpawn.isSelected();
-            lastAutoSpawnNanos = 0L;
-            btnAutoSpawn.setText(autoSpawnEnabled ? "⏸ Auto Spawn: ON" : "▶ Auto Spawn: OFF");
-            appendSpawnLog(autoSpawnEnabled
-                    ? "[A] Auto spawn bật: sinh xe ngẫu nhiên trái/phải\n"
-                    : "[A] Auto spawn tắt\n");
-        });
-
-        Slider autoRateSlider = new Slider(0.15, 2.0, autoSpawnIntervalSeconds);
-        autoRateSlider.setShowTickMarks(true);
-        autoRateSlider.setMajorTickUnit(0.5);
-        Label lblAutoRate = makeLabel(String.format("Nhịp: %.2fs", autoSpawnIntervalSeconds));
-        autoRateSlider.valueProperty().addListener((obs, oldV, newV) -> {
-            autoSpawnIntervalSeconds = newV.doubleValue();
-            lblAutoRate.setText(String.format("Nhịp: %.2fs", autoSpawnIntervalSeconds));
-        });
+        // Removed Auto spawn controls from Sidebar to move them to Toolbar
 
         // Spawn button
         Button btnSpawn = new Button("✦ Spawn");
@@ -282,6 +260,47 @@ public class MainApp extends Application {
             appendSpawnLog("[!] Đã xóa tất cả xe\n");
         });
 
+        // Traffic Light Controls
+        Label lblLightTitle = new Label("🚥 Điều khiển Đèn");
+        lblLightTitle.setFont(Font.font("SansSerif", FontWeight.BOLD, 14));
+        lblLightTitle.setTextFill(Color.rgb(180, 255, 200));
+
+        HBox hboxGreen = new HBox(5);
+        hboxGreen.setAlignment(Pos.CENTER_LEFT);
+        Label lblGreen = makeLabel("Xanh (s):");
+        Spinner<Integer> spinGreen = new Spinner<>(5, 120, 10);
+        spinGreen.setPrefWidth(70);
+        hboxGreen.getChildren().addAll(lblGreen, spinGreen);
+
+        HBox hboxRed = new HBox(5);
+        hboxRed.setAlignment(Pos.CENTER_LEFT);
+        Label lblRed = makeLabel("Đỏ (s):");
+        Spinner<Integer> spinRed = new Spinner<>(5, 120, 14);
+        spinRed.setPrefWidth(70);
+        hboxRed.getChildren().addAll(lblRed, spinRed);
+
+        Button btnApplyLight = new Button("✔ Áp dụng Đèn");
+        btnApplyLight.getStyleClass().add("btn-action");
+        btnApplyLight.setMaxWidth(Double.MAX_VALUE);
+        btnApplyLight.setOnAction(e -> {
+            int g = spinGreen.getValue();
+            int r = spinRed.getValue();
+            int count = 0;
+            if (engine != null && engine.getLights() != null) {
+                for (TrafficLight light : engine.getLights()) {
+                    if (light != null) {
+                        light.setGreenTime(g);
+                        light.setRedTime(r);
+                        count++;
+                    }
+                }
+            }
+            appendSpawnLog(String.format("[L] Cập nhật %d đèn: Xanh %ds, Đỏ %ds\n", count, g, r));
+        });
+
+        VBox boxLights = new VBox(5, lblLightTitle, hboxGreen, hboxRed, btnApplyLight);
+        boxLights.setPadding(new Insets(10, 0, 5, 0));
+
         // Separator
         Separator sep = new Separator();
         sep.setStyle("-fx-background-color: #444466;");
@@ -305,10 +324,9 @@ public class MainApp extends Application {
             lblOffset, cmbOffset,
             lblLateral, cmbLateral,
             lblCount, spinner,
-            lblAuto, btnAutoSpawn, lblAutoRate, autoRateSlider,
             btnSpawn, btnClear,
             lblTurn, cmbTurn,
-            sep, lblLog, spawnLog
+            sep, boxLights, lblLog, spawnLog
         );
         VBox.setVgrow(spawnLog, Priority.ALWAYS);
         return sidebar;
@@ -363,7 +381,7 @@ public class MainApp extends Application {
             btnPause.setText(paused ? "▶ Resume" : "⏸ Pause");
         });
 
-        Button btnMode = new Button("🎨 Graphic");
+        Button btnMode = new Button("📐 Basic");
         btnMode.getStyleClass().add("btn-action");
         btnMode.setOnAction(e -> {
             if (isBasicMode) {
@@ -396,6 +414,20 @@ public class MainApp extends Application {
             btnRain.setText(r ? "🌧 Mưa" : "🌤 Tạnh");
         });
 
+        // Global Auto Spawn Button
+        ToggleButton btnGlobalAutoSpawn = new ToggleButton(autoSpawnEnabled ? "⏸ Auto Spawn: ON" : "▶ Auto Spawn: OFF");
+        btnGlobalAutoSpawn.setStyle("-fx-font-weight: bold; -fx-text-fill: #fff; -fx-background-color: " + (autoSpawnEnabled ? "#e74c3c" : "#2ecc71") + "; -fx-background-radius: 4; -fx-padding: 5 15;");
+        btnGlobalAutoSpawn.setSelected(autoSpawnEnabled);
+        btnGlobalAutoSpawn.setOnAction(e -> {
+            autoSpawnEnabled = btnGlobalAutoSpawn.isSelected();
+            lastAutoSpawnNanos = 0L;
+            btnGlobalAutoSpawn.setText(autoSpawnEnabled ? "⏸ Auto Spawn: ON" : "▶ Auto Spawn: OFF");
+            btnGlobalAutoSpawn.setStyle("-fx-font-weight: bold; -fx-text-fill: #fff; -fx-background-color: " + (autoSpawnEnabled ? "#e74c3c" : "#2ecc71") + "; -fx-background-radius: 4; -fx-padding: 5 15;");
+            appendSpawnLog(autoSpawnEnabled
+                    ? "[A] Auto spawn bật: sinh xe ngẫu nhiên trái/phải\n"
+                    : "[A] Auto spawn tắt\n");
+        });
+
         // Vehicle count
         lblVehicles = new Label("🚗 0");
         lblVehicles.setFont(Font.font("SansSerif", FontWeight.BOLD, 12));
@@ -412,7 +444,7 @@ public class MainApp extends Application {
             new Label("⚡") {{ setFont(Font.font(14)); }},
             speedSlider, lblSpeed,
             sp3,
-            btnPause, btnMode, btnMute, btnRain,
+            btnGlobalAutoSpawn, btnPause, btnMode, btnMute, btnRain,
             sp1,
             lblVehicles
         );
